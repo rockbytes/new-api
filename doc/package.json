@@ -1,0 +1,10 @@
+{
+  "name": "sdwan-project-docs",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "docs:check": "node scripts/check-doc-layout.mjs",
+    "docs:test": "node --test scripts/check-doc-layout.test.mjs"
+  }
+}
