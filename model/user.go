@@ -83,8 +83,9 @@ type User struct {
 	HasPassword          bool                       `json:"-" gorm:"-:all"`
 	OriginalPassword     string                     `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
 	DisplayName          string                     `json:"display_name" gorm:"index" validate:"max=20"`
-	Role                 int                        `json:"role" gorm:"type:int;default:1"`   // admin, common
-	Status               int                        `json:"status" gorm:"type:int;default:1"` // enabled, disabled
+	Role                 int                        `json:"role" gorm:"type:int;default:1"`                          // admin, common
+	Status               int                        `json:"status" gorm:"type:int;default:1"`                        // enabled, disabled
+	MustChangePassword   bool                       `json:"must_change_password" gorm:"column:must_change_password"` // set for accounts created with an initial password; cleared by the password change
 	Email                string                     `json:"email" gorm:"index" validate:"max=50"`
 	GitHubId             string                     `json:"github_id" gorm:"column:github_id;index"`
 	DiscordId            string                     `json:"discord_id" gorm:"column:discord_id;index"`
@@ -116,16 +117,17 @@ type User struct {
 
 func (user *User) ToBaseUser() *UserBase {
 	cache := &UserBase{
-		Id:          user.Id,
-		Group:       user.Group,
-		Quota:       user.Quota,
-		Status:      user.Status,
-		Role:        user.Role,
-		Username:    user.Username,
-		Setting:     user.Setting,
-		Email:       user.Email,
-		AuthVersion: user.AuthVersion,
-		CacheSchema: userCacheSchemaVersion,
+		Id:                 user.Id,
+		Group:              user.Group,
+		Quota:              user.Quota,
+		Status:             user.Status,
+		Role:               user.Role,
+		Username:           user.Username,
+		Setting:            user.Setting,
+		Email:              user.Email,
+		AuthVersion:        user.AuthVersion,
+		CacheSchema:        userCacheSchemaVersion,
+		MustChangePassword: user.MustChangePassword,
 	}
 	return cache
 }
@@ -959,6 +961,9 @@ func (user *User) delete(identity *AuthSessionIdentity) (int64, error) {
 	var nextAuthVersion int64
 	var revokedAccessTokens int64
 	if err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := ensureUserNotInOrganization(tx, user.Id); err != nil {
+			return err
+		}
 		if identity != nil {
 			if err := ValidateAuthSessionWithTx(tx, *identity); err != nil {
 				return err
@@ -997,42 +1002,97 @@ func (user *User) HardDelete() (int64, error) {
 	if user.Id == 0 {
 		return 0, common.NewMessage("ID is empty!")
 	}
-	var tokens []Token
-	var deletedAuthVersion int64
-	var revokedAccessTokens int64
+	var result hardDeleteResult
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := ensureUserNotInOrganization(tx, user.Id); err != nil {
+			return err
+		}
 		var err error
-		deletedAuthVersion, err = IncrementUserAuthVersionWithTx(tx, user.Id)
-		if err != nil {
-			return err
-		}
-		revokedAccessTokens, err = DeleteUserAccessTokensWithTx(tx, user.Id)
-		if err != nil {
-			return err
-		}
-		if common.RedisEnabled {
-			if err := tx.Unscoped().Select("id", commonKeyCol).Where("user_id = ?", user.Id).Find(&tokens).Error; err != nil {
-				return err
-			}
-		}
-		if err := deleteUserAuthenticationData(tx, user.Id); err != nil {
-			return err
-		}
-		return tx.Unscoped().Delete(user).Error
+		result, err = user.hardDeleteWithTx(tx)
+		return err
 	})
 	if err != nil {
 		return 0, err
 	}
-	if err := publishCommittedUserAuthVersion(user.Id, deletedAuthVersion); err != nil {
-		common.SysError(common.LogText("failed to publish auth tombstone after hard deleting user %d: %v", user.Id, err))
+	result.finish(user.Id)
+	return result.revokedAccessTokens, nil
+}
+
+// hardDeleteResult carries the work that must happen after the deleting
+// transaction commits: publishing the auth tombstone and invalidating caches.
+type hardDeleteResult struct {
+	revokedAccessTokens int64
+	deletedAuthVersion  int64
+	tokens              []Token
+}
+
+// hardDeleteWithTx removes the user's rows inside tx. Callers that also change
+// other rows in the same transaction (for example organization memberships)
+// must call finish after commit.
+func (user *User) hardDeleteWithTx(tx *gorm.DB) (hardDeleteResult, error) {
+	var result hardDeleteResult
+	var err error
+	result.deletedAuthVersion, err = IncrementUserAuthVersionWithTx(tx, user.Id)
+	if err != nil {
+		return result, err
 	}
-	if err := invalidateTokensCache(tokens); err != nil {
-		common.SysError(common.LogText("failed to invalidate token cache after hard deleting user %d: %v", user.Id, err))
+	result.revokedAccessTokens, err = DeleteUserAccessTokensWithTx(tx, user.Id)
+	if err != nil {
+		return result, err
 	}
-	if err := invalidateUserCache(user.Id); err != nil {
-		common.SysError(common.LogText("failed to invalidate user cache after hard deleting user %d: %v", user.Id, err))
+	if common.RedisEnabled {
+		if err := tx.Unscoped().Select("id", commonKeyCol).Where("user_id = ?", user.Id).Find(&result.tokens).Error; err != nil {
+			return result, err
+		}
 	}
-	return revokedAccessTokens, nil
+	if err := deleteUserAuthenticationData(tx, user.Id); err != nil {
+		return result, err
+	}
+	return result, tx.Unscoped().Delete(user).Error
+}
+
+// finish runs after the deleting transaction commits. Failures are logged and
+// do not change the already-committed deletion.
+func (result hardDeleteResult) finish(userId int) {
+	if err := publishCommittedUserAuthVersion(userId, result.deletedAuthVersion); err != nil {
+		common.SysError(common.LogText("failed to publish auth tombstone after hard deleting user %d: %v", userId, err))
+	}
+	if err := invalidateTokensCache(result.tokens); err != nil {
+		common.SysError(common.LogText("failed to invalidate token cache after hard deleting user %d: %v", userId, err))
+	}
+	if err := invalidateUserCache(userId); err != nil {
+		common.SysError(common.LogText("failed to invalidate user cache after hard deleting user %d: %v", userId, err))
+	}
+}
+
+// ChangeOwnPassword stores a new password for the user, clears the first-login
+// requirement, and revokes every existing session (D12). The caller must sign in
+// again, so the normal second-factor checks apply to the new session.
+func ChangeOwnPassword(userId int, newPassword string) error {
+	var update userAuthUpdate
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		hashed, err := common.HashAccountPassword(newPassword)
+		if err != nil {
+			return err
+		}
+		if err := tx.Model(&User{}).Where("id = ?", userId).Updates(map[string]any{
+			"password":             hashed,
+			"must_change_password": false,
+		}).Error; err != nil {
+			return err
+		}
+		authVersion, err := IncrementUserAuthVersionWithTx(tx, userId)
+		if err != nil {
+			return err
+		}
+		update = userAuthUpdate{userId: userId, authVersion: authVersion}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	update.finish()
+	return nil
 }
 
 func deleteUserAuthenticationData(tx *gorm.DB, userId int) error {

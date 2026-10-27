@@ -54,6 +54,10 @@ func writeUserCache(user *UserBase, includeQuota bool) error {
 	if includeQuota {
 		includeQuotaArg = "1"
 	}
+	mustChangeArg := "0"
+	if user.MustChangePassword {
+		mustChangeArg = "1"
+	}
 	ttl := userCacheTTLSeconds()
 	const script = `
 local incoming = tonumber(ARGV[1])
@@ -75,7 +79,7 @@ end
 redis.call('HSET', KEYS[1],
   'Id', ARGV[2], 'Group', ARGV[3], 'Email', ARGV[4],
   'Status', ARGV[5], 'Role', ARGV[6], 'Username', ARGV[7],
-  'Setting', ARGV[8], 'AuthVersion', ARGV[1], 'CacheSchema', ARGV[9])
+  'Setting', ARGV[8], 'AuthVersion', ARGV[1], 'CacheSchema', ARGV[9], 'MustChangePassword', ARGV[13])
 if ARGV[10] == '1' and redis.call('HEXISTS', KEYS[1], 'Quota') == 0 then
   redis.call('HSET', KEYS[1], 'Quota', ARGV[11])
 end
@@ -84,7 +88,7 @@ return 1`
 	result, err := common.RDB.Eval(context.Background(), script,
 		[]string{getUserCacheKey(user.Id), getUserAuthFenceKey(user.Id), getUserAuthVersionKey(user.Id)},
 		user.AuthVersion, user.Id, user.Group, user.Email, user.Status, user.Role,
-		user.Username, user.Setting, user.CacheSchema, includeQuotaArg, user.Quota, ttl,
+		user.Username, user.Setting, user.CacheSchema, includeQuotaArg, user.Quota, ttl, mustChangeArg,
 	).Int()
 	if err != nil {
 		return err

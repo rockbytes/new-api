@@ -100,6 +100,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/self", controller.GetSelf)
 				selfRoute.GET("/models", controller.GetUserModels)
 				selfRoute.PUT("/self", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.UpdateSelf)
+				selfRoute.PUT("/self/password", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.ChangeOwnPassword)
 				selfRoute.DELETE("/self", middleware.DisableCache(), controller.DeleteSelf)
 				accessTokenRoute := selfRoute.Group("/access_tokens")
 				accessTokenRoute.Use(middleware.DisableCache())
@@ -395,6 +396,29 @@ func SetApiRouter(router *gin.Engine) {
 			vendorRoute.POST("/", controller.CreateVendorMeta)
 			vendorRoute.PUT("/", controller.UpdateVendorMeta)
 			vendorRoute.DELETE("/:id", controller.DeleteVendorMeta)
+		}
+
+		organizationRootRoute := apiRouter.Group("/organization")
+		organizationRootRoute.Use(middleware.RootAuth())
+		{
+			organizationRootRoute.GET("/", controller.GetOrganizations)
+			organizationRootRoute.POST("/", controller.CreateOrganization)
+			organizationRootRoute.GET("/:id", controller.GetOrganization)
+			organizationRootRoute.PUT("/:id", controller.UpdateOrganization)
+			organizationRootRoute.PUT("/:id/status", controller.UpdateOrganizationStatus)
+		}
+
+		// Company-side routes resolve the organization from the caller's membership.
+		// No organization ID is accepted from the path or request body.
+		organizationSelfRoute := apiRouter.Group("/organization/self")
+		organizationSelfRoute.Use(middleware.UserAuth())
+		{
+			organizationSelfRoute.GET("", controller.GetOrganizationSelf)
+			organizationSelfRoute.GET("/members", controller.ListOrganizationMembers)
+			organizationSelfRoute.POST("/members", controller.CreateOrganizationMember)
+			organizationSelfRoute.PUT("/members/:user_id", controller.UpdateOrganizationMember)
+			organizationSelfRoute.DELETE("/members/:user_id", controller.DeleteOrganizationMember)
+			organizationSelfRoute.POST("/members/:user_id/password", controller.ResetOrganizationMemberPassword)
 		}
 
 		modelsRoute := apiRouter.Group("/models")

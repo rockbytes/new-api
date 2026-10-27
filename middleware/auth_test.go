@@ -534,3 +534,36 @@ func TestApplyWebSocketSubprotocolAuthorizationReadsRepeatedHeaders(t *testing.T
 	assert.True(t, applyWebSocketSubprotocolAuthorization(header))
 	assert.Equal(t, "Bearer sk-later-field", header.Get("Authorization"))
 }
+
+// An account that must change its initial password can only read its profile,
+// change the password, and sign out; every other authenticated route is refused
+// until the flag is cleared.
+func TestUserAuthRequiresPasswordChangeBeforeOtherRoutes(t *testing.T) {
+	setupDashboardAuthMiddlewareTest(t)
+	user := createMiddlewarePATUser(t, "first-login-user", "first.login.key")
+	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("must_change_password", true).Error)
+
+	router := gin.New()
+	noContent := func(c *gin.Context) { c.Status(http.StatusNoContent) }
+	router.GET("/api/user/self", UserAuth(), noContent)
+	router.PUT("/api/user/self/password", UserAuth(), noContent)
+	router.GET("/api/organization/self", UserAuth(), noContent)
+
+	do := func(method string, path string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(method, path, nil)
+		request.Header.Set("Authorization", "Bearer first.login.key")
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		return response
+	}
+
+	assert.Equal(t, http.StatusNoContent, do(http.MethodGet, "/api/user/self").Code)
+	assert.Equal(t, http.StatusNoContent, do(http.MethodPut, "/api/user/self/password").Code)
+
+	blocked := do(http.MethodGet, "/api/organization/self")
+	assert.Equal(t, http.StatusForbidden, blocked.Code)
+	assert.Contains(t, blocked.Body.String(), "AUTH_PASSWORD_CHANGE_REQUIRED")
+
+	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("must_change_password", false).Error)
+	assert.Equal(t, http.StatusNoContent, do(http.MethodGet, "/api/organization/self").Code)
+}

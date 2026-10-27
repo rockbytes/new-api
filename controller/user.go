@@ -946,6 +946,10 @@ func DeleteUser(c *gin.Context) {
 		return
 	}
 	revokedAccessTokens, err := model.HardDeleteUserById(id)
+	if errors.Is(err, model.ErrUserInOrganization) {
+		writeOrganizationError(c, http.StatusConflict, "USER_IN_ORGANIZATION", "User belongs to an organization; remove the membership first")
+		return
+	}
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -961,6 +965,43 @@ func DeleteUser(c *gin.Context) {
 		"message": "",
 	})
 	return
+}
+
+// ChangeOwnPassword lets the signed-in user replace their password. It is the
+// only API a user with a first-login password change may call (see authHelper).
+// The current password must be supplied, and the caller signs in again afterwards.
+func ChangeOwnPassword(c *gin.Context) {
+	setAuthNoStore(c)
+	var request struct {
+		OldPassword string `json:"old_password"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		writeOrganizationError(c, http.StatusBadRequest, "AUTH_INVALID_REQUEST", "Invalid request")
+		return
+	}
+	user, err := model.GetUserById(c.GetInt("id"), true)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !common.ValidatePasswordAndHash(request.OldPassword, user.Password) {
+		writeOrganizationError(c, http.StatusBadRequest, "AUTH_CURRENT_PASSWORD_INVALID", "Current password is incorrect")
+		return
+	}
+	if common.Validate.Var(request.NewPassword, "min=8,max=128") != nil {
+		writeOrganizationError(c, http.StatusBadRequest, "AUTH_PASSWORD_INVALID", "Password must be 8 to 128 characters")
+		return
+	}
+	if request.NewPassword == request.OldPassword {
+		writeOrganizationError(c, http.StatusBadRequest, "AUTH_PASSWORD_UNCHANGED", "New password must differ from the current password")
+		return
+	}
+	if err := model.ChangeOwnPassword(user.Id, request.NewPassword); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"relogin_required": true})
 }
 
 func DeleteSelf(c *gin.Context) {
@@ -982,6 +1023,10 @@ func DeleteSelf(c *gin.Context) {
 	if revokedAccessTokens, err = model.DeleteUserForSession(identity); err != nil {
 		if errors.Is(err, model.ErrCannotDeleteRootUser) {
 			common.ApiErrorT(c, "Cannot delete super administrator account")
+			return
+		}
+		if errors.Is(err, model.ErrUserInOrganization) {
+			writeOrganizationError(c, http.StatusConflict, "USER_IN_ORGANIZATION", "User belongs to an organization; remove the membership first")
 			return
 		}
 		writeSecurityOperationError(c, err)

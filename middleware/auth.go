@@ -62,6 +62,10 @@ func authHelper(c *gin.Context, minRole int) {
 		abortWithWebMessage(c, http.StatusUnauthorized, "AUTH_USER_DISABLED", common.NewMessage("User has been banned"))
 		return
 	}
+	if user.MustChangePassword && !passwordChangeRouteAllowed(c) {
+		abortWithWebMessage(c, http.StatusForbidden, "AUTH_PASSWORD_CHANGE_REQUIRED", common.NewMessage("Password change is required before continuing"))
+		return
+	}
 	if user.Role < minRole {
 		abortWithWebMessage(c, http.StatusForbidden, "AUTH_INSUFFICIENT_PRIVILEGE", common.NewMessage("Unauthorized, insufficient privileges"))
 		return
@@ -127,6 +131,21 @@ func TryUserAuth() func(c *gin.Context) {
 		}
 		c.Next()
 	}
+}
+
+// passwordChangeRouteAllowed lists the only routes an account may use while its
+// first-login password change is pending: reading its own profile, changing the
+// password, and signing out.
+func passwordChangeRouteAllowed(c *gin.Context) bool {
+	switch c.FullPath() {
+	case "/api/user/self":
+		return c.Request.Method == http.MethodGet
+	case "/api/user/self/password":
+		return c.Request.Method == http.MethodPut
+	case "/api/user/auth/logout":
+		return c.Request.Method == http.MethodPost
+	}
+	return false
 }
 
 func UserAuth() func(c *gin.Context) {
