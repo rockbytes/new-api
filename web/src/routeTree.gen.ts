@@ -26,6 +26,7 @@ import { Route as errors403RouteImport } from './routes/(errors)/403'
 import { Route as errors404RouteImport } from './routes/(errors)/404'
 import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
+import { Route as AuthenticatedChangePasswordRouteImport } from './routes/_authenticated/change-password'
 import { Route as AuthenticatedChat2linkRouteImport } from './routes/_authenticated/chat2link'
 import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_authenticated/system-settings/route'
 import { Route as AboutIndexRouteImport } from './routes/about/index'
@@ -42,6 +43,8 @@ import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenti
 import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
 import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
 import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
+import { Route as AuthenticatedOrganizationIndexRouteImport } from './routes/_authenticated/organization/index'
+import { Route as AuthenticatedOrganizationsIndexRouteImport } from './routes/_authenticated/organizations/index'
 import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
 import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
 import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
@@ -156,6 +159,12 @@ const errors503Route = errors503RouteImport.update({
   path: '/503',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedChangePasswordRoute =
+  AuthenticatedChangePasswordRouteImport.update({
+    id: '/change-password',
+    path: '/change-password',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedChat2linkRoute = AuthenticatedChat2linkRouteImport.update({
   id: '/chat2link',
   path: '/chat2link',
@@ -241,6 +250,18 @@ const AuthenticatedModelsSectionRoute =
   AuthenticatedModelsSectionRouteImport.update({
     id: '/models/$section',
     path: '/models/$section',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedOrganizationIndexRoute =
+  AuthenticatedOrganizationIndexRouteImport.update({
+    id: '/organization/',
+    path: '/organization/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedOrganizationsIndexRoute =
+  AuthenticatedOrganizationsIndexRouteImport.update({
+    id: '/organizations/',
+    path: '/organizations/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedPlaygroundIndexRoute =
@@ -439,6 +460,7 @@ export interface FileRoutesByFullPath {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
+  '/change-password': typeof AuthenticatedChangePasswordRoute
   '/chat2link': typeof AuthenticatedChat2linkRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/about/': typeof AboutIndexRoute
@@ -456,6 +478,8 @@ export interface FileRoutesByFullPath {
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/keys/': typeof AuthenticatedKeysIndexRoute
   '/models/': typeof AuthenticatedModelsIndexRoute
+  '/organization/': typeof AuthenticatedOrganizationIndexRoute
+  '/organizations/': typeof AuthenticatedOrganizationsIndexRoute
   '/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/profile/': typeof AuthenticatedProfileIndexRoute
   '/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
@@ -501,6 +525,7 @@ export interface FileRoutesByTo {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
+  '/change-password': typeof AuthenticatedChangePasswordRoute
   '/chat2link': typeof AuthenticatedChat2linkRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/about': typeof AboutIndexRoute
@@ -518,6 +543,8 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
   '/keys': typeof AuthenticatedKeysIndexRoute
   '/models': typeof AuthenticatedModelsIndexRoute
+  '/organization': typeof AuthenticatedOrganizationIndexRoute
+  '/organizations': typeof AuthenticatedOrganizationsIndexRoute
   '/playground': typeof AuthenticatedPlaygroundIndexRoute
   '/profile': typeof AuthenticatedProfileIndexRoute
   '/redemption-codes': typeof AuthenticatedRedemptionCodesIndexRoute
@@ -567,6 +594,7 @@ export interface FileRoutesById {
   '/(errors)/404': typeof errors404Route
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
+  '/_authenticated/change-password': typeof AuthenticatedChangePasswordRoute
   '/_authenticated/chat2link': typeof AuthenticatedChat2linkRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/about/': typeof AboutIndexRoute
@@ -584,6 +612,8 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
   '/_authenticated/models/': typeof AuthenticatedModelsIndexRoute
+  '/_authenticated/organization/': typeof AuthenticatedOrganizationIndexRoute
+  '/_authenticated/organizations/': typeof AuthenticatedOrganizationsIndexRoute
   '/_authenticated/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/_authenticated/profile/': typeof AuthenticatedProfileIndexRoute
   '/_authenticated/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
@@ -632,6 +662,7 @@ export interface FileRouteTypes {
     | '/404'
     | '/500'
     | '/503'
+    | '/change-password'
     | '/chat2link'
     | '/oauth/$provider'
     | '/about/'
@@ -649,6 +680,8 @@ export interface FileRouteTypes {
     | '/dashboard/'
     | '/keys/'
     | '/models/'
+    | '/organization/'
+    | '/organizations/'
     | '/playground/'
     | '/profile/'
     | '/redemption-codes/'
@@ -694,6 +727,7 @@ export interface FileRouteTypes {
     | '/404'
     | '/500'
     | '/503'
+    | '/change-password'
     | '/chat2link'
     | '/oauth/$provider'
     | '/about'
@@ -711,6 +745,8 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/keys'
     | '/models'
+    | '/organization'
+    | '/organizations'
     | '/playground'
     | '/profile'
     | '/redemption-codes'
@@ -759,6 +795,7 @@ export interface FileRouteTypes {
     | '/(errors)/404'
     | '/(errors)/500'
     | '/(errors)/503'
+    | '/_authenticated/change-password'
     | '/_authenticated/chat2link'
     | '/oauth/$provider'
     | '/about/'
@@ -776,6 +813,8 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/'
     | '/_authenticated/keys/'
     | '/_authenticated/models/'
+    | '/_authenticated/organization/'
+    | '/_authenticated/organizations/'
     | '/_authenticated/playground/'
     | '/_authenticated/profile/'
     | '/_authenticated/redemption-codes/'
@@ -946,6 +985,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof errors503RouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/change-password': {
+      id: '/_authenticated/change-password'
+      path: '/change-password'
+      fullPath: '/change-password'
+      preLoaderRoute: typeof AuthenticatedChangePasswordRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/chat2link': {
       id: '/_authenticated/chat2link'
       path: '/chat2link'
@@ -1056,6 +1102,20 @@ declare module '@tanstack/react-router' {
       path: '/models/$section'
       fullPath: '/models/$section'
       preLoaderRoute: typeof AuthenticatedModelsSectionRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/organization/': {
+      id: '/_authenticated/organization/'
+      path: '/organization'
+      fullPath: '/organization/'
+      preLoaderRoute: typeof AuthenticatedOrganizationIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/organizations/': {
+      id: '/_authenticated/organizations/'
+      path: '/organizations'
+      fullPath: '/organizations/'
+      preLoaderRoute: typeof AuthenticatedOrganizationsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/playground/': {
@@ -1362,6 +1422,7 @@ const AuthenticatedSystemSettingsRouteRouteWithChildren =
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedSystemSettingsRouteRoute: typeof AuthenticatedSystemSettingsRouteRouteWithChildren
+  AuthenticatedChangePasswordRoute: typeof AuthenticatedChangePasswordRoute
   AuthenticatedChat2linkRoute: typeof AuthenticatedChat2linkRoute
   AuthenticatedChatChatIdRoute: typeof AuthenticatedChatChatIdRoute
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
@@ -1373,6 +1434,8 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardIndexRoute: typeof AuthenticatedDashboardIndexRoute
   AuthenticatedKeysIndexRoute: typeof AuthenticatedKeysIndexRoute
   AuthenticatedModelsIndexRoute: typeof AuthenticatedModelsIndexRoute
+  AuthenticatedOrganizationIndexRoute: typeof AuthenticatedOrganizationIndexRoute
+  AuthenticatedOrganizationsIndexRoute: typeof AuthenticatedOrganizationsIndexRoute
   AuthenticatedPlaygroundIndexRoute: typeof AuthenticatedPlaygroundIndexRoute
   AuthenticatedProfileIndexRoute: typeof AuthenticatedProfileIndexRoute
   AuthenticatedRedemptionCodesIndexRoute: typeof AuthenticatedRedemptionCodesIndexRoute
@@ -1388,6 +1451,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSystemSettingsRouteRoute:
     AuthenticatedSystemSettingsRouteRouteWithChildren,
+  AuthenticatedChangePasswordRoute: AuthenticatedChangePasswordRoute,
   AuthenticatedChat2linkRoute: AuthenticatedChat2linkRoute,
   AuthenticatedChatChatIdRoute: AuthenticatedChatChatIdRoute,
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,
@@ -1399,6 +1463,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardIndexRoute: AuthenticatedDashboardIndexRoute,
   AuthenticatedKeysIndexRoute: AuthenticatedKeysIndexRoute,
   AuthenticatedModelsIndexRoute: AuthenticatedModelsIndexRoute,
+  AuthenticatedOrganizationIndexRoute: AuthenticatedOrganizationIndexRoute,
+  AuthenticatedOrganizationsIndexRoute: AuthenticatedOrganizationsIndexRoute,
   AuthenticatedPlaygroundIndexRoute: AuthenticatedPlaygroundIndexRoute,
   AuthenticatedProfileIndexRoute: AuthenticatedProfileIndexRoute,
   AuthenticatedRedemptionCodesIndexRoute:

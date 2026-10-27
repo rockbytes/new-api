@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   Activity,
   Box,
+  Building2,
   ClipboardList,
   CreditCard,
   FileText,
@@ -126,6 +127,12 @@ export function useSidebarData(): SidebarData {
             url: '/security',
             icon: ShieldCheck,
           },
+          {
+            title: t('Organization'),
+            url: '/organization',
+            icon: Building2,
+            requiresOrganizationAdmin: true,
+          },
         ],
       },
       {
@@ -146,6 +153,12 @@ export function useSidebarData(): SidebarData {
             title: t('Users'),
             url: '/users',
             icon: Users,
+          },
+          {
+            title: t('Organizations'),
+            url: '/organizations',
+            icon: Building2,
+            requiredRole: ROLE.SUPER_ADMIN,
           },
           {
             title: t('Redemption Codes'),

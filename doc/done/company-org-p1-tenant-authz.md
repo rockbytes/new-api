@@ -11,7 +11,7 @@ completed: 2026-10-27
 
 本计划是 [公司组织、成员权限、额度计费、用量看板与账单导出方案](../todo/in-progress/company-organization-membership-quota-billing-usage-dashboard-export.md) 的子计划之一。产品决策以总方案的「已确定的设计决策」为准（D1–D13）。
 
-**范围说明**：本计划只包含后端：组织与成员账号的模型、授权、接口，首次登录改密，密码重置，删除守卫。组织管理的前端页面由 [P1b 组织管理界面](../todo/planned/company-org-p1b-admin-ui.md) 承接。本计划不包含邀请流程，模式见 D11–D13。
+**范围说明**：本计划只包含后端：组织与成员账号的模型、授权、接口，首次登录改密，密码重置，删除守卫。组织管理的前端页面由 [P1b 组织管理界面](./company-org-p1b-admin-ui.md) 承接。本计划不包含邀请流程，模式见 D11–D13。
 
 ## 目标
 

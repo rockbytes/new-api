@@ -84,6 +84,34 @@ const serverErrorMessageKeys = {
   TELEGRAM_BIND_USER_DELETED: 'This user account no longer exists.',
   TELEGRAM_BIND_USER_DISABLED: 'This user account is disabled.',
   TELEGRAM_BIND_INTERNAL_ERROR: 'Telegram binding failed. Please try again.',
+
+  ORGANIZATION_NOT_FOUND: 'Organization not found.',
+  ORGANIZATION_MEMBERSHIP_NOT_FOUND: 'You are not a member of an organization.',
+  ORGANIZATION_INVALID_ROLE: 'Invalid organization role.',
+  ORGANIZATION_INVALID_STATUS: 'Invalid status.',
+  ORGANIZATION_STATUS_TRANSITION_INVALID: 'This status change is not allowed.',
+  ORGANIZATION_NOT_ACTIVE: 'The organization is suspended.',
+  ORGANIZATION_LAST_ADMIN:
+    'The organization must keep at least one active admin.',
+  ORGANIZATION_USERNAME_TAKEN: 'This username is already taken.',
+  ORGANIZATION_PERMISSION_DENIED:
+    'You do not have permission to perform this action.',
+  ORGANIZATION_NAME_REQUIRED: 'Organization name is required.',
+  ORGANIZATION_ADMIN_USERNAME_REQUIRED: 'Administrator username is required.',
+  ORGANIZATION_USERNAME_REQUIRED: 'Username is required.',
+  ORGANIZATION_PASSWORD_INVALID: 'Password must be 8 to 128 characters.',
+  ORGANIZATION_INVALID_REQUEST: 'The request is invalid.',
+  ORGANIZATION_INVALID_ID: 'Invalid organization ID.',
+  ORGANIZATION_INVALID_USER_ID: 'Invalid user ID.',
+  USER_IN_ORGANIZATION:
+    'This account belongs to an organization and cannot be deleted here.',
+
+  AUTH_PASSWORD_CHANGE_REQUIRED: 'Change your password before continuing.',
+  AUTH_CURRENT_PASSWORD_INVALID: 'The current password is incorrect.',
+  AUTH_PASSWORD_UNCHANGED:
+    'The new password must be different from the current password.',
+  AUTH_PASSWORD_INVALID: 'Password must be 8 to 128 characters.',
+  AUTH_INVALID_REQUEST: 'The request is invalid.',
 } as const
 
 function isRecord(value: unknown): value is Record<string, unknown> {

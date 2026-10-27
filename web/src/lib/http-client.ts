@@ -83,6 +83,17 @@ function redirectToSignIn(): void {
   }
 }
 
+// Accounts created with an initial password must change it before any other
+// authenticated route works; the server refuses those routes with this code.
+function redirectToPasswordChange(): void {
+  if (
+    typeof window !== 'undefined' &&
+    window.location.pathname !== '/change-password'
+  ) {
+    window.location.replace('/change-password')
+  }
+}
+
 api.interceptors.response.use(
   (response) => {
     if (response.config.acceptAuthRotation && response.data?.success === true) {
@@ -138,6 +149,12 @@ api.interceptors.response.use(
           cause: error,
         })
       }
+    }
+    if (
+      status === 403 &&
+      error?.response?.data?.code === 'AUTH_PASSWORD_CHANGE_REQUIRED'
+    ) {
+      redirectToPasswordChange()
     }
     if (axios.isAxiosError(error)) error.message = getServerErrorMessage(error)
     throw error
