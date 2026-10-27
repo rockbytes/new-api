@@ -44,6 +44,8 @@ export interface AuthUser {
   aff_quota?: number
   aff_history_quota?: number
   inviter_id?: number
+  /** Active organization membership, or null when the account is in none. */
+  organization?: { id: number; role: 'admin' | 'member'; status: string } | null
   github_id?: string
   discord_id?: string
   oidc_id?: string

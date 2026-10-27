@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -33,7 +34,16 @@ func setupOrganizationTestDB(t *testing.T) *gorm.DB {
 	}
 	require.Contains(t, databaseTypes, dialect)
 	dsn := os.Getenv("TEST_" + strings.ToUpper(dialect) + "_DSN")
-	db, _ := newAuditTestDatabase(t, dialect, dsn)
+	var db *gorm.DB
+	if dialect == "sqlite" {
+		// Use the production SQLite settings so concurrent writers wait for the
+		// lock instead of failing immediately with SQLITE_BUSY.
+		var err error
+		db, err = gorm.Open(sqlite.Open(t.TempDir()+"/organization.db?_pragma=busy_timeout(30000)&_txlock=immediate"), &gorm.Config{})
+		require.NoError(t, err)
+	} else {
+		db, _ = newAuditTestDatabase(t, dialect, dsn)
+	}
 
 	previousDB := model.DB
 	previousMainDatabaseType, previousLogDatabaseType := common.MainDatabaseType(), common.LogDatabaseType()
@@ -154,6 +164,24 @@ func userByName(t *testing.T, db *gorm.DB, username string) model.User {
 	var user model.User
 	require.NoError(t, db.Where("username = ?", username).First(&user).Error)
 	return user
+}
+
+// The self-user payload carries the active membership so the sidebar does not
+// need to probe the organization API; accounts outside any organization get nil.
+func TestOrganizationSelfDataExposesActiveMembership(t *testing.T) {
+	db := setupOrganizationTestDB(t)
+	createOrganizationTestUser(t, db, "root", common.UserStatusEnabled)
+	orgId := createOrganizationWithAdmin(t, "Self Co", "self-admin")
+	outsiderId := createOrganizationTestUser(t, db, "outsider", common.UserStatusEnabled)
+
+	adminId := userByName(t, db, "self-admin").Id
+	membership := selfOrganizationMembership(adminId)
+	require.NotNil(t, membership)
+	assert.Equal(t, orgId, membership["id"])
+	assert.Equal(t, model.OrganizationRoleAdmin, membership["role"])
+	assert.Equal(t, model.OrganizationMembershipActive, membership["status"])
+
+	assert.Nil(t, selfOrganizationMembership(outsiderId))
 }
 
 func TestOrganizationLifecycleAndLastAdminProtection(t *testing.T) {

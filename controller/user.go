@@ -522,6 +522,26 @@ func buildSelfUserData(user *model.User) map[string]any {
 		"stripe_customer":   user.StripeCustomer,
 		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
 		"permissions":       permissions,
+		"organization":      selfOrganizationMembership(user.Id),
+	}
+}
+
+// selfOrganizationMembership exposes the active organization membership so the
+// client can show organization entries without probing the organization API for
+// every account. Accounts outside any organization get nil.
+func selfOrganizationMembership(userId int) map[string]any {
+	membership, _, err := model.GetActiveOrganizationMembership(userId)
+	if errors.Is(err, model.ErrOrganizationMembershipMissing) {
+		return nil
+	}
+	if err != nil {
+		common.SysError("load organization membership for self data: " + err.Error())
+		return nil
+	}
+	return map[string]any{
+		"id":     membership.OrganizationId,
+		"role":   membership.Role,
+		"status": membership.Status,
 	}
 }
 

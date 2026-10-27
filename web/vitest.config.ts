@@ -41,6 +41,10 @@ export default defineConfig({
     // heaviest test measures ~3.2s uncontended, so 20s keeps headroom for the
     // ~4x slowdown observed on shared runners.
     testTimeout: 20000,
+    // Each jsdom worker is heavy. Running one worker per logical core on a
+    // large machine starves the slowest suites into the 20s timeout above, so
+    // cap the pool at half the cores.
+    maxWorkers: '50%',
     clearMocks: true,
     restoreMocks: true,
     include: [
