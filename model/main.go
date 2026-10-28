@@ -377,6 +377,7 @@ func migrateDB() error {
 		&AuthzRole{},
 		&UserAccessToken{},
 		&Organization{},
+		&UsageExportJob{},
 		&OrganizationMembership{},
 		&OrganizationQuotaAccount{},
 		&OrganizationMemberQuota{},

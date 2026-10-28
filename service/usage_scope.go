@@ -135,3 +135,20 @@ func platformUsageScope(view UsageView, request UsageScopeRequest) (ResolvedUsag
 	scope.Organization = organization
 	return scope, nil
 }
+
+// UsageRankingFor returns what a ranking groups by for the resolved scope. Platform reports
+// rank organizations across the platform and users inside one organization. The organization
+// view ranks its members. A personal view has no ranking.
+func UsageRankingFor(resolved ResolvedUsageScope) (model.UsageRankBy, bool) {
+	switch resolved.View {
+	case UsageViewPlatform:
+		if resolved.Scope.OrganizationId == 0 {
+			return model.UsageRankByOrganization, true
+		}
+		return model.UsageRankByUser, true
+	case UsageViewOrganization:
+		return model.UsageRankByUser, true
+	default:
+		return "", false
+	}
+}

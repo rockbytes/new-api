@@ -353,7 +353,7 @@ v1 默认每个用户只加入一个公司。若后续允许一个用户同时�
 | [P2 额度账本](../../done/company-org-p2-quota-ledger.md) | 公司未分配池、员工划拨桶、账本事件、划拨桶资金来源 | P1 |
 | [P3 Key 付款组织与计费快照](../../done/company-org-p3-key-billing-attribution.md) | Key 付款组织、消费日志与任务快照 | P1、P2 |
 | [P4 用量看板重构](../../done/company-org-p4-usage-dashboard.md) | 数据范围解析、新看板、旧入口下线 | P3 |
-| [P5 用量与账单导出](../planned/company-org-p5-usage-export.md) | CSV/XLSX 导出、异步任务、存储接口 | P4 |
+| [P5 用量与账单导出](../../done/company-org-p5-usage-export.md) | CSV/XLSX 导出、异步任务、存储接口 | P4 |
 | [P6 视频与异步任务计价修正](../planned/company-org-p6-video-billing-fixes.md) | Ark、Seedance、Sora、Wan、Kling 计价修正 | 无（可并行） |
 
 ## 实施计划

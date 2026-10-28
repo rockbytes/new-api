@@ -250,11 +250,15 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 
 	// router/api-router.go: /api/usage report routes. One route serves the platform,
 	// organization and personal views, so each route takes the scope of the widest view.
-	"GET /api/usage/summary":  accessTokenScopeRule("log:read"),
-	"GET /api/usage/trend":    accessTokenScopeRule("log:read"),
-	"GET /api/usage/models":   accessTokenScopeRule("log:read"),
-	"GET /api/usage/rankings": accessTokenScopeRule("log:read"),
-	"GET /api/usage/records":  accessTokenScopeRule("log:read"),
+	"GET /api/usage/summary":                  accessTokenScopeRule("log:read"),
+	"GET /api/usage/trend":                    accessTokenScopeRule("log:read"),
+	"GET /api/usage/models":                   accessTokenScopeRule("log:read"),
+	"GET /api/usage/rankings":                 accessTokenScopeRule("log:read"),
+	"GET /api/usage/records":                  accessTokenScopeRule("log:read"),
+	"POST /api/usage/exports":                 accessTokenScopeRule("log:read"),
+	"GET /api/usage/exports":                  accessTokenScopeRule("log:read"),
+	"GET /api/usage/exports/:job_id":          accessTokenScopeRule("log:read"),
+	"GET /api/usage/exports/:job_id/download": accessTokenScopeRule("log:read"),
 
 	// router/api-router.go: /api/organization (root and self), /api/token billing
 	// organization, and the self password change. Writes take :write; reads take :read.

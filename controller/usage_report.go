@@ -287,17 +287,7 @@ func GetUsageModels(c *gin.Context) {
 // organizations across the platform and users inside one organization. The organization
 // view ranks its members. A personal view has no ranking.
 func usageRankingBy(request usageRequest) (model.UsageRankBy, bool) {
-	switch request.resolved.View {
-	case service.UsageViewPlatform:
-		if request.resolved.Scope.OrganizationId == 0 {
-			return model.UsageRankByOrganization, true
-		}
-		return model.UsageRankByUser, true
-	case service.UsageViewOrganization:
-		return model.UsageRankByUser, true
-	default:
-		return "", false
-	}
+	return service.UsageRankingFor(request.resolved)
 }
 
 // GetUsageRankings returns the largest consumers of the caller's scope.

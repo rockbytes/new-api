@@ -364,6 +364,10 @@ func SetApiRouter(router *gin.Engine) {
 		usageReportRoute.GET("/models", controller.GetUsageModels)
 		usageReportRoute.GET("/rankings", controller.GetUsageRankings)
 		usageReportRoute.GET("/records", controller.GetUsageRecords)
+		usageReportRoute.POST("/exports", controller.CreateUsageExport)
+		usageReportRoute.GET("/exports", controller.ListUsageExports)
+		usageReportRoute.GET("/exports/:job_id", controller.GetUsageExport)
+		usageReportRoute.GET("/exports/:job_id/download", controller.DownloadUsageExport)
 
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{
