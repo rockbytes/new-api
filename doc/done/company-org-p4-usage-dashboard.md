@@ -1,15 +1,15 @@
 ---
 title: 公司组织 P4：用量看板重构
-status: in-progress
+status: done
 created: 2026-10-26
 updated: 2026-10-28
 owner: TBD
-completed:
+completed: 2026-10-28
 ---
 
 # 公司组织 P4：用量看板重构
 
-本计划是 [公司组织、成员权限、额度计费、用量看板与账单导出方案](./company-organization-membership-quota-billing-usage-dashboard-export.md) 的子计划之一。产品决策以总方案的「已确定的设计决策」为准。
+本计划是 [公司组织、成员权限、额度计费、用量看板与账单导出方案](../todo/in-progress/company-organization-membership-quota-billing-usage-dashboard-export.md) 的子计划之一。产品决策以总方案的「已确定的设计决策」为准。
 
 **依赖**：P3（付款组织快照），以及 P1 的组织权限目录。
 
@@ -37,7 +37,8 @@ completed:
 - 已完成的测试：查询结果在 SQLite、PostgreSQL 17、PostgreSQL 9.6、MySQL 8.0、MySQL 5.7 上一致（`model/usage_report_test.go`）；授权矩阵、越权参数、字段白名单与付款方标注（`controller/usage_report_test.go`，SQLite）。
 - 已完成（前端）：用量报表页面 `/usage-report`（`web/src/features/usage-report/`），按服务端返回的视图显示范围、汇总、趋势、模型、排行和明细；平台视图可按组织、组织视图可按成员筛选；侧边栏新增入口；7 种语言文案；类型检查、构建、测试通过；使用 Playwright 在 Root、组织管理员、成员三种账号下完成页面检查。
 - 已完成（旧入口，2026-10-28）：普通用户与组织管理员的看板不再显示「模型分析」「流量」「用户统计」分区，相关地址重定向到用量报表；侧边栏的「数据看板」入口仅管理员可见；`/api/data/flow/self` 接口与其访问令牌规则已移除（前端已无调用）。个人概览仍使用 `/api/data/self`，该接口只返回本人数据，保留。
-- 未完成：平台管理员仍可看到旧的模型分析、流量和用户统计分区，平台运维指标迁入独立的平台管理区域尚未实施（实施计划第 5 步的后半部分）；日志库为 ClickHouse 时的查询验证；查询计划与索引的确认；截图（页面截图超时，本次以 DOM 文本记录结果）。
+- 已完成（平台运维区域，2026-10-28）：流量分流（分流图）迁入独立的平台运维页面 `/platform-ops`，仅平台管理员可见；看板不再包含该分区，旧地址 `/dashboard/flow` 重定向到平台运维页面。平台管理员的模型调用分析和用户统计仍保留在看板中。
+- 未完成：无。三项剩余任务（平台运维区域、ClickHouse 查询验证、查询计划与索引确认）均已完成，见下方验证结果。
 - 已知问题：`router` 包的 `TestAccessTokenRouteRulesCoverEveryDashboardRoute` 在 `dev` 上已失败（19 条），原因是 P1–P3 的组织路由没有在访问令牌规则表中声明。本计划新增的五条报表路由已经声明，没有增加失败数量。这些已有路由的令牌权限范围需要你确认。
 
 ## 验收条件
@@ -71,13 +72,30 @@ completed:
 
 ## 验证结果
 
-实施后填写。计划包括：
+- **授权矩阵**（`controller/usage_report_test.go`，SQLite）：平台、公司管理员、公司成员、无公司用户；跨组织的组织 ID、他人的用户 ID、视图越权、非法时间范围、超量分页均按规则返回 403、400 或 404。字段白名单在三种视图下分别断言，公司侧与个人侧不含 IP、渠道、上游标识。
+- **历史快照**：成员移出组织后，组织报表仍包含其在组织内产生的用量（`TestUsageHistoryKeepsDepartedMemberUsage`）。
+- **查询结果一致性**（`model/usage_report_test.go`，同一组固定数据与预期值）：
+  - SQLite（glebarez/sqlite v1.11.0）、PostgreSQL 17.11、PostgreSQL 9.6.24、MySQL 8.0.46、MySQL 5.7.44：全部通过。
+  - ClickHouse 26.5.1（`TEST_CLICKHOUSE_LOG_DSN`，回环实例，测试自建并删除数据库）：全部通过。
+- **查询计划**（同一组合成数据，约 40 万行，每种引擎执行 `ANALYZE` 后查看；这只能说明索引选择，不代表生产数据量下的耗时）：
 
-- 授权矩阵测试（平台、公司管理员、公司成员、无公司用户、跨公司访问、篡改参数）的结果；
-- 查询在 SQLite、MySQL（≥ 5.7.8）、PostgreSQL（≥ 9.6）上的结果一致性，记录版本、命令与结果；
-- 后端 `go build ./...` 与相关包的 `go test`；
-- 前端 `bun run typecheck`、`bun run lint`、`bun run test`、`bun run build`；
-- 使用 `run` 技能启动应用，验证三种角色的页面行为，并保留截图或操作记录。
+| 查询形态 | PostgreSQL 17.11 | MySQL 8.0.46 | SQLite |
+|---|---|---|---|
+| 组织汇总、组织明细分页 | `idx_logs_billing_org_created_at` | 同左 | 同左 |
+| 组织内某成员 | `idx_logs_user_id` 与组织索引位图组合 | `idx_logs_user_id` 回表过滤 | `idx_logs_user_id` |
+| 个人汇总 | `idx_logs_user_id` 与 `idx_created_at_id` 位图组合 | `idx_logs_user_id` 回表过滤 | `idx_logs_user_id` |
+| 平台汇总 | `idx_created_at_id` | `idx_created_at_id` | `idx_created_at_id` |
+| 明细倒序分页 | 组织索引倒序扫描加增量排序 | `idx_logs_billing_org_created_at` | `idx_logs_billing_org_created_at` |
+
+- **后端**：`go build ./...`、`go vet` 与 `controller`、`router`、`middleware`、`service`、`model` 的相关测试通过。
+- **前端**：`bun run typecheck`、`bun run build` 通过；新增和修改文件通过 `oxlint` 与 `oxfmt` 检查；dashboard、usage-report 相关测试共 72 个通过。
+- **页面（Playwright，后端托管构建后的前端，PostgreSQL 17.11 `newapi_e2e`）**：
+  - Root：平台视图按组织排行，个人承担单独标注；选择组织后出现成员筛选；旧地址 `/dashboard/flow` 跳到平台运维页面，平台运维页面显示流量分流。
+  - 组织管理员：默认组织视图，成员筛选可用，明细无渠道、IP、付款方列；访问 `/platform-ops` 跳到 403。
+  - 普通成员：默认个人视图，明细显示付款方（公司或个人）。
+  - 看板中 `/dashboard/models`、`/dashboard/flow`、`/dashboard/users` 对组织管理员跳到用量报表；概览正常。
+  - 截图在字体加载时超时未保存，以页面文本记录上述结果。
+- **未覆盖**：生产数据量下的查询耗时；多实例部署下的表现；成员角色（与组织管理员的代码路径相同）的单独浏览器检查。
 
 ## 阻塞原因
 

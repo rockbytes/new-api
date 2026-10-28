@@ -1,11 +1,18 @@
 package model
 
 import (
+	"fmt"
+	"net"
+	"net/url"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/clickhouse"
+	"gorm.io/gorm"
 )
 
 // usageReportBase is the UTC midnight of a fixed day, so every test row has a known day.
@@ -15,7 +22,7 @@ const usageReportBase int64 = 1799971200
 // fixtures cover two organizations, personal billing, refunds, and a non-usage log type.
 func setupUsageReportTest(t *testing.T) {
 	t.Helper()
-	db, dialectType := openOrganizationQuotaTestDatabase(t)
+	db, dialectType := openUsageReportLogDatabase(t)
 	previousDB, previousLogDB := DB, LOG_DB
 	previousMain, previousLog := common.MainDatabaseType(), common.LogDatabaseType()
 	DB, LOG_DB = db, db
@@ -27,8 +34,6 @@ func setupUsageReportTest(t *testing.T) {
 			_ = sqlDB.Close()
 		}
 	})
-	require.NoError(t, db.AutoMigrate(&Log{}))
-
 	rows := []Log{
 		// Organization 1, user 10: two consume rows and one refund on the first day.
 		{UserId: 10, Username: "alice", Type: LogTypeConsume, ModelName: "m1", Quota: 100, PromptTokens: 10, CompletionTokens: 5, CreatedAt: usageReportBase + 3600, BillingOrganizationId: 1, RequestId: "r1", ChannelId: 7, Ip: "10.0.0.1"},
@@ -144,4 +149,44 @@ func TestUsageRecordsPageNewestFirstWithinScope(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, second, 2)
 	assert.Equal(t, "r1", second[1].RequestId, "the refund and the consume share a timestamp; ties break by id")
+}
+
+// openUsageReportLogDatabase opens the fixture database. With TEST_CLICKHOUSE_LOG_DSN set, the
+// fixtures run on a ClickHouse log database, created and dropped by the test. Use a disposable
+// loopback instance. Without it, the same fixtures run on the SQL test engines.
+func openUsageReportLogDatabase(t *testing.T) (*gorm.DB, common.DatabaseType) {
+	t.Helper()
+	dsn := os.Getenv("TEST_CLICKHOUSE_LOG_DSN")
+	if dsn == "" {
+		db, dialectType := openOrganizationQuotaTestDatabase(t)
+		require.NoError(t, db.AutoMigrate(&Log{}))
+		return db, dialectType
+	}
+	parsed, err := url.Parse(dsn)
+	require.NoError(t, err)
+	require.True(t, net.ParseIP(parsed.Hostname()).IsLoopback(), "database tests only permit loopback instances")
+	name := fmt.Sprintf("newapi_usage_%d", time.Now().UnixNano())
+	admin, err := gorm.Open(clickhouse.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, admin.Exec("CREATE DATABASE "+name).Error)
+	t.Cleanup(func() {
+		_ = admin.Exec("DROP DATABASE IF EXISTS " + name).Error
+		if sqlDB, err := admin.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+
+	parsed.Path = "/" + name
+	t.Setenv("LOG_SQL_DSN", parsed.String())
+	db, dialectType, err := chooseDB("LOG_SQL_DSN", true)
+	require.NoError(t, err)
+	previousLogDB, previousLog := LOG_DB, common.LogDatabaseType()
+	LOG_DB = db
+	common.SetLogDatabaseType(dialectType)
+	t.Cleanup(func() {
+		LOG_DB = previousLogDB
+		common.SetLogDatabaseType(previousLog)
+	})
+	require.NoError(t, migrateLOGDB())
+	return db, dialectType
 }

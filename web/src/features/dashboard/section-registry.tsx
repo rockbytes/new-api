@@ -36,12 +36,6 @@ const DASHBOARD_SECTIONS = [
     build: () => null,
   },
   {
-    id: 'flow',
-    titleKey: 'Flow',
-    adminOnly: true,
-    build: () => null,
-  },
-  {
     id: 'users',
     titleKey: 'User Analytics',
     adminOnly: true,
@@ -53,7 +47,7 @@ export type DashboardSectionId = (typeof DASHBOARD_SECTIONS)[number]['id']
 
 // Ordinary users and organization administrators see the usage report instead of these.
 export const DASHBOARD_ADMIN_ONLY_SECTION_IDS: ReadonlySet<string> =
-  new Set<string>(['models', 'flow', 'users'])
+  new Set<string>(['models', 'users'])
 
 const dashboardRegistry = createSectionRegistry<
   DashboardSectionId,

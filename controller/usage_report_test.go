@@ -228,3 +228,22 @@ func TestUsageSelfRecordsNameThePayer(t *testing.T) {
 	assert.Equal(t, float64(usageOrgA), paidByCompany["billing_organization_id"])
 	assert.Equal(t, "Org A", paidByCompany["billing_organization_name"])
 }
+
+// A member who leaves the organization keeps the usage they generated while they were in it:
+// reports read the payer snapshot on each log, not the membership.
+func TestUsageHistoryKeepsDepartedMemberUsage(t *testing.T) {
+	engine := setupUsageReportEndpoints(t)
+	require.NoError(t, model.DB.Where("user_id = ?", usageOrgAMember).Delete(&model.OrganizationMembership{}).Error)
+
+	_, organization := usageCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, "/api/usage/summary")
+	assert.Equal(t, float64(140), usageData(organization)["summary"].(map[string]any)["net_quota"], "the departed member's 40 stays in organization A's history")
+
+	_, records := usageCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, "/api/usage/records")
+	var requestIds []string
+	items, _ := usageData(records)["items"].([]any)
+	for _, raw := range items {
+		item, _ := raw.(map[string]any)
+		requestIds = append(requestIds, item["request_id"].(string))
+	}
+	assert.Contains(t, requestIds, "a-member")
+}

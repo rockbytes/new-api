@@ -28,6 +28,7 @@ import {
   LayoutDashboard,
   ListTodo,
   BarChart3,
+  Network,
   MessageSquare,
   PlugZap,
   Radio,
@@ -90,6 +91,12 @@ export function useSidebarData(): SidebarData {
             title: t('Usage report'),
             url: '/usage-report',
             icon: BarChart3,
+          },
+          {
+            title: t('Platform operations'),
+            url: '/platform-ops',
+            icon: Network,
+            requiredRole: ROLE.ADMIN,
           },
           {
             title: t('API Keys'),
