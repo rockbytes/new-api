@@ -32,11 +32,13 @@ const DASHBOARD_SECTIONS = [
   {
     id: 'models',
     titleKey: 'Model Call Analytics',
+    adminOnly: true,
     build: () => null,
   },
   {
     id: 'flow',
     titleKey: 'Flow',
+    adminOnly: true,
     build: () => null,
   },
   {
@@ -49,7 +51,9 @@ const DASHBOARD_SECTIONS = [
 
 export type DashboardSectionId = (typeof DASHBOARD_SECTIONS)[number]['id']
 
-const ADMIN_ONLY_SECTIONS = new Set<string>(['users'])
+// Ordinary users and organization administrators see the usage report instead of these.
+export const DASHBOARD_ADMIN_ONLY_SECTION_IDS: ReadonlySet<string> =
+  new Set<string>(['models', 'flow', 'users'])
 
 const dashboardRegistry = createSectionRegistry<
   DashboardSectionId,
@@ -72,6 +76,7 @@ export function getDashboardSectionNavItems(
   const all = dashboardRegistry.getSectionNavItems(t)
   if (options?.isAdmin) return all
   return all.filter(
-    (_, idx) => !ADMIN_ONLY_SECTIONS.has(DASHBOARD_SECTIONS[idx].id)
+    (_, idx) =>
+      !DASHBOARD_ADMIN_ONLY_SECTION_IDS.has(DASHBOARD_SECTIONS[idx].id)
   )
 }

@@ -176,7 +176,7 @@ func TestLogExportRules(t *testing.T) {
 
 		// The dashboard follows the same range instead of its old one-month limit.
 		fortyDays := fmt.Sprintf("start_timestamp=%d&end_timestamp=%d", now-40*24*3600, now)
-		for _, handler := range []gin.HandlerFunc{GetUserQuotaDates, GetUserFlowQuotaDates} {
+		for _, handler := range []gin.HandlerFunc{GetUserQuotaDates} {
 			assert.Equal(t, "The time range cannot exceed {{days}} days", callLogHandler(t, handler, 1, common.RoleCommonUser, tooLong)[0]["message_key"])
 			assert.Equal(t, true, callLogHandler(t, handler, 1, common.RoleCommonUser, fortyDays)[0]["success"])
 		}

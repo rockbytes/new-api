@@ -100,26 +100,3 @@ func GetAllFlowQuotaDates(c *gin.Context) {
 	})
 	return
 }
-
-func GetUserFlowQuotaDates(c *gin.Context) {
-	userId := c.GetInt("id")
-	startTimestamp, endTimestamp, ok := parseFlowQuotaTimeRange(c)
-	if !ok {
-		return
-	}
-	if _, err := limitLogTimeRange(startTimestamp, endTimestamp); err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	dates, err := model.GetFlowQuotaData(startTimestamp, endTimestamp, "", userId, common.RoleCommonUser)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    dates,
-	})
-	return
-}

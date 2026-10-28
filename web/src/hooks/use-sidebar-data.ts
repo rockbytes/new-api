@@ -84,6 +84,7 @@ export function useSidebarData(): SidebarData {
             title: t('Dashboard'),
             url: '/dashboard/models',
             icon: LayoutDashboard,
+            requiredRole: ROLE.ADMIN,
           },
           {
             title: t('Usage report'),

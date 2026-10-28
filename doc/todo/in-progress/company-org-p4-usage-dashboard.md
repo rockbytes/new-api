@@ -36,7 +36,8 @@ completed:
 - 已完成：数据范围解析服务（`service/usage_scope.go`）、报表查询（`model/usage_report.go`）、五个 `/api/usage` 接口（`controller/usage_report.go`）和路由、访问令牌规则。
 - 已完成的测试：查询结果在 SQLite、PostgreSQL 17、PostgreSQL 9.6、MySQL 8.0、MySQL 5.7 上一致（`model/usage_report_test.go`）；授权矩阵、越权参数、字段白名单与付款方标注（`controller/usage_report_test.go`，SQLite）。
 - 已完成（前端）：用量报表页面 `/usage-report`（`web/src/features/usage-report/`），按服务端返回的视图显示范围、汇总、趋势、模型、排行和明细；平台视图可按组织、组织视图可按成员筛选；侧边栏新增入口；7 种语言文案；类型检查、构建、测试通过；使用 Playwright 在 Root、组织管理员、成员三种账号下完成页面检查。
-- 未完成：旧入口迁移与旧接口停用（实施计划第 5、6 步）；平台运维指标的独立区域；日志库为 ClickHouse 时的查询验证；查询计划与索引的确认；截图（页面截图超时，本次以 DOM 文本记录结果）。
+- 已完成（旧入口，2026-10-28）：普通用户与组织管理员的看板不再显示「模型分析」「流量」「用户统计」分区，相关地址重定向到用量报表；侧边栏的「数据看板」入口仅管理员可见；`/api/data/flow/self` 接口与其访问令牌规则已移除（前端已无调用）。个人概览仍使用 `/api/data/self`，该接口只返回本人数据，保留。
+- 未完成：平台管理员仍可看到旧的模型分析、流量和用户统计分区，平台运维指标迁入独立的平台管理区域尚未实施（实施计划第 5 步的后半部分）；日志库为 ClickHouse 时的查询验证；查询计划与索引的确认；截图（页面截图超时，本次以 DOM 文本记录结果）。
 - 已知问题：`router` 包的 `TestAccessTokenRouteRulesCoverEveryDashboardRoute` 在 `dev` 上已失败（19 条），原因是 P1–P3 的组织路由没有在访问令牌规则表中声明。本计划新增的五条报表路由已经声明，没有增加失败数量。这些已有路由的令牌权限范围需要你确认。
 
 ## 验收条件

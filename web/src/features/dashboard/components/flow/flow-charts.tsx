@@ -340,7 +340,7 @@ export function FlowCharts(props: FlowChartsProps) {
   } = useQuery({
     queryKey: ['dashboard', 'flow', flowQueryParams, flowRole],
     queryFn: async () =>
-      requireServerSuccess(await getFlowQuotaDates(flowQueryParams, isAdmin)),
+      requireServerSuccess(await getFlowQuotaDates(flowQueryParams)),
     select: (res) =>
       requireSuccessfulFlowRows(res, t('Please try again later.')),
     staleTime: 60_000,

@@ -247,7 +247,6 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"GET /api/data/users":                       accessTokenScopeRule("log:read"),
 	"GET /api/data/self":                        accessTokenScopeRule("usage:read"),
 	"GET /api/data/flow":                        accessTokenScopeRule("log:read"),
-	"GET /api/data/flow/self":                   accessTokenScopeRule("usage:read"),
 
 	// router/api-router.go: /api/usage report routes. One route serves the platform,
 	// organization and personal views, so each route takes the scope of the widest view.

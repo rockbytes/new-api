@@ -22,7 +22,10 @@ import { Dashboard } from '@/features/dashboard'
 import {
   DASHBOARD_SECTION_IDS,
   DASHBOARD_DEFAULT_SECTION,
+  DASHBOARD_ADMIN_ONLY_SECTION_IDS,
 } from '@/features/dashboard/section-registry'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute('/_authenticated/dashboard/$section')({
   beforeLoad: ({ params }) => {
@@ -32,6 +35,11 @@ export const Route = createFileRoute('/_authenticated/dashboard/$section')({
         to: '/dashboard/$section',
         params: { section: DASHBOARD_DEFAULT_SECTION },
       })
+    }
+    const { auth } = useAuthStore.getState()
+    const isAdmin = Boolean(auth.user && auth.user.role >= ROLE.ADMIN)
+    if (DASHBOARD_ADMIN_ONLY_SECTION_IDS.has(params.section) && !isAdmin) {
+      throw redirect({ to: '/usage-report' })
     }
   },
   component: Dashboard,

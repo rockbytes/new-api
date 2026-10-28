@@ -66,21 +66,19 @@ export async function getUserQuotaDataByUsers(params: {
   return res.data
 }
 
-export async function getFlowQuotaDates(
-  params: {
-    start_timestamp: number
-    end_timestamp: number
-    default_time?: string
-    username?: string
-  },
-  isAdmin = false
-) {
-  const endpoint = isAdmin ? '/api/data/flow' : '/api/data/flow/self'
+// Flow data is an administrator view. Ordinary users and organization administrators use
+// the usage report instead.
+export async function getFlowQuotaDates(params: {
+  start_timestamp: number
+  end_timestamp: number
+  default_time?: string
+  username?: string
+}) {
   const res = await api.get<{
     success: boolean
     data?: FlowQuotaDataItem[]
     message?: string
-  }>(endpoint, { params })
+  }>('/api/data/flow', { params })
   return res.data
 }
 
