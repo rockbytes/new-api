@@ -835,6 +835,9 @@ func newAuditTestDatabase(t *testing.T, kind, dsn string) (*gorm.DB, string) {
 		path := t.TempDir() + "/audit.db"
 		db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
 		require.NoError(t, err)
+		// Windows keeps the file locked while a handle is open, so close it before the
+		// temporary directory is removed.
+		t.Cleanup(func() { closeGormHandles(db) })
 		return db, path
 	}
 	require.NotEmpty(t, dsn)
@@ -907,6 +910,19 @@ func newAuditTestDatabase(t *testing.T, kind, dsn string) (*gorm.DB, string) {
 		}
 	})
 	return db, newDSN
+}
+
+// closeGormHandles closes database handles that a test opened. They must be closed before
+// the database they use is dropped, or before its temporary directory is removed on Windows.
+func closeGormHandles(handles ...*gorm.DB) {
+	for _, db := range handles {
+		if db == nil {
+			continue
+		}
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	}
 }
 
 func verifyAuditRoleStorage(t *testing.T) {
@@ -1073,6 +1089,9 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 			for _, upgrade := range []bool{false, true} {
 				t.Run(fmt.Sprintf("upgrade=%v", upgrade), func(t *testing.T) {
 					db, isolatedDSN := newAuditTestDatabase(t, tc.name, dsn)
+					// Registered after the database cleanup, so it runs first and closes the
+					// handles that InitDB opened on the isolated database.
+					t.Cleanup(func() { closeGormHandles(model.DB, model.LOG_DB) })
 					t.Setenv("LOG_SQL_DSN", "")
 					if tc.name == "sqlite" {
 						common.SQLitePath = isolatedDSN
@@ -1095,7 +1114,11 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 						require.NoError(t, db.Create(&releasedAuditUser{Username: "released-owner", Password: "placeholder", AccessToken: &legacy, AffCode: "released-aff", Quota: 1234}).Error)
 						require.NoError(t, db.Create(&releasedAuditLog{UserId: 1, Type: model.LogTypeLogin, Content: "historical login", CreatedAt: 100, RequestId: "legacy-request"}).Error)
 					}
-					for range 2 {
+					for i := range 2 {
+						if i > 0 {
+							// Close the handles opened by the previous InitDB before replacing them.
+							closeGormHandles(model.DB, model.LOG_DB)
+						}
 						require.NoError(t, model.InitDB())
 						require.NoError(t, model.InitLogDB())
 					}
