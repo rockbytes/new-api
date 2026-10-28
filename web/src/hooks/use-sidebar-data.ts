@@ -27,6 +27,7 @@ import {
   Key,
   LayoutDashboard,
   ListTodo,
+  BarChart3,
   MessageSquare,
   PlugZap,
   Radio,
@@ -83,6 +84,11 @@ export function useSidebarData(): SidebarData {
             title: t('Dashboard'),
             url: '/dashboard/models',
             icon: LayoutDashboard,
+          },
+          {
+            title: t('Usage report'),
+            url: '/usage-report',
+            icon: BarChart3,
           },
           {
             title: t('API Keys'),
