@@ -43,6 +43,7 @@ import {
   UsageModelsTable,
   UsageRankingTable,
 } from './components/usage-breakdown-tables'
+import { UsageExportPanel } from './components/usage-export-panel'
 import { UsageRecordsTable } from './components/usage-records-table'
 import { UsageScopeHeader } from './components/usage-scope-header'
 import { UsageSummaryCards } from './components/usage-summary-cards'
@@ -317,6 +318,14 @@ export function UsageReport() {
                   onPageChange={setPage}
                 />
               )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('Export usage')}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <UsageExportPanel params={params} />
             </CardContent>
           </Card>
         </div>

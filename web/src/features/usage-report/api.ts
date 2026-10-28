@@ -21,6 +21,8 @@ import { requireServerSuccess } from '@/lib/server-error-message'
 
 import type {
   UsageCompanyRecord,
+  UsageExportJob,
+  UsageExportRequest,
   UsageMeta,
   UsageModelRow,
   UsagePlatformRecord,
@@ -91,4 +93,29 @@ export function getUsageRankings(params: UsageQueryParams) {
 
 export function getUsageRecords(params: UsageQueryParams) {
   return getUsage<UsageRecordsResponse>('records', params)
+}
+
+// Exports are generated on the server. A small export is ready in the create response; a large
+// one is queued and the caller polls the list until it succeeds, fails, or expires.
+export async function createUsageExport(
+  request: UsageExportRequest
+): Promise<UsageExportJob> {
+  const res = await api.post('/api/usage/exports', request)
+  return requireServerSuccess(res.data).data
+}
+
+export async function getUsageExports(): Promise<UsageExportJob[]> {
+  const res = await api.get('/api/usage/exports')
+  return requireServerSuccess(res.data).data.items
+}
+
+// The file is fetched with the session token, so the browser cannot open it as a plain link.
+// Failures are reported by the caller, which needs the HTTP status to tell an expired file apart.
+export async function downloadUsageExport(jobId: string): Promise<Blob> {
+  const res = await api.get<Blob>(`/api/usage/exports/${jobId}/download`, {
+    responseType: 'blob',
+    skipErrorHandler: true,
+    skipBusinessError: true,
+  })
+  return res.data
 }
