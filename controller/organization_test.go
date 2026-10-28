@@ -62,7 +62,8 @@ func setupOrganizationTestDB(t *testing.T) *gorm.DB {
 
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.UserAccessToken{}, &model.AuthFlow{},
 		&model.PasskeyCredential{}, &model.TwoFA{}, &model.TwoFABackupCode{}, &model.Token{}, &model.ExternalIdentityClaim{},
-		&model.UserOAuthBinding{}, &model.Organization{}, &model.OrganizationMembership{}))
+		&model.UserOAuthBinding{}, &model.Organization{}, &model.OrganizationMembership{}, &model.OrganizationQuotaAccount{},
+		&model.OrganizationMemberQuota{}, &model.OrganizationQuotaLedgerEntry{}))
 	return db
 }
 
@@ -92,12 +93,18 @@ func organizationTestEngine(userId int, role int) *gin.Engine {
 	root.GET("/:id", GetOrganization)
 	root.PUT("/:id", UpdateOrganization)
 	root.PUT("/:id/status", UpdateOrganizationStatus)
+	root.GET("/:id/quota", RootGetOrganizationQuota)
+	root.POST("/:id/quota/grant", RootGrantOrganizationQuota)
+	root.PUT("/:id/members/:user_id/quota", RootSetOrganizationMemberAllocation)
+	root.POST("/:id/requests/:request_id/refund", RootRefundOrganizationRequest)
 
 	self := engine.Group("/api/organization/self")
 	self.GET("", GetOrganizationSelf)
 	self.GET("/members", ListOrganizationMembers)
+	self.GET("/quota", GetOwnOrganizationQuota)
 	self.POST("/members", CreateOrganizationMember)
 	self.PUT("/members/:user_id", UpdateOrganizationMember)
+	self.PUT("/members/:user_id/quota", SetOwnOrganizationMemberAllocation)
 	self.DELETE("/members/:user_id", DeleteOrganizationMember)
 	self.POST("/members/:user_id/password", ResetOrganizationMemberPassword)
 
@@ -164,6 +171,51 @@ func userByName(t *testing.T, db *gorm.DB, username string) model.User {
 	var user model.User
 	require.NoError(t, db.Where("username = ?", username).First(&user).Error)
 	return user
+}
+
+// Quota limits: organization admins set ordinary members' allocations only, and Root
+// sets any allocation. Forbidden writes return a stable code and change nothing.
+func TestOrganizationQuotaAllocationPermissions(t *testing.T) {
+	db := setupOrganizationTestDB(t)
+	createOrganizationTestUser(t, db, "root", common.UserStatusEnabled)
+	orgId := createOrganizationWithAdmin(t, "Quota Org", "quota-admin")
+	adminId := userByName(t, db, "quota-admin").Id
+
+	recorder := doOrganizationRequest(t, adminId, http.MethodPost, "/api/organization/self/members",
+		`{"username":"quota-member","password":"`+organizationTestPass+`"}`)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	memberId := userByName(t, db, "quota-member").Id
+
+	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodPost,
+		fmt.Sprintf("/api/organization/%d/quota/grant", orgId), `{"amount":1000,"reason":"initial","reference":"grant-1"}`)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+
+	recorder = doOrganizationRequest(t, adminId, http.MethodPut,
+		fmt.Sprintf("/api/organization/self/members/%d/quota", memberId), `{"allocated":300}`)
+	assert.Equal(t, http.StatusOK, recorder.Code, "an admin may set an ordinary member's allocation")
+
+	recorder = doOrganizationRequest(t, adminId, http.MethodPut,
+		fmt.Sprintf("/api/organization/self/members/%d/quota", adminId), `{"allocated":300}`)
+	assert.Equal(t, http.StatusForbidden, recorder.Code)
+	assert.Equal(t, "ORGANIZATION_PERMISSION_DENIED", organizationErrorCode(t, recorder), "an admin cannot set their own allocation")
+
+	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodPut,
+		fmt.Sprintf("/api/organization/%d/members/%d/quota", orgId, adminId), `{"allocated":200}`)
+	assert.Equal(t, http.StatusOK, recorder.Code, "Root may set an admin's allocation")
+
+	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodGet,
+		fmt.Sprintf("/api/organization/%d/quota", orgId), "")
+	data, status := organizationResponseData(t, recorder)
+	require.Equal(t, http.StatusOK, status, recorder.Body.String())
+	var reconciliation struct {
+		GrantedQuota int64 `json:"granted_quota"`
+		Allocated    int64 `json:"allocated"`
+		Balanced     bool  `json:"balanced"`
+	}
+	require.NoError(t, common.Unmarshal(data, &reconciliation))
+	assert.Equal(t, int64(1000), reconciliation.GrantedQuota)
+	assert.Equal(t, int64(500), reconciliation.Allocated)
+	assert.True(t, reconciliation.Balanced)
 }
 
 // The self-user payload carries the active membership so the sidebar does not

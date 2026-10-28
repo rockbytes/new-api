@@ -37,6 +37,8 @@ export interface OrganizationMember {
   role: OrganizationMemberRole
   status: OrganizationMemberStatus
   created_time: number
+  allocated_quota: number
+  used_quota: number
 }
 
 export interface OrganizationPage {
@@ -55,4 +57,25 @@ export interface CreateOrganizationPayload {
   name: string
   admin_username: string
   admin_password: string
+}
+
+export interface OrganizationQuota {
+  granted_quota: number
+  consumed_quota: number
+  remaining_quota: number
+  member_used: number
+  allocated: number
+  balanced: boolean
+}
+
+export interface GrantOrganizationQuotaPayload {
+  amount: number
+  reason: string
+  reference: string
+}
+
+export interface RefundOrganizationRequestPayload {
+  request_id: string
+  amount: number
+  reference: string
 }

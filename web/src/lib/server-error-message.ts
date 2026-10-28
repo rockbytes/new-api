@@ -103,6 +103,14 @@ const serverErrorMessageKeys = {
   ORGANIZATION_INVALID_REQUEST: 'The request is invalid.',
   ORGANIZATION_INVALID_ID: 'Invalid organization ID.',
   ORGANIZATION_INVALID_USER_ID: 'Invalid user ID.',
+  ORGANIZATION_QUOTA_INVALID_AMOUNT: 'Invalid quota amount.',
+  ORGANIZATION_REFERENCE_INVALID: 'Invalid quota reference.',
+  ORGANIZATION_QUOTA_BELOW_USAGE:
+    'Allocation cannot be below the usage already recorded.',
+  ORGANIZATION_REFUND_EXCEEDED:
+    'Refund exceeds the settled quota of the request.',
+  ORGANIZATION_REQUEST_NOT_FOUND: 'No quota was charged for this request.',
+  ORGANIZATION_QUOTA_OVERFLOW: 'Quota total would overflow.',
   USER_IN_ORGANIZATION:
     'This account belongs to an organization and cannot be deleted here.',
 

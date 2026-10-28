@@ -37,14 +37,18 @@ import {
   DropdownMenuItem,
   DropdownMenuShortcut,
 } from '@/components/ui/dropdown-menu'
+import { formatQuotaWithCurrency } from '@/lib/currency'
 import { formatTimestamp } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import {
   deleteOrganizationMember,
   getOrganizationMembers,
+  getOwnOrganizationQuota,
+  setOwnMemberAllocation,
   updateOrganizationMember,
 } from './api'
+import { AllocationSheet } from './components/allocation-sheet'
 import {
   CreateMemberSheet,
   ResetMemberPasswordSheet,
@@ -84,6 +88,28 @@ export function OrganizationAdmin() {
       refreshMembers()
     },
     onError: (error) => handleServerError(error, t('Failed to update member.')),
+  })
+
+  const quotaQuery = useQuery({
+    queryKey: ['organization-self-quota'],
+    queryFn: getOwnOrganizationQuota,
+    enabled: isAdmin,
+  })
+
+  const [allocationTarget, setAllocationTarget] =
+    useState<OrganizationMemberRow | null>(null)
+
+  const allocationMutation = useMutation({
+    mutationFn: (args: { userId: number; allocated: number }) =>
+      setOwnMemberAllocation(args.userId, args.allocated),
+    onSuccess: () => {
+      toast.success(t('Allocation updated.'))
+      setAllocationTarget(null)
+      refreshMembers()
+      queryClient.invalidateQueries({ queryKey: ['organization-self-quota'] })
+    },
+    onError: (error) =>
+      handleServerError(error, t('Failed to update allocation.')),
   })
 
   const deleteMutation = useMutation({
@@ -155,6 +181,16 @@ export function OrganizationAdmin() {
       cell: (row) => formatTimestamp(row.created_time),
     },
     {
+      id: 'allocated',
+      header: t('Allocated quota'),
+      cell: (row) => formatQuotaWithCurrency(row.allocated_quota),
+    },
+    {
+      id: 'used',
+      header: t('Used quota'),
+      cell: (row) => formatQuotaWithCurrency(row.used_quota),
+    },
+    {
       id: 'actions',
       header: '',
       cell: (row) => (
@@ -187,6 +223,11 @@ export function OrganizationAdmin() {
               <Power size={16} />
             </DropdownMenuShortcut>
           </DropdownMenuItem>
+          {row.role === 'member' && (
+            <DropdownMenuItem onClick={() => setAllocationTarget(row)}>
+              {t('Set allocation')}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onClick={() => setResetTarget(row)}>
             {t('Reset password')}
             <DropdownMenuShortcut>
@@ -220,9 +261,28 @@ export function OrganizationAdmin() {
           </Button>
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
+          <p className='text-muted-foreground mb-3 text-sm'>
+            {t('Remaining quota')}:{' '}
+            {formatQuotaWithCurrency(quotaQuery.data?.remaining_quota)}
+          </p>
           <StaticDataTable columns={columns} data={members} />
         </SectionPageLayout.Content>
       </SectionPageLayout>
+      <AllocationSheet
+        open={allocationTarget !== null}
+        onOpenChange={(open) => !open && setAllocationTarget(null)}
+        username={allocationTarget?.username ?? ''}
+        allocated={allocationTarget?.allocated_quota ?? 0}
+        used={allocationTarget?.used_quota ?? 0}
+        isPending={allocationMutation.isPending}
+        onSubmit={(allocated) =>
+          allocationTarget &&
+          allocationMutation.mutate({
+            userId: allocationTarget.user_id,
+            allocated,
+          })
+        }
+      />
       <CreateMemberSheet open={createOpen} onOpenChange={setCreateOpen} />
       <ResetMemberPasswordSheet
         open={resetTarget !== null}

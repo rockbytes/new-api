@@ -20,6 +20,7 @@ import { api } from '@/lib/api'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
 import type {
+  OrganizationQuota,
   CreateOrganizationMemberPayload,
   OrganizationMemberRow,
   OrganizationRole,
@@ -66,5 +67,20 @@ export async function resetOrganizationMemberPassword(
 
 export async function deleteOrganizationMember(userId: number): Promise<void> {
   const res = await api.delete(`/api/organization/self/members/${userId}`)
+  requireServerSuccess(res.data)
+}
+
+export async function getOwnOrganizationQuota(): Promise<OrganizationQuota> {
+  const res = await api.get('/api/organization/self/quota')
+  return requireServerSuccess(res.data).data
+}
+
+export async function setOwnMemberAllocation(
+  userId: number,
+  allocated: number
+): Promise<void> {
+  const res = await api.put(`/api/organization/self/members/${userId}/quota`, {
+    allocated,
+  })
   requireServerSuccess(res.data)
 }

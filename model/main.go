@@ -378,6 +378,9 @@ func migrateDB() error {
 		&UserAccessToken{},
 		&Organization{},
 		&OrganizationMembership{},
+		&OrganizationQuotaAccount{},
+		&OrganizationMemberQuota{},
+		&OrganizationQuotaLedgerEntry{},
 	)
 	if err != nil {
 		return err

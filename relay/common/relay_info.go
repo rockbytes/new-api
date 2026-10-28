@@ -123,8 +123,11 @@ type RelayInfo struct {
 	UserSetting         dto.UserSetting
 	UserEmail           string
 	UserQuota           int
-	RelayFormat         types.RelayFormat
-	SendResponseCount   int
+	// PayingOrganizationId is the organization that pays for this request when the
+	// Key is organization-paid (P3). Zero keeps personal wallet/subscription billing.
+	PayingOrganizationId int
+	RelayFormat          types.RelayFormat
+	SendResponseCount    int
 	// ClaudeToChatStreamState / ChatToGeminiStreamState hold per-attempt
 	// stream converters. InitChannelMeta nils them so a retry cannot resume a
 	// dirty converter (advanced tool index / finalized).

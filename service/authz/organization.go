@@ -15,6 +15,7 @@ const (
 	OrganizationPermissionMembersCreate = "organization.members.create"
 	OrganizationPermissionMembersUpdate = "organization.members.update"
 	OrganizationPermissionMembersRemove = "organization.members.remove"
+	OrganizationPermissionQuotaUpdate   = "organization.quota.update"
 )
 
 var organizationRolePermissions = map[string][]string{
@@ -27,6 +28,7 @@ var organizationRolePermissions = map[string][]string{
 		OrganizationPermissionMembersCreate,
 		OrganizationPermissionMembersUpdate,
 		OrganizationPermissionMembersRemove,
+		OrganizationPermissionQuotaUpdate,
 	},
 }
 

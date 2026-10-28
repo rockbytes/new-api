@@ -41,15 +41,19 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { AllocationSheet } from '@/features/organization-admin/components/allocation-sheet'
+import { formatQuotaWithCurrency } from '@/lib/currency'
 import { formatTimestamp } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import {
   getOrganizationDetail,
+  setOrganizationMemberAllocation,
   updateOrganizationName,
   updateOrganizationStatus,
 } from '../api'
 import type { OrganizationMember, OrganizationStatus } from '../types'
+import { OrganizationQuotaSection } from './organization-quota-section'
 
 type OrganizationDetailSheetProps = {
   organizationId: number | null
@@ -62,6 +66,8 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
   const organizationId = props.organizationId
   const [name, setName] = useState('')
   const [confirmSuspend, setConfirmSuspend] = useState(false)
+  const [allocationTarget, setAllocationTarget] =
+    useState<OrganizationMember | null>(null)
 
   const detailQuery = useQuery({
     queryKey: ['organization', organizationId],
@@ -104,6 +110,25 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
       handleServerError(error, t('Failed to update organization status.')),
   })
 
+  const allocationMutation = useMutation({
+    mutationFn: (args: { userId: number; allocated: number }) =>
+      setOrganizationMemberAllocation(
+        organizationId ?? 0,
+        args.userId,
+        args.allocated
+      ),
+    onSuccess: () => {
+      toast.success(t('Allocation updated.'))
+      setAllocationTarget(null)
+      refresh()
+      queryClient.invalidateQueries({
+        queryKey: ['organization-quota', organizationId],
+      })
+    },
+    onError: (error) =>
+      handleServerError(error, t('Failed to update allocation.')),
+  })
+
   const nextStatus: OrganizationStatus =
     organization?.status === 'active' ? 'suspended' : 'active'
 
@@ -132,6 +157,29 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
       id: 'created',
       header: t('Created'),
       cell: (row) => formatTimestamp(row.created_time),
+    },
+    {
+      id: 'allocated',
+      header: t('Allocated quota'),
+      cell: (row) => formatQuotaWithCurrency(row.allocated_quota),
+    },
+    {
+      id: 'used',
+      header: t('Used quota'),
+      cell: (row) => formatQuotaWithCurrency(row.used_quota),
+    },
+    {
+      id: 'actions',
+      header: '',
+      cell: (row) => (
+        <Button
+          variant='ghost'
+          size='sm'
+          onClick={() => setAllocationTarget(row)}
+        >
+          {t('Set allocation')}
+        </Button>
+      ),
     },
   ]
 
@@ -206,6 +254,14 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
                 </div>
               </section>
               <section className={sideDrawerSectionClassName()}>
+                <h3 className='text-sm font-medium'>
+                  {t('Organization quota')}
+                </h3>
+                <OrganizationQuotaSection
+                  organizationId={organizationId ?? 0}
+                />
+              </section>
+              <section className={sideDrawerSectionClassName()}>
                 <h3 className='text-sm font-medium'>{t('Members')}</h3>
                 <StaticDataTable
                   columns={memberColumns}
@@ -216,6 +272,21 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
           ) : null}
         </SheetContent>
       </Sheet>
+      <AllocationSheet
+        open={allocationTarget !== null}
+        onOpenChange={(open) => !open && setAllocationTarget(null)}
+        username={allocationTarget?.username ?? ''}
+        allocated={allocationTarget?.allocated_quota ?? 0}
+        used={allocationTarget?.used_quota ?? 0}
+        isPending={allocationMutation.isPending}
+        onSubmit={(allocated) =>
+          allocationTarget &&
+          allocationMutation.mutate({
+            userId: allocationTarget.user_id,
+            allocated,
+          })
+        }
+      />
       <ConfirmDialog
         open={confirmSuspend}
         onOpenChange={setConfirmSuspend}

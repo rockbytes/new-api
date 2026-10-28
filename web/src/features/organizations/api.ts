@@ -20,6 +20,9 @@ import { api } from '@/lib/api'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
 import type {
+  GrantOrganizationQuotaPayload,
+  OrganizationQuota,
+  RefundOrganizationRequestPayload,
   CreateOrganizationPayload,
   Organization,
   OrganizationDetail,
@@ -64,5 +67,42 @@ export async function updateOrganizationStatus(
   status: OrganizationStatus
 ): Promise<void> {
   const res = await api.put(`/api/organization/${id}/status`, { status })
+  requireServerSuccess(res.data)
+}
+
+export async function getOrganizationQuota(
+  id: number
+): Promise<OrganizationQuota> {
+  const res = await api.get(`/api/organization/${id}/quota`)
+  return requireServerSuccess(res.data).data
+}
+
+export async function grantOrganizationQuota(
+  id: number,
+  payload: GrantOrganizationQuotaPayload
+): Promise<void> {
+  const res = await api.post(`/api/organization/${id}/quota/grant`, payload)
+  requireServerSuccess(res.data)
+}
+
+export async function setOrganizationMemberAllocation(
+  id: number,
+  userId: number,
+  allocated: number
+): Promise<void> {
+  const res = await api.put(`/api/organization/${id}/members/${userId}/quota`, {
+    allocated,
+  })
+  requireServerSuccess(res.data)
+}
+
+export async function refundOrganizationRequest(
+  id: number,
+  payload: RefundOrganizationRequestPayload
+): Promise<void> {
+  const res = await api.post(
+    `/api/organization/${id}/requests/${encodeURIComponent(payload.request_id)}/refund`,
+    { amount: payload.amount, reference: payload.reference }
+  )
   requireServerSuccess(res.data)
 }

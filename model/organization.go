@@ -69,12 +69,14 @@ type OrganizationMembership struct {
 // OrganizationMemberView is a membership with the member's account name, for
 // responses to organization admins and Root.
 type OrganizationMemberView struct {
-	UserId      int    `json:"user_id"`
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	Role        string `json:"role"`
-	Status      string `json:"status"`
-	CreatedTime int64  `json:"created_time"`
+	UserId         int    `json:"user_id"`
+	Username       string `json:"username"`
+	DisplayName    string `json:"display_name"`
+	Role           string `json:"role"`
+	Status         string `json:"status"`
+	CreatedTime    int64  `json:"created_time"`
+	AllocatedQuota int64  `json:"allocated_quota"`
+	UsedQuota      int64  `json:"used_quota"`
 }
 
 func ValidOrganizationRole(role string) bool {
@@ -260,16 +262,27 @@ func ListOrganizationMemberViews(organizationId int) ([]OrganizationMemberView, 
 	for _, user := range users {
 		usersById[user.Id] = user
 	}
+	var quotas []OrganizationMemberQuota
+	if err := DB.Where("organization_id = ?", organizationId).Find(&quotas).Error; err != nil {
+		return nil, err
+	}
+	quotasByUser := make(map[int]OrganizationMemberQuota, len(quotas))
+	for _, quota := range quotas {
+		quotasByUser[quota.UserId] = quota
+	}
 	views := make([]OrganizationMemberView, 0, len(memberships))
 	for _, membership := range memberships {
 		user := usersById[membership.UserId]
+		quota := quotasByUser[membership.UserId]
 		views = append(views, OrganizationMemberView{
-			UserId:      membership.UserId,
-			Username:    user.Username,
-			DisplayName: user.DisplayName,
-			Role:        membership.Role,
-			Status:      membership.Status,
-			CreatedTime: membership.CreatedTime,
+			UserId:         membership.UserId,
+			Username:       user.Username,
+			DisplayName:    user.DisplayName,
+			Role:           membership.Role,
+			Status:         membership.Status,
+			CreatedTime:    membership.CreatedTime,
+			AllocatedQuota: quota.AllocatedQuota,
+			UsedQuota:      quota.UsedQuota,
 		})
 	}
 	return views, nil

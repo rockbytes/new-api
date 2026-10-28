@@ -16,7 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { Organization } from '@/features/organizations/types'
+import type {
+  Organization,
+  OrganizationQuota,
+} from '@/features/organizations/types'
 
 export type OrganizationRole = 'admin' | 'member'
 
@@ -34,9 +37,13 @@ export interface OrganizationMemberRow {
   role: OrganizationRole
   status: 'active' | 'disabled'
   created_time: number
+  allocated_quota: number
+  used_quota: number
 }
 
 export interface CreateOrganizationMemberPayload {
   username: string
   password: string
 }
+
+export type { OrganizationQuota }

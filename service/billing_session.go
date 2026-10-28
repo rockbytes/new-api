@@ -209,7 +209,7 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 	effectiveQuota := quota
 
 	// ---- 信任额度旁路 ----
-	if s.shouldTrust(c) {
+	if s.funding.Source() != BillingSourceOrganization && s.shouldTrust(c) {
 		s.trusted = true
 		effectiveQuota = 0
 		logger.LogInfo(c, common.LogText("user %d has enough quota, trusted without pre-consume (funding=%s)", s.relayInfo.UserId, s.funding.Source()))
@@ -245,6 +245,18 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 				errors.New(i18n.T(c, i18n.MsgQuotaUserInsufficient, map[string]any{"Remaining": logger.FormatQuota(userQuota)})),
 				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
 				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		}
+		if errors.Is(err, ErrInsufficientOrganizationQuota) {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeInsufficientOrganizationQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		}
+		if errors.Is(err, ErrInsufficientMemberQuota) {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeInsufficientMemberQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		}
+		if errors.Is(err, ErrOrganizationMemberInactive) {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeOrganizationMemberInactive, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		}
+		if errors.Is(err, ErrOrganizationInactive) {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeOrganizationInactive, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "no active subscription") || strings.Contains(errMsg, "subscription quota insufficient") {
@@ -382,6 +394,24 @@ func (s *BillingSession) syncRelayInfo() {
 }
 
 // ---------------------------------------------------------------------------
+// newOrganizationBillingSession charges an organization-paid request to the member's
+// allocation bucket only (D2, D3). It does not fall back to the wallet or a subscription.
+func newOrganizationBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preConsumedQuota int) (*BillingSession, *types.NewAPIError) {
+	session := &BillingSession{
+		relayInfo: relayInfo,
+		funding: &OrganizationQuotaFunding{
+			organizationId: relayInfo.PayingOrganizationId,
+			userId:         relayInfo.UserId,
+			requestId:      relayInfo.RequestId,
+		},
+		lang: i18n.StatedLang(c),
+	}
+	if apiErr := session.preConsume(c, preConsumedQuota); apiErr != nil {
+		return nil, apiErr
+	}
+	return session, nil
+}
+
 // NewBillingSession 工厂 — 根据计费偏好创建会话并处理回退
 // ---------------------------------------------------------------------------
 
@@ -389,6 +419,10 @@ func (s *BillingSession) syncRelayInfo() {
 func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preConsumedQuota int) (*BillingSession, *types.NewAPIError) {
 	if relayInfo == nil {
 		return nil, types.NewError(fmt.Errorf("relayInfo is nil"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+
+	if relayInfo.PayingOrganizationId > 0 {
+		return newOrganizationBillingSession(c, relayInfo, preConsumedQuota)
 	}
 
 	pref := common.NormalizeBillingPreference(relayInfo.UserSetting.BillingPreference)

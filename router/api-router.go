@@ -406,6 +406,10 @@ func SetApiRouter(router *gin.Engine) {
 			organizationRootRoute.GET("/:id", controller.GetOrganization)
 			organizationRootRoute.PUT("/:id", controller.UpdateOrganization)
 			organizationRootRoute.PUT("/:id/status", controller.UpdateOrganizationStatus)
+			organizationRootRoute.GET("/:id/quota", controller.RootGetOrganizationQuota)
+			organizationRootRoute.POST("/:id/quota/grant", controller.RootGrantOrganizationQuota)
+			organizationRootRoute.PUT("/:id/members/:user_id/quota", controller.RootSetOrganizationMemberAllocation)
+			organizationRootRoute.POST("/:id/requests/:request_id/refund", controller.RootRefundOrganizationRequest)
 		}
 
 		// Company-side routes resolve the organization from the caller's membership.
@@ -419,6 +423,8 @@ func SetApiRouter(router *gin.Engine) {
 			organizationSelfRoute.PUT("/members/:user_id", controller.UpdateOrganizationMember)
 			organizationSelfRoute.DELETE("/members/:user_id", controller.DeleteOrganizationMember)
 			organizationSelfRoute.POST("/members/:user_id/password", controller.ResetOrganizationMemberPassword)
+			organizationSelfRoute.GET("/quota", controller.GetOwnOrganizationQuota)
+			organizationSelfRoute.PUT("/members/:user_id/quota", controller.SetOwnOrganizationMemberAllocation)
 		}
 
 		modelsRoute := apiRouter.Group("/models")

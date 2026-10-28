@@ -83,8 +83,12 @@ const (
 	ErrorCodeUpdateDataError ErrorCode = "update_data_error"
 
 	// quota error
-	ErrorCodeInsufficientUserQuota      ErrorCode = "insufficient_user_quota"
-	ErrorCodePreConsumeTokenQuotaFailed ErrorCode = "pre_consume_token_quota_failed"
+	ErrorCodeInsufficientUserQuota         ErrorCode = "insufficient_user_quota"
+	ErrorCodeInsufficientOrganizationQuota ErrorCode = "insufficient_organization_quota"
+	ErrorCodeInsufficientMemberQuota       ErrorCode = "insufficient_member_quota"
+	ErrorCodeOrganizationMemberInactive    ErrorCode = "organization_member_inactive"
+	ErrorCodeOrganizationInactive          ErrorCode = "organization_inactive"
+	ErrorCodePreConsumeTokenQuotaFailed    ErrorCode = "pre_consume_token_quota_failed"
 )
 
 type NewAPIError struct {
