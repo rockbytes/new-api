@@ -20,16 +20,41 @@ For commercial licensing, please contact support@quantumnous.com
 package model
 
 import (
+	"context"
 	"fmt"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+// useTokenBillingRedis uses the Redis server named by TEST_REDIS_ADDR when it is set, so
+// the cache round trip also runs against a real Redis. Point it only at a disposable
+// instance: the test flushes the database it uses. Without the variable it uses miniredis.
+func useTokenBillingRedis(t *testing.T) {
+	t.Helper()
+	addr := os.Getenv("TEST_REDIS_ADDR")
+	if addr == "" {
+		useUserCacheMiniRedis(t)
+		return
+	}
+	previousEnabled, previousRDB := common.RedisEnabled, common.RDB
+	common.RedisEnabled = true
+	common.RDB = redis.NewClient(&redis.Options{Addr: addr})
+	require.NoError(t, common.RDB.FlushDB(context.Background()).Err())
+	t.Cleanup(func() {
+		_ = common.RDB.FlushDB(context.Background()).Err()
+		_ = common.RDB.Close()
+		common.RedisEnabled = previousEnabled
+		common.RDB = previousRDB
+	})
+}
 
 // setupTokenBillingTest opens an isolated database with two organizations: one active
 // with an active member (10) and a disabled member (11), and one suspended with member 12.
@@ -214,7 +239,7 @@ func TestRemovingMemberDisablesOrganizationPaidKeys(t *testing.T) {
 }
 
 func TestBillingOrganizationRoundTripsThroughRedisHashCache(t *testing.T) {
-	useUserCacheMiniRedis(t)
+	useTokenBillingRedis(t)
 	organizationId := 5
 	paid := Token{Id: 44, UserId: 10, Key: "token-billing-cache-paid", Name: "billing-cache", BillingOrganizationId: &organizationId}
 	personal := Token{Id: 45, UserId: 10, Key: "token-billing-cache-personal", Name: "billing-cache"}
