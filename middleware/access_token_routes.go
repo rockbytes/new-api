@@ -249,6 +249,36 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"GET /api/data/flow":                        accessTokenScopeRule("log:read"),
 	"GET /api/data/flow/self":                   accessTokenScopeRule("usage:read"),
 
+	// router/api-router.go: /api/usage report routes. One route serves the platform,
+	// organization and personal views, so each route takes the scope of the widest view.
+	"GET /api/usage/summary":  accessTokenScopeRule("log:read"),
+	"GET /api/usage/trend":    accessTokenScopeRule("log:read"),
+	"GET /api/usage/models":   accessTokenScopeRule("log:read"),
+	"GET /api/usage/rankings": accessTokenScopeRule("log:read"),
+	"GET /api/usage/records":  accessTokenScopeRule("log:read"),
+
+	// router/api-router.go: /api/organization (root and self), /api/token billing
+	// organization, and the self password change. Writes take :write; reads take :read.
+	"GET /api/organization/":                                 accessTokenScopeRule("billing:read"),
+	"GET /api/organization/:id":                              accessTokenScopeRule("billing:read"),
+	"POST /api/organization/":                                accessTokenScopeRule("user:write"),
+	"PUT /api/organization/:id":                              accessTokenScopeRule("billing:write"),
+	"PUT /api/organization/:id/status":                       accessTokenScopeRule("billing:write"),
+	"GET /api/organization/:id/quota":                        accessTokenScopeRule("billing:read"),
+	"POST /api/organization/:id/quota/grant":                 accessTokenScopeRule("billing:write"),
+	"PUT /api/organization/:id/members/:user_id/quota":       accessTokenScopeRule("billing:write"),
+	"POST /api/organization/:id/requests/:request_id/refund": accessTokenScopeRule("billing:write"),
+	"GET /api/organization/self":                             accessTokenScopeRule("user:read"),
+	"GET /api/organization/self/members":                     accessTokenScopeRule("user:read"),
+	"GET /api/organization/self/quota":                       accessTokenScopeRule("billing:read"),
+	"POST /api/organization/self/members":                    accessTokenScopeRule("user:write"),
+	"PUT /api/organization/self/members/:user_id":            accessTokenScopeRule("user:write"),
+	"DELETE /api/organization/self/members/:user_id":         accessTokenScopeRule("user:write"),
+	"POST /api/organization/self/members/:user_id/password":  accessTokenScopeRule("user:write"),
+	"PUT /api/organization/self/members/:user_id/quota":      accessTokenScopeRule("billing:write"),
+	"PUT /api/token/:id/billing-organization":                accessTokenScopeRule("api_key:write"),
+	"PUT /api/user/self/password":                            accessTokenScopeRule("account_security:write"),
+
 	// router/api-router.go: /api/group, /api/prefill_group
 	"GET /api/group/":               accessTokenScopeRule("group:read"),
 	"GET /api/prefill_group/":       accessTokenScopeRule("group:read"),

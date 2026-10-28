@@ -356,6 +356,16 @@ func SetApiRouter(router *gin.Engine) {
 		dataRoute.GET("/flow", middleware.AdminAuth(), controller.GetAllFlowQuotaDates)
 		dataRoute.GET("/flow/self", middleware.UserAuth(), controller.GetUserFlowQuotaDates)
 
+		// Usage reports share one scope resolver. The caller's identity decides the scope, and
+		// the query parameters can only narrow it.
+		usageReportRoute := apiRouter.Group("/usage")
+		usageReportRoute.Use(middleware.UserAuth())
+		usageReportRoute.GET("/summary", controller.GetUsageSummary)
+		usageReportRoute.GET("/trend", controller.GetUsageTrend)
+		usageReportRoute.GET("/models", controller.GetUsageModels)
+		usageReportRoute.GET("/rankings", controller.GetUsageRankings)
+		usageReportRoute.GET("/records", controller.GetUsageRecords)
+
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{
 			logRoute.GET("/token", middleware.TokenAuthReadOnly(), controller.GetLogByKey)
