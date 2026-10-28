@@ -827,7 +827,8 @@ type releasedAuditLog struct {
 func (releasedAuditLog) TableName() string { return "logs" }
 
 // External tests create a new database per case on a loopback-only disposable
-// instance. They never drop databases or tables supplied through an environment variable.
+// instance, and drop it when the case ends. They never drop databases or tables
+// supplied through an environment variable.
 func newAuditTestDatabase(t *testing.T, kind, dsn string) (*gorm.DB, string) {
 	t.Helper()
 	if kind == "sqlite" {
@@ -883,6 +884,26 @@ func newAuditTestDatabase(t *testing.T, kind, dsn string) (*gorm.DB, string) {
 		connection, err := db.DB()
 		if err == nil {
 			_ = connection.Close()
+		}
+		// Drop only the database this helper created. The setup connection was closed
+		// above, so reopen the admin connection to drop it.
+		cleanup, err := gorm.Open(original, &gorm.Config{})
+		if err != nil {
+			t.Errorf("open admin connection to drop isolated database %s: %v", name, err)
+			return
+		}
+		if kind == "postgres" {
+			// The package-level handles opened by the case keep connections to this database.
+			// End them, because PostgreSQL refuses to drop a database that is in use.
+			if err := cleanup.Exec("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = ? AND pid <> pg_backend_pid()", name).Error; err != nil {
+				t.Errorf("end sessions on isolated database %s: %v", name, err)
+			}
+		}
+		if err := cleanup.Exec("DROP DATABASE IF EXISTS " + name).Error; err != nil {
+			t.Errorf("drop isolated database %s: %v", name, err)
+		}
+		if sqlDB, err := cleanup.DB(); err == nil {
+			_ = sqlDB.Close()
 		}
 	})
 	return db, newDSN
