@@ -50,7 +50,7 @@ func setupOrganizationFundingTest(t *testing.T) (organizationId int, userId int)
 			_ = sqlDB.Close()
 		}
 	})
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Organization{}, &model.OrganizationMembership{},
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.Organization{}, &model.OrganizationMembership{},
 		&model.OrganizationQuotaAccount{}, &model.OrganizationMemberQuota{}, &model.OrganizationQuotaLedgerEntry{}))
 
 	organization := &model.Organization{Name: "Funding Co", Status: model.OrganizationStatusActive, CreatedTime: 1, UpdatedTime: 1}

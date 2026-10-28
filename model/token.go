@@ -32,6 +32,9 @@ type Token struct {
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
 	// 允许用此令牌查询所属用户的额度；新建令牌默认开启，已有令牌升级后保持关闭
 	AllowUserQuotaQuery bool `json:"allow_user_quota_query"`
+	// BillingOrganizationId is the organization that pays for requests made with this Key.
+	// Nil means the owner pays from their own wallet or subscription.
+	BillingOrganizationId *int `json:"billing_organization_id" gorm:"index"`
 }
 
 func (token *Token) GetAutoGroups() ([]string, error) {

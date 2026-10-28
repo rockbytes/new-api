@@ -221,8 +221,11 @@ func UpdateOrganizationName(id int, name string, now int64) error {
 
 // ChangeOrganizationStatus applies a Root-requested suspend or resume. Resuming
 // requires an active admin, so an organization cannot be usable without one.
+// Suspending disables the Keys members bound to the organization; resuming does not
+// re-enable them.
 func ChangeOrganizationStatus(id int, to string, now int64) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	var disabledKeys []string
+	err := DB.Transaction(func(tx *gorm.DB) error {
 		organization, err := lockOrganization(tx, id)
 		if err != nil {
 			return err
@@ -239,8 +242,23 @@ func ChangeOrganizationStatus(id int, to string, now int64) error {
 				return ErrOrganizationLastAdmin
 			}
 		}
-		return tx.Model(&Organization{}).Where("id = ?", id).Updates(map[string]any{"status": to, "updated_time": now}).Error
+		if err := tx.Model(&Organization{}).Where("id = ?", id).Updates(map[string]any{"status": to, "updated_time": now}).Error; err != nil {
+			return err
+		}
+		if to == OrganizationStatusSuspended {
+			keys, err := disableAllOrganizationPaidTokensTx(tx, id)
+			if err != nil {
+				return err
+			}
+			disabledKeys = keys
+		}
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	invalidateTokenKeys(disabledKeys)
+	return nil
 }
 
 func ListOrganizationMemberViews(organizationId int) ([]OrganizationMemberView, error) {
@@ -350,6 +368,7 @@ func getOrganizationMemberTx(tx *gorm.DB, organizationId int, userId int) (*Orga
 // log in or use the API (D12). Demoting or disabling the last active admin is refused.
 func UpdateOrganizationMember(organizationId int, userId int, role *string, status *string, now int64) error {
 	var update *userAuthUpdate
+	var disabledKeys []string
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		organization, err := lockOrganization(tx, organizationId)
 		if err != nil {
@@ -394,6 +413,13 @@ func UpdateOrganizationMember(organizationId int, userId int, role *string, stat
 		if nextStatus == membership.Status {
 			return nil
 		}
+		if nextStatus == OrganizationMembershipDisabled {
+			keys, err := disableOrganizationPaidTokensTx(tx, organizationId, userId)
+			if err != nil {
+				return err
+			}
+			disabledKeys = keys
+		}
 		accountStatus := common.UserStatusEnabled
 		if nextStatus == OrganizationMembershipDisabled {
 			accountStatus = common.UserStatusDisabled
@@ -411,6 +437,7 @@ func UpdateOrganizationMember(organizationId int, userId int, role *string, stat
 	if err != nil {
 		return err
 	}
+	invalidateTokenKeys(disabledKeys)
 	if update != nil {
 		update.finish()
 	}
@@ -458,6 +485,7 @@ func ResetOrganizationMemberPassword(organizationId int, userId int, password st
 // member's historical usage keeps its consumption-time organization snapshot.
 func DeleteOrganizationMember(organizationId int, userId int) error {
 	var result hardDeleteResult
+	var disabledKeys []string
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if _, err := lockOrganization(tx, organizationId); err != nil {
 			return err
@@ -475,6 +503,11 @@ func DeleteOrganizationMember(organizationId int, userId int) error {
 				return ErrOrganizationLastAdmin
 			}
 		}
+		keys, err := disableOrganizationPaidTokensTx(tx, organizationId, userId)
+		if err != nil {
+			return err
+		}
+		disabledKeys = keys
 		if err := tx.Delete(&OrganizationMembership{}, membership.Id).Error; err != nil {
 			return err
 		}
@@ -485,6 +518,7 @@ func DeleteOrganizationMember(organizationId int, userId int) error {
 	if err != nil {
 		return err
 	}
+	invalidateTokenKeys(disabledKeys)
 	result.finish(userId)
 	return nil
 }

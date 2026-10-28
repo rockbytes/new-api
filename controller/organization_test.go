@@ -62,7 +62,7 @@ func setupOrganizationTestDB(t *testing.T) *gorm.DB {
 
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.UserAccessToken{}, &model.AuthFlow{},
 		&model.PasskeyCredential{}, &model.TwoFA{}, &model.TwoFABackupCode{}, &model.Token{}, &model.ExternalIdentityClaim{},
-		&model.UserOAuthBinding{}, &model.Organization{}, &model.OrganizationMembership{}, &model.OrganizationQuotaAccount{},
+		&model.UserOAuthBinding{}, &model.Token{}, &model.Organization{}, &model.OrganizationMembership{}, &model.OrganizationQuotaAccount{},
 		&model.OrganizationMemberQuota{}, &model.OrganizationQuotaLedgerEntry{}))
 	return db
 }

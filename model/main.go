@@ -421,6 +421,10 @@ func migrateClickHouseLogDB() error {
 	if err := LOG_DB.Exec(clickHouseLogCreateTableSQL(ttlDays)).Error; err != nil {
 		return err
 	}
+	// CREATE TABLE IF NOT EXISTS does not add columns to a logs table created by an earlier release.
+	if err := LOG_DB.Exec("ALTER TABLE logs ADD COLUMN IF NOT EXISTS billing_organization_id Int32 DEFAULT 0").Error; err != nil {
+		return err
+	}
 	return syncClickHouseLogTTL(ttlDays)
 }
 
@@ -469,6 +473,7 @@ CREATE TABLE IF NOT EXISTS logs (
 	ip String DEFAULT '',
 	request_id String DEFAULT '',
 	upstream_request_id String DEFAULT '',
+	billing_organization_id Int32 DEFAULT 0,
 	other String DEFAULT ''
 )
 ENGINE = MergeTree()

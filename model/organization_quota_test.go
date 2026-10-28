@@ -121,7 +121,7 @@ func setupOrganizationQuotaTestDB(t *testing.T) (organizationId int, memberId in
 			_ = sqlDB.Close()
 		}
 	})
-	require.NoError(t, db.AutoMigrate(&User{}, &Organization{}, &OrganizationMembership{}, &OrganizationQuotaAccount{},
+	require.NoError(t, db.AutoMigrate(&User{}, &Token{}, &Organization{}, &OrganizationMembership{}, &OrganizationQuotaAccount{},
 		&OrganizationMemberQuota{}, &OrganizationQuotaLedgerEntry{}))
 
 	organization := &Organization{Name: "Quota Co", Status: OrganizationStatusActive, CreatedTime: 1, UpdatedTime: 1}
@@ -226,6 +226,37 @@ func TestOrganizationQuotaManualRefundIsCappedAndIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, applied, "replaying the same manual refund must not refund twice")
 
+	reconciliation := reconciliationOf(t, orgId)
+	assert.Equal(t, int64(0), reconciliation.ConsumedQuota)
+	assert.Equal(t, int64(0), reconciliation.MemberUsed)
+	assert.True(t, reconciliation.Balanced)
+}
+
+func TestOrganizationRequestSettlesToTargetThroughLedger(t *testing.T) {
+	orgId, memberId := setupOrganizationQuotaTestDB(t)
+	_, err := GrantOrganizationQuota(orgId, 1000, 1, "grant", "grant-task", 1)
+	require.NoError(t, err)
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 300, false, 2))
+	require.NoError(t, ConsumeOrganizationQuota(orgId, memberId, "req-task", 1, 100, 3))
+
+	// Settling to 70 refunds 30. Repeating the same settlement changes nothing.
+	charged, shortfall, err := SettleOrganizationRequestTo(orgId, memberId, "req-task", 70, 4)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), charged)
+	assert.Equal(t, int64(0), shortfall)
+	_, _, err = SettleOrganizationRequestTo(orgId, memberId, "req-task", 70, 5)
+	require.NoError(t, err)
+	assert.Equal(t, int64(70), reconciliationOf(t, orgId).ConsumedQuota, "a repeated settlement must not refund twice")
+
+	// Raising to 120 charges 50 more, within the member's allocation of 300.
+	charged, shortfall, err = SettleOrganizationRequestTo(orgId, memberId, "req-task", 120, 6)
+	require.NoError(t, err)
+	assert.Equal(t, int64(50), charged)
+	assert.Equal(t, int64(0), shortfall)
+
+	// A failed task settles to zero, which returns everything it still holds.
+	_, _, err = SettleOrganizationRequestTo(orgId, memberId, "req-task", 0, 7)
+	require.NoError(t, err)
 	reconciliation := reconciliationOf(t, orgId)
 	assert.Equal(t, int64(0), reconciliation.ConsumedQuota)
 	assert.Equal(t, int64(0), reconciliation.MemberUsed)

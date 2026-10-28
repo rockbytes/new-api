@@ -79,14 +79,15 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 	appendTaskLogInfo(task, other)
 	attachQuotaSaturation(c, info, other)
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
-		ChannelId: info.ChannelId,
-		ModelName: info.OriginModelName,
-		TokenName: tokenName,
-		Quota:     info.PriceData.Quota,
-		Content:   logContent,
-		TokenId:   info.TokenId,
-		Group:     info.UsingGroup,
-		Other:     other,
+		BillingOrganizationId: info.PayingOrganizationId,
+		ChannelId:             info.ChannelId,
+		ModelName:             info.OriginModelName,
+		TokenName:             tokenName,
+		Quota:                 info.PriceData.Quota,
+		Content:               logContent,
+		TokenId:               info.TokenId,
+		Group:                 info.UsingGroup,
+		Other:                 other,
 	})
 	model.UpdateUserUsedQuotaAndRequestCount(info.UserId, info.PriceData.Quota)
 	model.UpdateChannelUsedQuota(info.ChannelId, info.PriceData.Quota)
@@ -121,6 +122,27 @@ func taskAdjustFunding(task *model.Task, delta int) error {
 		return model.DecreaseUserQuota(task.UserId, delta, false)
 	}
 	return model.IncreaseUserQuota(task.UserId, -delta, false)
+}
+
+// taskRefundFunding returns the funding of a failed task. An organization-paid task returns
+// everything its request still holds in the organization ledger, so a capped settlement
+// cannot refund more than was charged.
+func taskRefundFunding(task *model.Task, quota int) error {
+	if task.BillingOrganizationId > 0 {
+		_, _, err := model.SettleOrganizationRequestTo(task.BillingOrganizationId, task.UserId, task.PrivateData.BillingRequestId, 0, common.GetTimestamp())
+		return err
+	}
+	return taskAdjustFunding(task, -quota)
+}
+
+// taskSettleFunding moves the funding of a settled task to its actual quota. An
+// organization-paid task moves the usage its request holds in the organization ledger.
+func taskSettleFunding(task *model.Task, actualQuota int, quotaDelta int) error {
+	if task.BillingOrganizationId > 0 {
+		_, _, err := model.SettleOrganizationRequestTo(task.BillingOrganizationId, task.UserId, task.PrivateData.BillingRequestId, int64(actualQuota), common.GetTimestamp())
+		return err
+	}
+	return taskAdjustFunding(task, quotaDelta)
 }
 
 // taskAdjustTokenQuota 调整任务的令牌额度，delta > 0 表示扣费，delta < 0 表示退还。
@@ -266,8 +288,8 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 		return true
 	}
 
-	// 1. 退还资金来源（钱包或订阅）
-	if err := taskAdjustFunding(task, -quota); err != nil {
+	// 1. 退还资金来源（钱包、订阅或付款组织）
+	if err := taskRefundFunding(task, quota); err != nil {
 		logger.LogWarn(ctx, common.LogText("failed to refund the funding source, task %s: %s", task.TaskID, err.Error()))
 		return false
 	}
@@ -328,8 +350,8 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		reason.Error(),
 	))
 
-	// 调整资金来源
-	if err := taskAdjustFunding(task, quotaDelta); err != nil {
+	// 调整资金来源（钱包、订阅或付款组织）
+	if err := taskSettleFunding(task, actualQuota, quotaDelta); err != nil {
 		logger.LogError(ctx, common.LogText("failed to adjust funding for the difference, task %s: %s", task.TaskID, err.Error()))
 		return
 	}

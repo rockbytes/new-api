@@ -540,6 +540,7 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 		c.Set("id", token.UserId)
 		c.Set("token_id", token.Id)
 		c.Set("token_key", token.Key)
+		c.Set("token_billing_organization_id", token.BillingOrganizationIdValue())
 		c.Next()
 	}
 }
@@ -696,6 +697,7 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 	c.Set("id", token.UserId)
 	c.Set("token_id", token.Id)
 	c.Set("token_key", token.Key)
+	c.Set("token_billing_organization_id", token.BillingOrganizationIdValue())
 	c.Set("token_name", token.Name)
 	c.Set("token_unlimited_quota", token.UnlimitedQuota)
 	if !token.UnlimitedQuota {

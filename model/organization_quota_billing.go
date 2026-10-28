@@ -127,47 +127,98 @@ func SettleOrganizationQuota(organizationId int, userId int, requestId string, s
 			}
 			return refundOrganizationQuotaTx(tx, organizationId, userId, -delta, key, requestId, 0, now)
 		}
-		account, err := lockOrganizationQuotaAccount(tx, organizationId, now)
+		var err error
+		charged, shortfall, err = chargeOrganizationSettlementTx(tx, organizationId, userId, requestId,
+			fmt.Sprintf("%s:%d", requestId, seq), delta, now)
+		return err
+	})
+	return charged, shortfall, err
+}
+
+// chargeOrganizationSettlementTx charges a positive settlement difference up to the smaller
+// of the member's and the organization's remaining quota, and records the rest as shortfall.
+// ref names the ledger entries. The caller holds the organization lock.
+func chargeOrganizationSettlementTx(tx *gorm.DB, organizationId int, userId int, requestId string, ref string, delta int64, now int64) (int64, int64, error) {
+	account, err := lockOrganizationQuotaAccount(tx, organizationId, now)
+	if err != nil {
+		return 0, 0, err
+	}
+	member, err := lockOrganizationMemberQuota(tx, organizationId, userId, now)
+	if err != nil {
+		return 0, 0, err
+	}
+	memberRemaining, orgRemaining := organizationRemaining(account, member)
+	charged := min(delta, max(memberRemaining, 0), max(orgRemaining, 0))
+	shortfall := delta - charged
+	if charged > 0 {
+		key, err := organizationLedgerKey(OrganizationLedgerSettle, organizationId, ref)
+		if err != nil {
+			return 0, 0, err
+		}
+		recorded, err := recordOrganizationLedgerEntry(tx, &OrganizationQuotaLedgerEntry{
+			OrganizationId: organizationId, EventType: OrganizationLedgerSettle, Amount: charged, TargetUserId: userId,
+			RequestId: requestId, IdempotencyKey: key, CreatedTime: now,
+		})
+		if err != nil {
+			return 0, 0, err
+		}
+		if recorded {
+			if err := applyOrganizationUsage(tx, organizationId, userId, charged, now); err != nil {
+				return 0, 0, err
+			}
+		}
+	}
+	if shortfall > 0 {
+		key, err := organizationLedgerKey(OrganizationLedgerShortfall, organizationId, ref)
+		if err != nil {
+			return 0, 0, err
+		}
+		if _, err := recordOrganizationLedgerEntry(tx, &OrganizationQuotaLedgerEntry{
+			OrganizationId: organizationId, EventType: OrganizationLedgerShortfall, Amount: shortfall, TargetUserId: userId,
+			RequestId: requestId, IdempotencyKey: key, CreatedTime: now,
+		}); err != nil {
+			return 0, 0, err
+		}
+	}
+	return charged, shortfall, nil
+}
+
+// SettleOrganizationRequestTo moves the usage a request holds in the organization ledger to
+// target, charging or refunding the difference. Task settlement uses it because the final
+// quota is applied in a later process, after the pre-consume funding is gone, so the held
+// amount comes from the ledger rather than from the task. The ledger key includes the
+// target, so repeating the same settlement is a no-op: once the hold equals the target, the
+// difference is zero. A failed task settles to zero, which returns everything it holds.
+func SettleOrganizationRequestTo(organizationId int, userId int, requestId string, target int64, now int64) (int64, int64, error) {
+	if target < 0 {
+		return 0, 0, ErrOrganizationQuotaInvalidAmount
+	}
+	if requestId == "" {
+		return 0, 0, ErrOrganizationLedgerRefInvalid
+	}
+	ref := fmt.Sprintf("%s:target:%d", requestId, target)
+	var charged, shortfall int64
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if _, err := lockOrganization(tx, organizationId); err != nil {
+			return err
+		}
+		held, err := organizationRequestNetCharged(tx, organizationId, requestId)
 		if err != nil {
 			return err
 		}
-		member, err := lockOrganizationMemberQuota(tx, organizationId, userId, now)
-		if err != nil {
-			return err
+		delta := target - held
+		if delta == 0 {
+			return nil
 		}
-		memberRemaining, orgRemaining := organizationRemaining(account, member)
-		charged = min(delta, max(memberRemaining, 0), max(orgRemaining, 0))
-		shortfall = delta - charged
-		if charged > 0 {
-			key, err := organizationLedgerKey(OrganizationLedgerSettle, organizationId, fmt.Sprintf("%s:%d", requestId, seq))
+		if delta < 0 {
+			key, err := organizationLedgerKey(OrganizationLedgerRefund, organizationId, ref)
 			if err != nil {
 				return err
 			}
-			recorded, err := recordOrganizationLedgerEntry(tx, &OrganizationQuotaLedgerEntry{
-				OrganizationId: organizationId, EventType: OrganizationLedgerSettle, Amount: charged, TargetUserId: userId,
-				RequestId: requestId, IdempotencyKey: key, CreatedTime: now,
-			})
-			if err != nil {
-				return err
-			}
-			if recorded {
-				if err := applyOrganizationUsage(tx, organizationId, userId, charged, now); err != nil {
-					return err
-				}
-			}
+			return refundOrganizationQuotaTx(tx, organizationId, userId, -delta, key, requestId, 0, now)
 		}
-		if shortfall > 0 {
-			key, err := organizationLedgerKey(OrganizationLedgerShortfall, organizationId, fmt.Sprintf("%s:%d", requestId, seq))
-			if err != nil {
-				return err
-			}
-			_, err = recordOrganizationLedgerEntry(tx, &OrganizationQuotaLedgerEntry{
-				OrganizationId: organizationId, EventType: OrganizationLedgerShortfall, Amount: shortfall, TargetUserId: userId,
-				RequestId: requestId, IdempotencyKey: key, CreatedTime: now,
-			})
-			return err
-		}
-		return nil
+		charged, shortfall, err = chargeOrganizationSettlementTx(tx, organizationId, userId, requestId, ref, delta, now)
+		return err
 	})
 	return charged, shortfall, err
 }
