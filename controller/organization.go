@@ -83,6 +83,10 @@ func respondOrganizationError(c *gin.Context, err error) {
 		writeOrganizationError(c, http.StatusConflict, "ORGANIZATION_USERNAME_TAKEN", "Username is already taken")
 	case errors.Is(err, model.ErrUserInOrganization):
 		writeOrganizationError(c, http.StatusConflict, "USER_IN_ORGANIZATION", "User belongs to an organization; remove the membership first")
+	case errors.Is(err, model.ErrOrganizationUnallocatedInsufficient):
+		writeOrganizationError(c, http.StatusConflict, "ORGANIZATION_QUOTA_INSUFFICIENT", "Unallocated quota is not enough for this change")
+	case errors.Is(err, model.ErrOrganizationAdjustModeInvalid):
+		writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_INVALID_REQUEST", "Invalid adjustment mode")
 	case errors.Is(err, model.ErrOrganizationQuotaInvalidAmount):
 		writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_QUOTA_INVALID_AMOUNT", "Invalid quota amount")
 	case errors.Is(err, model.ErrOrganizationLedgerRefInvalid):

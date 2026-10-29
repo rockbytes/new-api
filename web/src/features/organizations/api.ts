@@ -28,6 +28,8 @@ import type {
   OrganizationDetail,
   OrganizationPage,
   OrganizationDeletionImpact,
+  OrganizationQuotaAdjustPayload,
+  OrganizationQuotaAdjustment,
   OrganizationStatus,
 } from './types'
 
@@ -75,6 +77,14 @@ export async function getOrganizationQuota(
   id: number
 ): Promise<OrganizationQuota> {
   const res = await api.get(`/api/organization/${id}/quota`)
+  return requireServerSuccess(res.data).data
+}
+
+export async function adjustOrganizationQuota(
+  id: number,
+  payload: OrganizationQuotaAdjustPayload
+): Promise<OrganizationQuotaAdjustment> {
+  const res = await api.post(`/api/organization/${id}/quota/adjust`, payload)
   return requireServerSuccess(res.data).data
 }
 

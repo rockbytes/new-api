@@ -65,7 +65,20 @@ export interface OrganizationQuota {
   remaining_quota: number
   member_used: number
   allocated: number
+  unallocated: number
   balanced: boolean
+}
+
+export interface OrganizationQuotaAdjustPayload {
+  mode: 'add' | 'subtract' | 'override'
+  amount: number
+  reason: string
+  reference: string
+}
+
+export interface OrganizationQuotaAdjustment {
+  applied: boolean
+  unallocated: number
 }
 
 export interface GrantOrganizationQuotaPayload {

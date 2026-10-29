@@ -260,7 +260,7 @@
     "Actual Model": "Mô hình thực tế",
     "Actual Model:": "Mô hình thực tế:",
     "Adapt `-thinking`, `-nothinking`, and effort suffixes such as `-high` to Anthropic native thinking behavior while keeping billing predictable. When off, model names are sent upstream unchanged.": "Điều chỉnh các yêu cầu có hậu tố `-thinking`, `-nothinking` và các hậu tố mức suy luận như `-high` sang hành vi suy luận gốc của Anthropic trong khi vẫn giữ tính phí dễ dự đoán. Khi tắt, tên mô hình được gửi nguyên vẹn lên upstream.",
-    "Add": "Add",
+    "Add": "Thêm",
     "Add \"{{value}}\"": "Thêm \"{{value}}\"",
     "Add {{added}} models and remove {{removed}} models": "Thêm {{added}} mô hình và xóa {{removed}} mô hình",
     "Add {{count}} mapping(s)": "Thêm {{count}} ánh xạ",

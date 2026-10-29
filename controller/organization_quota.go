@@ -157,3 +157,30 @@ func SetOwnOrganizationMemberAllocation(c *gin.Context) {
 	}
 	common.ApiSuccess(c, nil)
 }
+
+type organizationAdjustRequest struct {
+	Mode      string `json:"mode"`
+	Amount    int64  `json:"amount"`
+	Reason    string `json:"reason"`
+	Reference string `json:"reference"`
+}
+
+// RootAdjustOrganizationQuota adds to, subtracts from, or overrides the organization's
+// unallocated quota. Platform administrators and Root may use it.
+func RootAdjustOrganizationQuota(c *gin.Context) {
+	id, ok := organizationIdParam(c)
+	if !ok {
+		return
+	}
+	var req organizationAdjustRequest
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.Reason) > organizationQuotaReasonMaxLength {
+		writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_INVALID_REQUEST", "Invalid request")
+		return
+	}
+	result, err := model.AdjustOrganizationUnallocatedQuota(id, req.Mode, req.Amount, c.GetInt("id"), req.Reason, req.Reference, common.GetTimestamp())
+	if err != nil {
+		respondOrganizationError(c, err)
+		return
+	}
+	common.ApiSuccess(c, result)
+}

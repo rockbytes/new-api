@@ -447,3 +447,44 @@ func useLogDatabaseForDeletion(t *testing.T) {
 	require.NoError(t, DB.AutoMigrate(&Log{}, &Task{}, &UserSession{}, &AuthFlow{}, &ExternalIdentityClaim{},
 		&PasskeyCredential{}, &TwoFA{}, &TwoFABackupCode{}, &UserOAuthBinding{}, &UserAccessToken{}))
 }
+
+func TestOrganizationUnallocatedAdjustmentAddsSubtractsAndOverridesThroughTheLedger(t *testing.T) {
+	organizationId, memberId := setupOrganizationQuotaTestDB(t)
+
+	added, err := AdjustOrganizationUnallocatedQuota(organizationId, OrganizationAdjustAdd, 1000, 1, "top up", "adjust-add-1", 1)
+	require.NoError(t, err)
+	assert.True(t, added.Applied)
+	assert.Equal(t, int64(1000), added.Unallocated)
+
+	subtracted, err := AdjustOrganizationUnallocatedQuota(organizationId, OrganizationAdjustSubtract, 400, 1, "correction", "adjust-subtract-1", 2)
+	require.NoError(t, err)
+	assert.True(t, subtracted.Applied)
+	assert.Equal(t, int64(600), subtracted.Unallocated)
+
+	_, err = AdjustOrganizationUnallocatedQuota(organizationId, OrganizationAdjustSubtract, 700, 1, "too much", "adjust-subtract-2", 3)
+	assert.ErrorIs(t, err, ErrOrganizationUnallocatedInsufficient, "the pool cannot go below zero")
+
+	require.NoError(t, SetOrganizationMemberAllocation(organizationId, memberId, 300, false, 3))
+	unchanged, err := AdjustOrganizationUnallocatedQuota(organizationId, OrganizationAdjustOverride, 300, 1, "already there", "adjust-override-same", 4)
+	require.NoError(t, err)
+	assert.False(t, unchanged.Applied, "overriding to the current value changes nothing")
+	assert.Equal(t, int64(300), unchanged.Unallocated, "quota held by the member is not part of the pool")
+
+	cleared, err := AdjustOrganizationUnallocatedQuota(organizationId, OrganizationAdjustOverride, 0, 1, "clear before deletion", "adjust-override-0", 5)
+	require.NoError(t, err)
+	assert.True(t, cleared.Applied)
+	assert.Equal(t, int64(0), cleared.Unallocated)
+
+	repeated, err := AdjustOrganizationUnallocatedQuota(organizationId, OrganizationAdjustAdd, 1000, 1, "top up", "adjust-add-1", 6)
+	require.NoError(t, err)
+	assert.False(t, repeated.Applied, "a reference applies once")
+
+	_, err = AdjustOrganizationUnallocatedQuota(organizationId, "double", 1, 1, "bad mode", "adjust-bad-mode", 7)
+	assert.ErrorIs(t, err, ErrOrganizationAdjustModeInvalid)
+
+	var revokes, grants int64
+	require.NoError(t, DB.Model(&OrganizationQuotaLedgerEntry{}).Where("event_type = ?", OrganizationLedgerRevoke).Count(&revokes).Error)
+	require.NoError(t, DB.Model(&OrganizationQuotaLedgerEntry{}).Where("event_type = ?", OrganizationLedgerGrant).Count(&grants).Error)
+	assert.Equal(t, int64(2), revokes, "subtract and the clearing override are recorded as revokes")
+	assert.Equal(t, int64(1), grants, "only the add is recorded as a grant")
+}

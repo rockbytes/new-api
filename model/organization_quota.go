@@ -33,6 +33,7 @@ import (
 // (request or task ID, or a generated operator ID), so a retried call cannot apply twice.
 const (
 	OrganizationLedgerGrant      = "grant"      // platform grant that raises the organization total (D8)
+	OrganizationLedgerRevoke     = "revoke"     // manual reduction of the unallocated pool (adjust mode subtract or override)
 	OrganizationLedgerPreConsume = "preconsume" // usage reserved before a request runs
 	OrganizationLedgerSettle     = "settle"     // additional usage charged after a request's final quota is known
 	OrganizationLedgerRefund     = "refund"     // usage returned to the organization and the member
@@ -97,6 +98,7 @@ type OrganizationQuotaReconciliation struct {
 	RemainingQuota int64 `json:"remaining_quota"`
 	MemberUsed     int64 `json:"member_used"`
 	Allocated      int64 `json:"allocated"`
+	Unallocated    int64 `json:"unallocated"`
 	Balanced       bool  `json:"balanced"`
 }
 
@@ -253,12 +255,117 @@ func GetOrganizationQuotaReconciliation(organizationId int) (*OrganizationQuotaR
 	if err := DB.Model(&OrganizationMemberQuota{}).Select("COALESCE(SUM(allocated_quota), 0)").Where("organization_id = ?", organizationId).Scan(&allocated).Error; err != nil {
 		return nil, err
 	}
+	remaining := account.GrantedQuota - account.ConsumedQuota
 	return &OrganizationQuotaReconciliation{
 		GrantedQuota:   account.GrantedQuota,
 		ConsumedQuota:  account.ConsumedQuota,
-		RemainingQuota: account.GrantedQuota - account.ConsumedQuota,
+		RemainingQuota: remaining,
 		MemberUsed:     memberUsed,
 		Allocated:      allocated,
+		Unallocated:    remaining - (allocated - memberUsed),
 		Balanced:       account.ConsumedQuota == memberUsed && account.GrantedQuota >= account.ConsumedQuota,
 	}, nil
+}
+
+const (
+	OrganizationAdjustAdd      = "add"
+	OrganizationAdjustSubtract = "subtract"
+	OrganizationAdjustOverride = "override"
+)
+
+var (
+	ErrOrganizationAdjustModeInvalid       = errors.New("invalid organization quota adjustment mode")
+	ErrOrganizationUnallocatedInsufficient = errors.New("organization unallocated quota is insufficient")
+)
+
+// OrganizationQuotaAdjustment reports the unallocated balance after an adjustment.
+// Applied is false when nothing changed: the target already held, or the reference was
+// used before.
+type OrganizationQuotaAdjustment struct {
+	Applied     bool  `json:"applied"`
+	Unallocated int64 `json:"unallocated"`
+}
+
+// AdjustOrganizationUnallocatedQuota changes the unallocated pool the way an administrator
+// sets a user's balance: add, subtract, or override to a target. The pool is what the
+// organization has been granted and has not yet allocated to members, so the change never
+// touches quota that members hold or organization usage already recorded. Every change is
+// recorded in the ledger with its direction.
+func AdjustOrganizationUnallocatedQuota(organizationId int, mode string, amount int64, actorUserId int, reason string, ref string, now int64) (OrganizationQuotaAdjustment, error) {
+	if mode != OrganizationAdjustAdd && mode != OrganizationAdjustSubtract && mode != OrganizationAdjustOverride {
+		return OrganizationQuotaAdjustment{}, ErrOrganizationAdjustModeInvalid
+	}
+	if amount < 0 || (amount == 0 && mode != OrganizationAdjustOverride) {
+		return OrganizationQuotaAdjustment{}, ErrOrganizationQuotaInvalidAmount
+	}
+	var result OrganizationQuotaAdjustment
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if _, err := lockOrganization(tx, organizationId); err != nil {
+			return err
+		}
+		account, err := lockOrganizationQuotaAccount(tx, organizationId, now)
+		if err != nil {
+			return err
+		}
+		var held int64
+		if err := tx.Model(&OrganizationMemberQuota{}).
+			Select("COALESCE(SUM(allocated_quota - used_quota), 0)").
+			Where("organization_id = ?", organizationId).
+			Scan(&held).Error; err != nil {
+			return err
+		}
+		unallocated := account.GrantedQuota - account.ConsumedQuota - held
+		result.Unallocated = unallocated
+
+		var delta int64
+		switch mode {
+		case OrganizationAdjustAdd:
+			delta = amount
+		case OrganizationAdjustSubtract:
+			if amount > unallocated {
+				return ErrOrganizationUnallocatedInsufficient
+			}
+			delta = -amount
+		case OrganizationAdjustOverride:
+			delta = amount - unallocated
+		}
+		if delta == 0 {
+			return nil
+		}
+
+		eventType := OrganizationLedgerGrant
+		magnitude := delta
+		if delta < 0 {
+			eventType = OrganizationLedgerRevoke
+			magnitude = -delta
+		}
+		key, err := organizationLedgerKey(eventType, organizationId, ref)
+		if err != nil {
+			return err
+		}
+		recorded, err := recordOrganizationLedgerEntry(tx, &OrganizationQuotaLedgerEntry{
+			OrganizationId: organizationId, EventType: eventType, Amount: magnitude,
+			ActorUserId: actorUserId, Reason: reason, IdempotencyKey: key, CreatedTime: now,
+		})
+		if err != nil || !recorded {
+			return err
+		}
+		granted := account.GrantedQuota + delta
+		if delta > 0 {
+			granted, err = addOrganizationQuota(account.GrantedQuota, delta)
+			if err != nil {
+				return err
+			}
+		}
+		if err := tx.Model(&OrganizationQuotaAccount{}).Where("organization_id = ?", organizationId).Updates(map[string]any{
+			"granted_quota": granted,
+			"updated_time":  now,
+		}).Error; err != nil {
+			return err
+		}
+		result.Applied = true
+		result.Unallocated = unallocated + delta
+		return nil
+	})
+	return result, err
 }

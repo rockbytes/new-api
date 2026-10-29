@@ -18,12 +18,16 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import {
+  type QuotaAdjustMode,
+  QuotaAdjustDialog,
+} from '@/components/quota-adjust-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -38,6 +42,7 @@ import { formatQuotaWithCurrency } from '@/lib/currency'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import {
+  adjustOrganizationQuota,
   getOrganizationQuota,
   grantOrganizationQuota,
   refundOrganizationRequest,
@@ -55,6 +60,7 @@ export function OrganizationQuotaSection(props: OrganizationQuotaSectionProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const organizationId = props.organizationId
+  const [adjustOpen, setAdjustOpen] = useState(false)
 
   const quotaQuery = useQuery({
     queryKey: ['organization-quota', organizationId],
@@ -160,8 +166,31 @@ export function OrganizationQuotaSection(props: OrganizationQuotaSectionProps) {
 
   const quota = quotaQuery.data
 
+  // Adjusts the unallocated pool the way a user's balance is adjusted: add, subtract, or override.
+  const handleAdjust = async (mode: QuotaAdjustMode, value: number) => {
+    try {
+      await adjustOrganizationQuota(organizationId, {
+        mode,
+        amount: value,
+        reason: '',
+        reference: `adjust-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      })
+      toast.success(t('Quota adjusted successfully'))
+      refresh()
+      return true
+    } catch (error) {
+      handleServerError(error, t('Failed to adjust quota'))
+      return false
+    }
+  }
+
   return (
     <div className='flex flex-col gap-4'>
+      <div className='flex justify-end'>
+        <Button variant='outline' size='sm' onClick={() => setAdjustOpen(true)}>
+          {t('Adjust Quota')}
+        </Button>
+      </div>
       <dl className='grid grid-cols-2 gap-3 text-sm sm:grid-cols-4'>
         <div>
           <dt className='text-muted-foreground'>{t('Granted quota')}</dt>
@@ -179,7 +208,17 @@ export function OrganizationQuotaSection(props: OrganizationQuotaSectionProps) {
           <dt className='text-muted-foreground'>{t('Allocated to members')}</dt>
           <dd>{formatQuotaWithCurrency(quota?.allocated)}</dd>
         </div>
+        <div>
+          <dt className='text-muted-foreground'>{t('Unallocated quota')}</dt>
+          <dd>{formatQuotaWithCurrency(quota?.unallocated)}</dd>
+        </div>
       </dl>
+      <QuotaAdjustDialog
+        open={adjustOpen}
+        onOpenChange={setAdjustOpen}
+        currentQuota={quota?.unallocated ?? 0}
+        onConfirm={handleAdjust}
+      />
 
       <Form {...grantForm}>
         <form

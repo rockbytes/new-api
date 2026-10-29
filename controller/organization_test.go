@@ -95,6 +95,7 @@ func organizationTestEngine(userId int, role int) *gin.Engine {
 	root.PUT("/:id/status", UpdateOrganizationStatus)
 	root.GET("/:id/quota", RootGetOrganizationQuota)
 	root.POST("/:id/quota/grant", RootGrantOrganizationQuota)
+	root.POST("/:id/quota/adjust", RootAdjustOrganizationQuota)
 	root.PUT("/:id/members/:user_id/quota", RootSetOrganizationMemberAllocation)
 	root.POST("/:id/requests/:request_id/refund", RootRefundOrganizationRequest)
 	root.GET("/:id/deletion-impact", GetOrganizationDeletionImpact)
@@ -572,4 +573,21 @@ func TestOrganizationDeleteEndpointBlocksUntilClearedThenSoftDeletes(t *testing.
 	organization, err := model.GetOrganizationById(emptyId)
 	require.NoError(t, err)
 	assert.Equal(t, model.OrganizationStatusDeleted, organization.Status)
+}
+
+func TestOrganizationQuotaAdjustEndpointAddsAndRefusesOverdraw(t *testing.T) {
+	db := setupOrganizationTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Task{}, &model.Log{}, &model.AuditLog{}))
+	organizationId := createOrganizationWithAdmin(t, "Adjust Co", "adjust-admin")
+	path := fmt.Sprintf("/api/organization/%d/quota/adjust", organizationId)
+
+	recorder := doOrganizationRequest(t, organizationTestRootId, http.MethodPost, path,
+		`{"mode":"add","amount":1000,"reason":"top up","reference":"endpoint-add"}`)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	assert.Contains(t, recorder.Body.String(), `"unallocated":1000`)
+
+	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodPost, path,
+		`{"mode":"subtract","amount":1500,"reason":"too much","reference":"endpoint-subtract"}`)
+	assert.Equal(t, http.StatusConflict, recorder.Code)
+	assert.Equal(t, "ORGANIZATION_QUOTA_INSUFFICIENT", organizationErrorCode(t, recorder))
 }
