@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var expectedKeys = []string{"alibaba", "doubao", "google", "hailuo", "jimeng", "kling", "sora", "sunoapi", "vertex-ai", "vidu", "xai"}
+var expectedKeys = []string{"alibaba", "doubao", "google", "hailuo", "jimeng", "kling", "sunoapi", "vertex-ai", "vidu", "xai"}
 
 func TestBuiltInVendorPluginsDeclareNativeRoutesAndLegacyChannelTypes(t *testing.T) {
 	generation := jsplugin.DefaultRegistry.Generation()
@@ -75,13 +75,11 @@ func TestBuiltInVendorPluginsDeclareNativeRoutesAndLegacyChannelTypes(t *testing
 		value int
 		key   string
 	}{
-		{1, "sora"},
 		{36, "sunoapi"},
 		{45, "doubao"},
 		{50, "kling"},
 		{51, "jimeng"},
 		{54, "doubao"},
-		{55, "sora"},
 		{48, "xai"},
 	}
 	for _, channelType := range channelTypes {
@@ -248,17 +246,6 @@ func TestBuiltInPluginsAddressNewAPIUpstreamOnNativeRoutes(t *testing.T) {
 			gatewaySubmit:    "/suno/submit/MUSIC",
 			vendorQuery:      "/suno/fetch",
 			gatewayQuery:     "/suno/fetch",
-		},
-		{
-			key:              "sora",
-			driver:           map[string]any{"action": "text_to_video", "model": "sora-2", "upstreamModel": "sora-2", "requestBody": map[string]any{"prompt": "a cat"}},
-			vendorKey:        "vendor-key",
-			vendorAuthPrefix: "Bearer vendor-key",
-			vendorSubmit:     "/v1/videos",
-			gatewaySubmit:    "/v1/videos",
-			vendorQuery:      "/v1/videos/tid",
-			gatewayQuery:     "/v1/videos/tid",
-			content:          "/v1/videos/tid/content",
 		},
 		{
 			key:              "xai",

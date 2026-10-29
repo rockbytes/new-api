@@ -218,11 +218,13 @@ func TestKlingNativeRouteSubmitPollSettleAndQuery(t *testing.T) {
 	require.NoError(t, database.Where("task_id = ?", "task_kling_public").First(&persisted).Error)
 	assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), persisted.Status)
 	assert.Equal(t, "100%", persisted.Progress)
-	assert.Equal(t, 1, persisted.Quota)
+	// Kling credits are not tokens. Under a legacy model ratio the reservation stays, because
+	// credits convert to quota only through a units expression.
+	assert.Equal(t, 250_000, persisted.Quota)
 	assert.Equal(t, int32(1), queryCalls.Load())
 	var settledUser model.User
 	require.NoError(t, database.First(&settledUser, 7).Error)
-	assert.Equal(t, 999_999, settledUser.Quota)
+	assert.Equal(t, 750_000, settledUser.Quota)
 
 	queryBinding, found := generation.LookupDeclaredRoute(http.MethodGet, "/kling/v1/videos/text2video/:task_id")
 	require.True(t, found)

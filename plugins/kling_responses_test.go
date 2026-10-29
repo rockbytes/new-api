@@ -102,3 +102,36 @@ func TestKlingResponsesProtocol(t *testing.T) {
 		assert.Equal(t, 2.0, facts["units"], "kling-v1 std costs 0.2 credits per second")
 	})
 }
+
+// Kling reports settlement in credits. Credits are their own billing unit, so a finished task
+// must not expose them as token counts, which the host bills as token usage when no usage
+// expression applies. The credit count still reaches settlement as the units fact.
+func TestKlingFinishedTaskSettlesCreditsAsUnitsNotTokens(t *testing.T) {
+	source, err := builtinplugins.Source("kling")
+	require.NoError(t, err)
+	plugin, err := jsplugin.NewRegistry().RegisterFactory(source, jsplugin.Options{Key: "kling"})
+	require.NoError(t, err)
+	body := map[string]any{
+		"code": 0,
+		"data": map[string]any{
+			"task_id":              "kling-credits-1",
+			"task_status":          "succeed",
+			"final_unit_deduction": "3.5",
+			"task_result":          map[string]any{"videos": []any{map[string]any{"url": "https://cdn.example/video.mp4"}}},
+		},
+	}
+
+	parsed, err := plugin.Engine.Call(t.Context(), "parseTaskResult", map[string]any{}, body)
+	require.NoError(t, err)
+	result, ok := parsed.(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "SUCCESS", result["status"])
+	assert.NotContains(t, result, "completionTokens")
+	assert.NotContains(t, result, "totalTokens")
+
+	facts, err := plugin.Engine.Call(t.Context(), "extractUsageOnComplete", map[string]any{}, map[string]any{}, body)
+	require.NoError(t, err)
+	usage, ok := facts.(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, 3.5, usage["units"])
+}

@@ -25,8 +25,6 @@ func TestGetTaskAdaptorMapsMigratedPlatformsToFactoryPlugins(t *testing.T) {
 		constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeJimeng)),
 		constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeKling)),
 		constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeVidu)),
-		constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeSora)),
-		constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeOpenAI)),
 		constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeVertexAi)),
 	}
 	for _, platform := range platforms {
@@ -76,23 +74,4 @@ export function parseTaskResult() { return {status: "SUCCESS"}; }
 	require.NotNil(t, adaptor)
 	assert.Equal(t, constant.TaskPlatform("pinned-request"), platform)
 	assert.Equal(t, "Pinned Generation", adaptor.GetChannelName())
-}
-
-func TestGetTaskAdaptorForRequestPinsLegacyMappedPlugin(t *testing.T) {
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos/video_1/remix", nil)
-	legacyPlatform := constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeSora))
-
-	platform, adaptor := getTaskAdaptorForRequest(c, legacyPlatform)
-
-	require.NotNil(t, adaptor)
-	assert.Equal(t, legacyPlatform, platform)
-	pinnedValue, exists := c.Get(pluginruntime.ContextKeyPinnedPlugin)
-	require.True(t, exists)
-	pinned, ok := pinnedValue.(pluginruntime.PinnedPlugin)
-	require.True(t, ok)
-	require.NotNil(t, pinned.Generation)
-	require.NotNil(t, pinned.Plugin)
-	assert.Equal(t, "sora", pinned.Plugin.Meta.Key)
-	assert.Same(t, pinned.Generation, pluginruntime.DefaultRegistry.Generation())
 }

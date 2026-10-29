@@ -1,10 +1,10 @@
 ---
 title: 公司组织 P6：视频与异步任务计价修正
-status: planned
+status: done
 created: 2026-10-26
-updated: 2026-10-26
+updated: 2026-10-29
+completed: 2026-10-29
 owner: TBD
-completed:
 ---
 
 # 公司组织 P6：视频与异步任务计价修正
@@ -48,13 +48,26 @@ completed:
 
 ## 验证结果
 
-实施后填写。计划包括：
+- Sora 移除（2026-10-29）：删除 `plugins/tasks/sora` 与 `plugins/sora_responses_test.go`；删除 `relay/relay_adaptor.go` 中渠道类型 55 与 1 到 `sora` 插件的映射；更新 `plugins/builtin_plugins_test.go`、`relay/relay_adaptor_jsplugin_test.go`；删除只验证 Sora 插件的 `relay/channel/task/jsplugin/adaptor_test.go` 用例。`plugins`、`relay`、`router`、`middleware`、`service`、`pkg/jsplugin`、`setting`、`relay/channel/task/jsplugin` 与 `controller` 中 Plugin、Task、Kling、Channel 相关测试通过。
+- 迁移注意：已绑定 `sora` 插件 key 的类型 61 渠道需要改绑；渠道类型 55 与 OpenAI 渠道不再有视频插件映射。
+- 未在本次移除的非插件引用：模型名列表（OpenAI 渠道常量、模型倍率默认值）、前端渠道与定价文案、`relay/common/relay_utils.go` 中 `sora-2` 的尺寸校验、`pkg/billingexpr/expr.md` 与 `docs/plugin-api/v1.md` 中的示例。这些需要单独决定是否清理。
 
-- 每个插件的回归矩阵结果（预扣、成功结算、失败退款、缺失或非法用量），记录命令与输出；
-- 精确额度结果的表达式测试；
-- 插件 schema 与 `v1.d.ts`、`v1.schema.json` 的一致性检查；
-- 若涉及数据库结构变化，则按 AGENTS.md 完成三种数据库验证；否则说明本计划未改动数据库。
+2026-10-29 核对结果（官方页面经 WebFetch 或子代理读取，引文以官方页面为准）：
+
+- **Ark / Doubao**：官方按完成 Token 计费，`usage.completion_tokens` 可作为计费对账依据；单价随模型版本、分辨率与参考视频输入变化；生成失败不计费；`duration` 为 -1 时由模型选择时长，实际时长在查询响应的 `duration` 字段返回。当前 schema（token 单位、resolution、video_input）与 completion_tokens 结算一致。结论：无需修改。
+- **Alibaba Wan**：官方按秒计费，失败不计费；Wan3.0 按输入加输出时长计费，Wan2.7 的 `usage.duration` 为计费时长；音频只影响 wan2.6-i2v-flash 的价格。当前提取逻辑与之一致。结论：无需修改。未核对：货币单位、Wan3.0 的 `duration: -1` 计费规则、wan3.0-video 列价与限时折扣价的区别。
+- **Kling**：官方开发文档在本次核对中无法读取，credit 单价、`final_unit_deduction` 的类型与含义均未经官方确认。缺陷已修复（插件 1.1.2）：解析结果曾把 credit 写入 `completionTokens` / `totalTokens`，无用量表达式时会按 Token 结算。现在 credit 只通过 `units` 事实结算，无表达式时保留预扣估算。
+- **Sora**：OpenAI 官方弃用页面列出 Videos API、`sora-2`、`sora-2-pro` 于 2026-09-24 移除，且无替代接口。插件无法对照现行 API 核对计价。
+
+回归测试：
+
+- `plugins`：TestKlingFinishedTaskSettlesCreditsAsUnitsNotTokens。修复前失败（返回 completionTokens 4），修复后通过。
+- `controller`：TestKlingNativeRouteSubmitPollSettleAndQuery 更新为预期结果：credit 不按 Token 结算，保留 250,000 预扣额度，用户余额为 750,000。
+- `plugins`、`service`、`relay/channel/task/jsplugin`、`setting` 包测试通过；`controller` 中 Plugin、Kling、Task 相关测试通过。
 
 ## 阻塞原因
 
-当前无内部阻塞。若无法访问供应商正式计费文档，无法确认计费字段和费率，则将本计划移入 `todo/blocked/` 并记录具体缺失的文档。
+当前无阻塞。
+
+- **Kling**：官方计费文档仍无法读取，`final_unit_deduction` 的字段语义未经官方确认。该风险已由负责人接受：只用旧模型倍率计价的 Kling 任务不再按实际 credit 结算，保留预扣额度；管理员需为 Kling 配置 `u("units")` 表达式。
+- **Sora**：已移除，不再有阻塞。
