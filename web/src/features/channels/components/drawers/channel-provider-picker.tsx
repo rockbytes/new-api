@@ -46,6 +46,7 @@ import {
   CHANNEL_TYPE_OPTIONS,
   CHANNEL_TYPE_SUB2API,
   CHANNEL_TYPE_TASK_PLUGIN,
+  RETIRED_CHANNEL_TYPES,
   type ChannelProviderPresentation,
 } from '../../constants'
 import { CHANNEL_TYPE_ADVANCED_CUSTOM } from '../../lib/advanced-custom'
@@ -115,6 +116,7 @@ export function ChannelProviderPicker(props: ChannelProviderPickerProps) {
       searchText: string
     }> = []
     for (const option of CHANNEL_TYPE_OPTIONS) {
+      if (props.isCreating && RETIRED_CHANNEL_TYPES.has(option.value)) continue
       if (option.value === CHANNEL_TYPE_TASK_PLUGIN) {
         if (!props.canBindPlugin || (filter !== 'all' && filter !== 'plugin')) {
           continue

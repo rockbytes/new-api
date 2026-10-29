@@ -363,15 +363,21 @@ test.each([
         onSelect={select}
       />
     )
-    for (const provider of migratedProviders) {
+    for (const provider of migratedProviders.filter(
+      (item) => item.type !== 55
+    )) {
       expect(
         screen.getByRole('option', {
           name: `${provider.label} Built-in #${provider.type}`,
         })
       ).toBeVisible()
     }
-    await user.click(screen.getByRole('option', { name: 'Sora Built-in #55' }))
-    expect(select).toHaveBeenCalledWith({ kind: 'builtin', type: 55 })
+    // Retired type 55 stays hidden from new channels, whatever the plugin state.
+    expect(
+      screen.queryByRole('option', { name: 'Sora Built-in #55' })
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole('option', { name: 'Kling Built-in #50' }))
+    expect(select).toHaveBeenCalledWith({ kind: 'builtin', type: 50 })
   }
 )
 

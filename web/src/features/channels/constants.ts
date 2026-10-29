@@ -193,6 +193,9 @@ const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [
   44, 2, 5, 36, 50, 51, 52, 53, 54, 55, 56,
 ]
 
+// Retired types keep their labels for existing channels, but new channels cannot use them.
+export const RETIRED_CHANNEL_TYPES: ReadonlySet<number> = new Set([55])
+
 export const CHANNEL_TYPE_OPTIONS: { value: number; label: string }[] = (() => {
   const ordered: { value: number; label: string }[] = []
   const seen = new Set<number>()

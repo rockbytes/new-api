@@ -90,6 +90,14 @@ const soraPlugin: TaskPluginOption = {
   models: ['sora-2'],
 }
 
+const klingPlugin: TaskPluginOption = {
+  key: 'kling',
+  name: 'Kling',
+  icon: 'text',
+  baseUrl: 'https://kling.example',
+  models: ['kling-v2'],
+}
+
 function deferredResponse<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((finish) => {
@@ -943,7 +951,7 @@ test('loading a replacement plugin preserves an already selected legacy creation
     .mockResolvedValue({ data: { success: true } })
   const user = userEvent.setup()
   render(<ConfigurationHarness />)
-  await user.click(screen.getByRole('option', { name: 'Sora Built-in #55' }))
+  await user.click(screen.getByRole('option', { name: 'Kling Built-in #50' }))
   fireEvent.change(screen.getByLabelText('Name *'), {
     target: { value: 'Legacy draft' },
   })
@@ -960,13 +968,13 @@ test('loading a replacement plugin preserves an already selected legacy creation
   await user.keyboard('{Escape}')
   await user.click(screen.getByRole('button', { name: 'Change provider' }))
   await act(async () => {
-    reply.resolve({ data: { success: true, data: [soraPlugin] } })
+    reply.resolve({ data: { success: true, data: [klingPlugin] } })
     await reply.promise
   })
   expect(
-    await screen.findByRole('option', { name: 'Sora Plugin sora' })
+    await screen.findByRole('option', { name: 'Kling Plugin kling' })
   ).toBeVisible()
-  const legacy = screen.getByRole('option', { name: 'Sora Built-in #55' })
+  const legacy = screen.getByRole('option', { name: 'Kling Built-in #50' })
   expect(legacy).toHaveAttribute('aria-current', 'true')
   await user.click(legacy)
   expect(screen.getByLabelText('Name *')).toHaveValue('Legacy draft')
@@ -978,7 +986,7 @@ test('loading a replacement plugin preserves an already selected legacy creation
     expect(post).toHaveBeenCalledWith(
       '/api/channel',
       expect.objectContaining({
-        channel: expect.objectContaining({ type: 55, name: 'Legacy draft' }),
+        channel: expect.objectContaining({ type: 50, name: 'Legacy draft' }),
       }),
       expect.anything()
     )
