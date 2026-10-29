@@ -267,6 +267,8 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /api/organization/":                                accessTokenScopeRule("user:write"),
 	"PUT /api/organization/:id":                              accessTokenScopeRule("billing:write"),
 	"PUT /api/organization/:id/status":                       accessTokenScopeRule("billing:write"),
+	"GET /api/organization/:id/deletion-impact":              accessTokenScopeRule("billing:read"),
+	"DELETE /api/organization/:id":                           accessTokenScopeRule("billing:write"),
 	"GET /api/organization/:id/quota":                        accessTokenScopeRule("billing:read"),
 	"POST /api/organization/:id/quota/grant":                 accessTokenScopeRule("billing:write"),
 	"PUT /api/organization/:id/members/:user_id/quota":       accessTokenScopeRule("billing:write"),

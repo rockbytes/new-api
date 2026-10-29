@@ -27,6 +27,7 @@ import type {
   Organization,
   OrganizationDetail,
   OrganizationPage,
+  OrganizationDeletionImpact,
   OrganizationStatus,
 } from './types'
 
@@ -104,5 +105,17 @@ export async function refundOrganizationRequest(
     `/api/organization/${id}/requests/${encodeURIComponent(payload.request_id)}/refund`,
     { amount: payload.amount, reference: payload.reference }
   )
+  requireServerSuccess(res.data)
+}
+
+export async function getOrganizationDeletionImpact(
+  id: number
+): Promise<OrganizationDeletionImpact> {
+  const res = await api.get(`/api/organization/${id}/deletion-impact`)
+  return requireServerSuccess(res.data).data
+}
+
+export async function deleteOrganization(id: number): Promise<void> {
+  const res = await api.delete(`/api/organization/${id}`)
   requireServerSuccess(res.data)
 }

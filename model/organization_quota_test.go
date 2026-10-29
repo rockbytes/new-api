@@ -390,3 +390,60 @@ func TestOrganizationQuotaConcurrentConsumeNeverOverdrawsOrganization(t *testing
 	assert.Equal(t, int64(0), reconciliation.RemainingQuota)
 	assert.True(t, reconciliation.Balanced)
 }
+
+func TestOrganizationDeletionReportsBlockersUntilDependenciesAreCleared(t *testing.T) {
+	organizationId, memberId := setupOrganizationQuotaTestDB(t)
+	useLogDatabaseForDeletion(t)
+
+	_, err := GrantOrganizationQuota(organizationId, 1000, 1, "initial", "grant-delete-blocked", 1)
+	require.NoError(t, err)
+	require.NoError(t, SetOrganizationMemberAllocation(organizationId, memberId, 300, false, 1))
+
+	assert.ErrorIs(t, DeleteOrganization(organizationId, 2), ErrOrganizationDeleteNotSuspended, "an active organization cannot be deleted")
+	require.NoError(t, ChangeOrganizationStatus(organizationId, OrganizationStatusSuspended, 2))
+
+	assert.ErrorIs(t, DeleteOrganization(organizationId, 3), ErrOrganizationDeleteBlocked)
+	impact, err := GetOrganizationDeletionImpact(organizationId)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), impact.MemberCount)
+	assert.Equal(t, int64(300), impact.AllocatedQuota)
+	assert.Equal(t, int64(700), impact.UnallocatedQuota)
+	assert.ElementsMatch(t, []string{"members_remaining", "member_quota_remaining", "unallocated_quota_remaining"}, impact.Blockers)
+}
+
+func TestOrganizationDeletionSoftDeletesAClearedOrganization(t *testing.T) {
+	organizationId, memberId := setupOrganizationQuotaTestDB(t)
+	useLogDatabaseForDeletion(t)
+
+	require.NoError(t, ChangeOrganizationStatus(organizationId, OrganizationStatusSuspended, 2))
+	require.NoError(t, DeleteOrganizationMember(organizationId, memberId))
+
+	impact, err := GetOrganizationDeletionImpact(organizationId)
+	require.NoError(t, err)
+	assert.Empty(t, impact.Blockers, "a suspended organization without members or balances has nothing left to clear")
+
+	require.NoError(t, DeleteOrganization(organizationId, 3))
+	organization, err := GetOrganizationById(organizationId)
+	require.NoError(t, err)
+	assert.Equal(t, OrganizationStatusDeleted, organization.Status)
+
+	listed, total, err := ListOrganizations(0, 20)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), total)
+	assert.Empty(t, listed, "deleted organizations are hidden from the default list")
+
+	assert.ErrorIs(t, ChangeOrganizationStatus(organizationId, OrganizationStatusActive, 4), ErrOrganizationStatusTransition,
+		"a deleted organization cannot be resumed")
+}
+
+// useLogDatabaseForDeletion points the log database at the test database, because the
+// deletion impact counts consume logs there. It also creates the tables the impact
+// counts and member removal touch.
+func useLogDatabaseForDeletion(t *testing.T) {
+	t.Helper()
+	previousLogDB := LOG_DB
+	LOG_DB = DB
+	t.Cleanup(func() { LOG_DB = previousLogDB })
+	require.NoError(t, DB.AutoMigrate(&Log{}, &Task{}, &UserSession{}, &AuthFlow{}, &ExternalIdentityClaim{},
+		&PasskeyCredential{}, &TwoFA{}, &TwoFABackupCode{}, &UserOAuthBinding{}, &UserAccessToken{}))
+}

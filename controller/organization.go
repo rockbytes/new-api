@@ -2,6 +2,7 @@ package controller
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -361,5 +362,59 @@ func DeleteOrganizationMember(c *gin.Context) {
 		respondOrganizationError(c, err)
 		return
 	}
+	common.ApiSuccess(c, nil)
+}
+
+// GetOrganizationDeletionImpact lists what deleting the organization would touch and
+// which preconditions are still unmet. It changes nothing.
+func GetOrganizationDeletionImpact(c *gin.Context) {
+	id, ok := organizationIdParam(c)
+	if !ok {
+		return
+	}
+	impact, err := model.GetOrganizationDeletionImpact(id)
+	if err != nil {
+		respondOrganizationError(c, err)
+		return
+	}
+	common.ApiSuccess(c, impact)
+}
+
+// DeleteOrganization soft-deletes a suspended organization once its dependencies are
+// cleared. A blocked deletion returns the impact so the caller can see what remains.
+func DeleteOrganization(c *gin.Context) {
+	id, ok := organizationIdParam(c)
+	if !ok {
+		return
+	}
+	err := model.DeleteOrganization(id, common.GetTimestamp())
+	switch {
+	case errors.Is(err, model.ErrOrganizationDeleteNotSuspended):
+		writeOrganizationError(c, http.StatusConflict, "ORGANIZATION_DELETE_NOT_SUSPENDED", "Suspend the organization before deleting it")
+		return
+	case errors.Is(err, model.ErrOrganizationDeleteBlocked):
+		impact, impactErr := model.GetOrganizationDeletionImpact(id)
+		if impactErr != nil {
+			respondOrganizationError(c, impactErr)
+			return
+		}
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"message": "Clear the listed dependencies before deleting the organization",
+			"code":    "ORGANIZATION_DELETE_BLOCKED",
+			"data":    impact,
+		})
+		return
+	case err != nil:
+		respondOrganizationError(c, err)
+		return
+	}
+	model.RecordAuditLog(c, model.AuditLog{
+		UserId:   c.GetInt("id"),
+		Category: model.AuditCategoryOperation,
+		Action:   "organization.delete",
+		Success:  true,
+		Content:  fmt.Sprintf("organization %d soft-deleted", id),
+	})
 	common.ApiSuccess(c, nil)
 }

@@ -97,6 +97,8 @@ func organizationTestEngine(userId int, role int) *gin.Engine {
 	root.POST("/:id/quota/grant", RootGrantOrganizationQuota)
 	root.PUT("/:id/members/:user_id/quota", RootSetOrganizationMemberAllocation)
 	root.POST("/:id/requests/:request_id/refund", RootRefundOrganizationRequest)
+	root.GET("/:id/deletion-impact", GetOrganizationDeletionImpact)
+	root.DELETE("/:id", DeleteOrganization)
 
 	self := engine.Group("/api/organization/self")
 	self.GET("", GetOrganizationSelf)
@@ -528,4 +530,46 @@ func TestOrganizationMemberCannotBeDeletedThroughRootOrSelfPaths(t *testing.T) {
 	var remaining int64
 	require.NoError(t, db.Model(&model.User{}).Where("id = ?", alice.Id).Count(&remaining).Error)
 	assert.Equal(t, int64(1), remaining)
+}
+
+func TestOrganizationDeleteEndpointBlocksUntilClearedThenSoftDeletes(t *testing.T) {
+	db := setupOrganizationTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Task{}, &model.Log{}, &model.AuditLog{}))
+	previousLogDB := model.LOG_DB
+	model.LOG_DB = db
+	t.Cleanup(func() { model.LOG_DB = previousLogDB })
+
+	organizationId := createOrganizationWithAdmin(t, "Delete Co", "delete-admin")
+	path := fmt.Sprintf("/api/organization/%d", organizationId)
+
+	recorder := doOrganizationRequest(t, organizationTestRootId, http.MethodDelete, path, "")
+	assert.Equal(t, http.StatusConflict, recorder.Code)
+	assert.Equal(t, "ORGANIZATION_DELETE_NOT_SUSPENDED", organizationErrorCode(t, recorder), "an active organization cannot be deleted")
+
+	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodPut, path+"/status", `{"status":"suspended"}`)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+
+	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodPost, path+"/quota/grant",
+		`{"amount":1000,"reason":"initial","reference":"grant-delete-blocked"}`)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+
+	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodDelete, path, "")
+	assert.Equal(t, http.StatusConflict, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "ORGANIZATION_DELETE_BLOCKED")
+	assert.Contains(t, recorder.Body.String(), "unallocated_quota_remaining", "the blocked response lists what remains")
+
+	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodGet, path+"/deletion-impact", "")
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	assert.Contains(t, recorder.Body.String(), `"unallocated_quota":1000`)
+
+	emptyId := createOrganizationWithAdmin(t, "Empty Co", "empty-admin")
+	emptyPath := fmt.Sprintf("/api/organization/%d", emptyId)
+	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodPut, emptyPath+"/status", `{"status":"suspended"}`)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodDelete, emptyPath, "")
+	assert.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+
+	organization, err := model.GetOrganizationById(emptyId)
+	require.NoError(t, err)
+	assert.Equal(t, model.OrganizationStatusDeleted, organization.Status)
 }

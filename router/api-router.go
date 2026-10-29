@@ -420,6 +420,8 @@ func SetApiRouter(router *gin.Engine) {
 			organizationAdminRoute.GET("/:id", controller.GetOrganization)
 			organizationAdminRoute.PUT("/:id", controller.UpdateOrganization)
 			organizationAdminRoute.PUT("/:id/status", controller.UpdateOrganizationStatus)
+			organizationAdminRoute.GET("/:id/deletion-impact", controller.GetOrganizationDeletionImpact)
+			organizationAdminRoute.DELETE("/:id", controller.DeleteOrganization)
 			organizationAdminRoute.GET("/:id/quota", controller.RootGetOrganizationQuota)
 			organizationAdminRoute.POST("/:id/quota/grant", controller.RootGrantOrganizationQuota)
 			organizationAdminRoute.PUT("/:id/members/:user_id/quota", controller.RootSetOrganizationMemberAllocation)

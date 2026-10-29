@@ -16,6 +16,7 @@ import (
 const (
 	OrganizationStatusActive    = "active"
 	OrganizationStatusSuspended = "suspended"
+	OrganizationStatusDeleted   = "deleted"
 )
 
 // Organization membership roles and statuses. A disabled membership keeps the
@@ -200,11 +201,11 @@ func GetOrganizationById(id int) (*Organization, error) {
 
 func ListOrganizations(startIdx int, pageSize int) ([]*Organization, int64, error) {
 	var total int64
-	if err := DB.Model(&Organization{}).Count(&total).Error; err != nil {
+	if err := DB.Model(&Organization{}).Where("status <> ?", OrganizationStatusDeleted).Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	var organizations []*Organization
-	err := DB.Order("id desc").Limit(pageSize).Offset(startIdx).Find(&organizations).Error
+	err := DB.Where("status <> ?", OrganizationStatusDeleted).Order("id desc").Limit(pageSize).Offset(startIdx).Find(&organizations).Error
 	return organizations, total, err
 }
 
@@ -535,4 +536,142 @@ func ensureUserNotInOrganization(tx *gorm.DB, userId int) error {
 		return ErrUserInOrganization
 	}
 	return nil
+}
+
+var (
+	ErrOrganizationDeleteNotSuspended = errors.New("organization must be suspended before deletion")
+	ErrOrganizationDeleteBlocked      = errors.New("organization still has dependencies that must be cleared")
+)
+
+// OrganizationDeletionImpact is what a deletion would touch. Blockers lists the
+// preconditions that are not yet met; the organization can be deleted when it is empty.
+type OrganizationDeletionImpact struct {
+	OrganizationId   int      `json:"organization_id"`
+	Status           string   `json:"status"`
+	MemberCount      int64    `json:"member_count"`
+	AdminCount       int64    `json:"admin_count"`
+	AllocatedQuota   int64    `json:"allocated_quota"`
+	UsedQuota        int64    `json:"used_quota"`
+	UnallocatedQuota int64    `json:"unallocated_quota"`
+	EnabledPaidKeys  int64    `json:"enabled_paid_keys"`
+	LedgerEntries    int64    `json:"ledger_entries"`
+	ConsumeLogs      int64    `json:"consume_logs"`
+	Tasks            int64    `json:"tasks"`
+	Blockers         []string `json:"blockers"`
+}
+
+// collectOrganizationDeletionImpact reads the dependencies of one organization on the
+// given connection. Consume logs live in the log database and are counted by the caller.
+func collectOrganizationDeletionImpact(db *gorm.DB, organizationId int, status string) (*OrganizationDeletionImpact, error) {
+	impact := &OrganizationDeletionImpact{OrganizationId: organizationId, Status: status}
+	if err := db.Model(&OrganizationMembership{}).
+		Where("organization_id = ? AND status = ? AND role <> ?", organizationId, OrganizationMembershipActive, OrganizationRoleAdmin).
+		Count(&impact.MemberCount).Error; err != nil {
+		return nil, err
+	}
+	if err := db.Model(&OrganizationMembership{}).
+		Where("organization_id = ? AND status = ? AND role = ?", organizationId, OrganizationMembershipActive, OrganizationRoleAdmin).
+		Count(&impact.AdminCount).Error; err != nil {
+		return nil, err
+	}
+	var allocatedUsage struct {
+		Allocated int64
+		Used      int64
+	}
+	if err := db.Model(&OrganizationMemberQuota{}).
+		Select("COALESCE(SUM(allocated_quota), 0) AS allocated, COALESCE(SUM(used_quota), 0) AS used").
+		Where("organization_id = ?", organizationId).
+		Scan(&allocatedUsage).Error; err != nil {
+		return nil, err
+	}
+	impact.AllocatedQuota = allocatedUsage.Allocated
+	impact.UsedQuota = allocatedUsage.Used
+	var account OrganizationQuotaAccount
+	err := db.Where("organization_id = ?", organizationId).First(&account).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	// Unallocated = remaining organization quota minus what members still hold.
+	remaining := account.GrantedQuota - account.ConsumedQuota
+	heldByMembers := impact.AllocatedQuota - impact.UsedQuota
+	impact.UnallocatedQuota = remaining - heldByMembers
+	if err := db.Model(&Token{}).
+		Where("billing_organization_id = ? AND status = ?", organizationId, common.TokenStatusEnabled).
+		Count(&impact.EnabledPaidKeys).Error; err != nil {
+		return nil, err
+	}
+	if err := db.Model(&OrganizationQuotaLedgerEntry{}).
+		Where("organization_id = ?", organizationId).
+		Count(&impact.LedgerEntries).Error; err != nil {
+		return nil, err
+	}
+	if err := db.Model(&Task{}).
+		Where("billing_organization_id = ?", organizationId).
+		Count(&impact.Tasks).Error; err != nil {
+		return nil, err
+	}
+	impact.Blockers = organizationDeletionBlockers(impact, heldByMembers)
+	return impact, nil
+}
+
+func organizationDeletionBlockers(impact *OrganizationDeletionImpact, heldByMembers int64) []string {
+	var blockers []string
+	if impact.Status != OrganizationStatusSuspended {
+		blockers = append(blockers, "status_not_suspended")
+	}
+	if impact.MemberCount > 0 {
+		blockers = append(blockers, "members_remaining")
+	}
+	if heldByMembers != 0 {
+		blockers = append(blockers, "member_quota_remaining")
+	}
+	if impact.UnallocatedQuota != 0 {
+		blockers = append(blockers, "unallocated_quota_remaining")
+	}
+	if impact.EnabledPaidKeys > 0 {
+		blockers = append(blockers, "enabled_paid_keys")
+	}
+	return blockers
+}
+
+// GetOrganizationDeletionImpact reports the dependencies and blockers of deleting an
+// organization. It changes nothing.
+func GetOrganizationDeletionImpact(id int) (*OrganizationDeletionImpact, error) {
+	organization, err := GetOrganizationById(id)
+	if err != nil {
+		return nil, err
+	}
+	impact, err := collectOrganizationDeletionImpact(DB, id, organization.Status)
+	if err != nil {
+		return nil, err
+	}
+	if LOG_DB != nil {
+		if err := LOG_DB.Model(&Log{}).Where("billing_organization_id = ?", id).Count(&impact.ConsumeLogs).Error; err != nil {
+			return nil, err
+		}
+	}
+	return impact, nil
+}
+
+// DeleteOrganization soft-deletes an organization that is suspended and has no remaining
+// dependencies. The organization row and its history stay in place with status deleted.
+func DeleteOrganization(id int, now int64) error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		organization, err := lockOrganization(tx, id)
+		if err != nil {
+			return err
+		}
+		if organization.Status != OrganizationStatusSuspended {
+			return ErrOrganizationDeleteNotSuspended
+		}
+		impact, err := collectOrganizationDeletionImpact(tx, id, organization.Status)
+		if err != nil {
+			return err
+		}
+		if len(impact.Blockers) > 0 {
+			return ErrOrganizationDeleteBlocked
+		}
+		return tx.Model(&Organization{}).Where("id = ?", id).
+			Updates(map[string]any{"status": OrganizationStatusDeleted, "updated_time": now}).Error
+	})
 }

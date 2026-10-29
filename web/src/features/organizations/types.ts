@@ -79,3 +79,20 @@ export interface RefundOrganizationRequestPayload {
   amount: number
   reference: string
 }
+
+// Counts and unmet preconditions for deleting an organization. Blockers are codes that
+// the dialog maps to labels; an empty list means the organization can be deleted.
+export interface OrganizationDeletionImpact {
+  organization_id: number
+  status: string
+  member_count: number
+  admin_count: number
+  allocated_quota: number
+  used_quota: number
+  unallocated_quota: number
+  enabled_paid_keys: number
+  ledger_entries: number
+  consume_logs: number
+  tasks: number
+  blockers: string[]
+}

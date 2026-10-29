@@ -53,6 +53,7 @@ import {
   updateOrganizationStatus,
 } from '../api'
 import type { OrganizationMember, OrganizationStatus } from '../types'
+import { OrganizationDeleteDialog } from './organization-delete-dialog'
 import { OrganizationQuotaSection } from './organization-quota-section'
 
 type OrganizationDetailSheetProps = {
@@ -66,6 +67,7 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
   const organizationId = props.organizationId
   const [name, setName] = useState('')
   const [confirmSuspend, setConfirmSuspend] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [allocationTarget, setAllocationTarget] =
     useState<OrganizationMember | null>(null)
 
@@ -254,6 +256,19 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
                 </div>
               </section>
               <section className={sideDrawerSectionClassName()}>
+                <div className='flex items-center justify-between gap-2'>
+                  <span className='text-sm font-medium'>
+                    {t('Delete organization')}
+                  </span>
+                  <Button
+                    variant='destructive'
+                    onClick={() => setConfirmDelete(true)}
+                  >
+                    {t('Delete organization')}
+                  </Button>
+                </div>
+              </section>
+              <section className={sideDrawerSectionClassName()}>
                 <h3 className='text-sm font-medium'>
                   {t('Organization quota')}
                 </h3>
@@ -286,6 +301,15 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
             allocated,
           })
         }
+      />
+      <OrganizationDeleteDialog
+        organizationId={organizationId ?? 0}
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        onDeleted={() => {
+          setConfirmDelete(false)
+          props.onOpenChange(false)
+        }}
       />
       <ConfirmDialog
         open={confirmSuspend}
