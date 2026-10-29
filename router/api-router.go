@@ -412,18 +412,18 @@ func SetApiRouter(router *gin.Engine) {
 			vendorRoute.DELETE("/:id", controller.DeleteVendorMeta)
 		}
 
-		organizationRootRoute := apiRouter.Group("/organization")
-		organizationRootRoute.Use(middleware.RootAuth())
+		organizationAdminRoute := apiRouter.Group("/organization")
+		organizationAdminRoute.Use(middleware.AdminAuth())
 		{
-			organizationRootRoute.GET("/", controller.GetOrganizations)
-			organizationRootRoute.POST("/", controller.CreateOrganization)
-			organizationRootRoute.GET("/:id", controller.GetOrganization)
-			organizationRootRoute.PUT("/:id", controller.UpdateOrganization)
-			organizationRootRoute.PUT("/:id/status", controller.UpdateOrganizationStatus)
-			organizationRootRoute.GET("/:id/quota", controller.RootGetOrganizationQuota)
-			organizationRootRoute.POST("/:id/quota/grant", controller.RootGrantOrganizationQuota)
-			organizationRootRoute.PUT("/:id/members/:user_id/quota", controller.RootSetOrganizationMemberAllocation)
-			organizationRootRoute.POST("/:id/requests/:request_id/refund", controller.RootRefundOrganizationRequest)
+			organizationAdminRoute.GET("/", controller.GetOrganizations)
+			organizationAdminRoute.POST("/", controller.CreateOrganization)
+			organizationAdminRoute.GET("/:id", controller.GetOrganization)
+			organizationAdminRoute.PUT("/:id", controller.UpdateOrganization)
+			organizationAdminRoute.PUT("/:id/status", controller.UpdateOrganizationStatus)
+			organizationAdminRoute.GET("/:id/quota", controller.RootGetOrganizationQuota)
+			organizationAdminRoute.POST("/:id/quota/grant", controller.RootGrantOrganizationQuota)
+			organizationAdminRoute.PUT("/:id/members/:user_id/quota", controller.RootSetOrganizationMemberAllocation)
+			organizationAdminRoute.POST("/:id/requests/:request_id/refund", controller.RootRefundOrganizationRequest)
 		}
 
 		// Company-side routes resolve the organization from the caller's membership.
