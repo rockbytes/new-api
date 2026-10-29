@@ -32,7 +32,6 @@ import { deleteOrganization, getOrganizationDeletionImpact } from '../api'
 const BLOCKER_LABEL_KEYS: Record<string, string> = {
   status_not_suspended: 'Suspend the organization before deleting it.',
   members_remaining: 'Remove the remaining members.',
-  member_quota_remaining: 'Reclaim the remaining member quota.',
   unallocated_quota_remaining:
     'Unallocated quota must be zero before deletion.',
   enabled_paid_keys: 'Disable the enabled organization keys.',

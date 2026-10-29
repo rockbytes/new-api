@@ -610,20 +610,17 @@ func collectOrganizationDeletionImpact(db *gorm.DB, organizationId int, status s
 		Count(&impact.Tasks).Error; err != nil {
 		return nil, err
 	}
-	impact.Blockers = organizationDeletionBlockers(impact, heldByMembers)
+	impact.Blockers = organizationDeletionBlockers(impact)
 	return impact, nil
 }
 
-func organizationDeletionBlockers(impact *OrganizationDeletionImpact, heldByMembers int64) []string {
+func organizationDeletionBlockers(impact *OrganizationDeletionImpact) []string {
 	var blockers []string
 	if impact.Status != OrganizationStatusSuspended {
 		blockers = append(blockers, "status_not_suspended")
 	}
 	if impact.MemberCount > 0 {
 		blockers = append(blockers, "members_remaining")
-	}
-	if heldByMembers != 0 {
-		blockers = append(blockers, "member_quota_remaining")
 	}
 	if impact.UnallocatedQuota != 0 {
 		blockers = append(blockers, "unallocated_quota_remaining")

@@ -408,7 +408,7 @@ func TestOrganizationDeletionReportsBlockersUntilDependenciesAreCleared(t *testi
 	assert.Equal(t, int64(1), impact.MemberCount)
 	assert.Equal(t, int64(300), impact.AllocatedQuota)
 	assert.Equal(t, int64(700), impact.UnallocatedQuota)
-	assert.ElementsMatch(t, []string{"members_remaining", "member_quota_remaining", "unallocated_quota_remaining"}, impact.Blockers)
+	assert.ElementsMatch(t, []string{"members_remaining", "unallocated_quota_remaining"}, impact.Blockers)
 }
 
 func TestOrganizationDeletionSoftDeletesAClearedOrganization(t *testing.T) {
