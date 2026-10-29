@@ -1,10 +1,10 @@
 ---
 title: 公司组织、成员权限、额度计费、用量看板与账单导出方案
-status: in-progress
+status: done
 created: 2026-09-23
-updated: 2026-10-26
+updated: 2026-10-29
+completed: 2026-10-29
 owner: TBD
-completed:
 ---
 
 # 公司组织、成员权限、额度计费、用量看板与账单导出方案
@@ -348,13 +348,13 @@ v1 默认每个用户只加入一个公司。若后续允许一个用户同时�
 
 | 子计划 | 范围 | 依赖 |
 | --- | --- | --- |
-| [P1 组织租户与授权](../../done/company-org-p1-tenant-authz.md) | 组织、成员账号（创建、启停、删除、密码重置、首次登录改密码）、组织范围授权（后端，已完成） | 无 |
-| [P1b 组织管理界面](../../done/company-org-p1b-admin-ui.md) | Root 公司组织页、公司侧成员账号管理、首次登录改密码页面（已完成） | P1 |
-| [P2 额度账本](../../done/company-org-p2-quota-ledger.md) | 公司未分配池、员工划拨桶、账本事件、划拨桶资金来源 | P1 |
-| [P3 Key 付款组织与计费快照](../../done/company-org-p3-key-billing-attribution.md) | Key 付款组织、消费日志与任务快照 | P1、P2 |
-| [P4 用量看板重构](../../done/company-org-p4-usage-dashboard.md) | 数据范围解析、新看板、旧入口下线 | P3 |
-| [P5 用量与账单导出](../../done/company-org-p5-usage-export.md) | CSV/XLSX 导出、异步任务、存储接口 | P4 |
-| [P6 视频与异步任务计价修正](../../done/company-org-p6-video-billing-fixes.md) | Ark、Seedance、Sora、Wan、Kling 计价修正 | 无（可并行） |
+| [P1 组织租户与授权](./company-org-p1-tenant-authz.md) | 组织、成员账号（创建、启停、删除、密码重置、首次登录改密码）、组织范围授权（后端，已完成） | 无 |
+| [P1b 组织管理界面](./company-org-p1b-admin-ui.md) | Root 公司组织页、公司侧成员账号管理、首次登录改密码页面（已完成） | P1 |
+| [P2 额度账本](./company-org-p2-quota-ledger.md) | 公司未分配池、员工划拨桶、账本事件、划拨桶资金来源 | P1 |
+| [P3 Key 付款组织与计费快照](./company-org-p3-key-billing-attribution.md) | Key 付款组织、消费日志与任务快照 | P1、P2 |
+| [P4 用量看板重构](./company-org-p4-usage-dashboard.md) | 数据范围解析、新看板、旧入口下线 | P3 |
+| [P5 用量与账单导出](./company-org-p5-usage-export.md) | CSV/XLSX 导出、异步任务、存储接口 | P4 |
+| [P6 视频与异步任务计价修正](./company-org-p6-video-billing-fixes.md) | Ark、Seedance、Sora、Wan、Kling 计价修正 | 无（可并行） |
 
 ## 实施计划
 
@@ -370,9 +370,9 @@ v1 默认每个用户只加入一个公司。若后续允许一个用户同时�
 
 ## 验证结果
 
-方案文档阶段，尚未修改业务代码或数据库，未执行后端/前端测试和数据库矩阵。按 `doc/README.md` 运行 `npm --prefix doc run docs:check`，结果为 `Documentation layout check passed.`
+本方案已实施完成。P1 至 P6 均已合并并移入 `doc/done/`，各自的验证记录（包括三数据库迁移矩阵、HTTP 与浏览器端到端检查）见对应子计划。以下清单是方案级检查项，由各子计划的验证记录覆盖，本文件不重复记录逐项结果。
 
-进入实施阶段后，至少验证：
+方案级检查项：
 
 - Root、公司管理员、公司成员、无公司用户和跨公司访问的授权矩阵。
 - 单次与并发额度划拨、余额回收、并发预扣、实际结算高于/低于预扣、失败退款、重复结算及重复退款。

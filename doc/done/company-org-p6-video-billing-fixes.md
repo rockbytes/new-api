@@ -65,9 +65,19 @@ owner: TBD
 - `controller`：TestKlingNativeRouteSubmitPollSettleAndQuery 更新为预期结果：credit 不按 Token 结算，保留 250,000 预扣额度，用户余额为 750,000。
 - `plugins`、`service`、`relay/channel/task/jsplugin`、`setting` 包测试通过；`controller` 中 Plugin、Kling、Task 相关测试通过。
 
+## 核实细节（2026-10-29）
+
+- **Kling**：`final_unit_deduction` 是供应商扣除的 Kling 积分数，以字符串返回（例如 `"0.05"`）；依据为腾讯云托管的 Kling 文档（非 kling.ai 原站，2026-10-23 更新）。仍未确认：该字段是否只在成功时返回；v1 标准 5s、v1.6 专业 5s 的单任务积分；API 失败任务是否扣费（kling.ai 的消费者积分政策规定失败退还积分，但不适用于 API 计费）。
+- **Alibaba Wan**：英文定价页按美元计价，中文定价页按人民币计价，插件不编码货币，管理员按自己的结算货币配置价格。Wan3.0 的 `duration: -1`（智能时长）官方 API 文档说明由模型根据提示选择时长，但指南写默认 5 秒，两处不一致；计费规则未确认。wan3.0-video 的价格标注为限时 30% 折扣（英文页标注为 "Limited-time 30% off"），截止日期未确认。失败请求不计费（英文定价页）。
+- **Volcengine Ark Seedance**：国际站定价页中，Seedance 2.0 与 2.5 的价格只按是否有参考视频区分，不按音频区分，因此 2.x 无需配置音频单价；已下线的 Seedance 1.5 Pro 曾按有无音频区分。人民币价格未取得。`expired` 任务的计费结论未确认，成功计费规则推断为不计费；`cancelled` 排队任务未明确说明计费，依据成功计费规则推断为不计费。
+
+以上未确认项作为残留风险记录，不影响当前插件的结算路径：缺失的实际用量保留预扣估算，不按 0 结算。
+
+## 管理员迁移说明
+
+- 已绑定 `sora` 插件 key 的类型 61 渠道需要改绑到其他视频插件，否则请求会失败。
+- 只用旧模型倍率计价的 Kling 任务不再按实际 credit 结算，而是保留预扣额度。需要按 credit 计费时，为 Kling 模型配置 `u("units")` 表达式。
+
 ## 阻塞原因
 
-当前无阻塞。
-
-- **Kling**：官方计费文档仍无法读取，`final_unit_deduction` 的字段语义未经官方确认。该风险已由负责人接受：只用旧模型倍率计价的 Kling 任务不再按实际 credit 结算，保留预扣额度；管理员需为 Kling 配置 `u("units")` 表达式。
-- **Sora**：已移除，不再有阻塞。
+当前无阻塞。残留风险见上文「核实细节」。

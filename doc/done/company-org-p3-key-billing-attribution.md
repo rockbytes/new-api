@@ -92,7 +92,7 @@ ClickHouse（`clickhouse/clickhouse-server:latest`，26.5.1）：
 - 新增 `TestBillingOrganizationRoundTripsThroughRedisHashCache`：缓存中的公司承担 Key 保留付款组织，个人 Key 的字段为空。默认使用 miniredis；设置 `TEST_REDIS_ADDR` 时连接真实 Redis，并清空该实例的当前数据库（只用于一次性测试实例）。在 Redis 7.4.9 上通过，测试后无残留键。
 - 新增 `TestOrganizationPayerPerRequestPathThroughHTTP`（`router/organization_payer_http_test.go`）：经真实中继路由（`SetRelayRouter`、`SetTaskPluginProtocolRouter`）和本地模拟上游，逐路径检查消费日志、组织账本和员工钱包。覆盖同步文本、流式文本、图片、音频和个人 Key；请求体中的 `organization_id` 被忽略。临时禁用中继中的付款组织后，四条组织路径全部失败，个人路径保持通过。
 - 端到端（真实后端二进制，PostgreSQL 17.11 `newapi_e2e`，Redis 7.4.9）：组织 Key 的同步、流式、图片、音频请求均返回 200；日志的 `billing_organization_id` 为组织 ID；组织已用额度与日志合计一致（20052）；员工钱包不变；个人 Key 的请求只扣个人钱包。Redis 缓存中组织 Key 的条目为 `BillingOrganizationId = 1`，`AllowUserQuotaQuery = false`。
-- 未覆盖：异步任务路径（提交、轮询结算、失败退款）的 HTTP 级端到端验证。服务层测试 `TestOrganizationPaidTaskSettlesAndRefundsThroughLedger` 覆盖了任务结算与退款的账本逻辑。
+- 异步任务路径的 HTTP 级端到端验证（真实后端二进制，PostgreSQL 17.11 `newapi_e2e`，模拟的 Ark 视频上游）：组织 Key 提交视频任务，任务的 `billing_organization_id` 为组织 ID；成功任务的账本为预扣 250000、退还 249000，净消费 1000，与任务额度一致；失败任务的账本为预扣 250000、全额退还，净消费 0，任务状态为失败；两条路径中员工个人钱包余额均不变。服务层测试 `TestOrganizationPaidTaskSettlesAndRefundsThroughLedger` 继续覆盖账本逻辑。该端到端检查未加入仓库自动测试，只在上述环境中执行。
 
 代码检查：`gofmt`、`go vet ./model` 通过。组织停用测试 `TestSuspendingOrganizationDisablesItsPaidKeysOnly` 验证：停用后公司承担 Key 被停用、仍绑定组织、个人 Key 不受影响，恢复后不自动启用。P3 相关测试（绑定、快照、成员停用与移除、组织停用、Redis 往返）在 SQLite、PostgreSQL 17.11、PostgreSQL 9.6.24、MySQL 8.0.46、MySQL 5.7.44 上各 8 项全部通过。
 
