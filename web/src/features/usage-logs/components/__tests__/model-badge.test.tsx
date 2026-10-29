@@ -64,7 +64,6 @@ const providers = [
       'davinci-002',
       'babbage-002',
       'computer-use-preview',
-      'sora-2',
       'tts-1',
       'vendor-tts-1',
       'o1',

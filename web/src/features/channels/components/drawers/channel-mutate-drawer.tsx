@@ -2369,7 +2369,7 @@ export function ChannelMutateDrawer({
               <FormControl>
                 <Input
                   placeholder={t(
-                    'e.g., gpt-4.1-nano,regex:^claude-.*$,regex:^sora-.*$'
+                    'e.g., gpt-4.1-nano,regex:^claude-.*$,regex:^gemini-.*$'
                   )}
                   {...field}
                 />

@@ -1074,7 +1074,7 @@ type originTaskIntentError struct {
 
 // taskPluginLegacyPlatforms lists the Task.Platform values a plugin owns: its
 // key (plugin-era tasks) plus every numeric legacy channel type its driver
-// can drive (pre-plugin tasks, e.g. sora tasks submitted on OpenAI-type
+// can drive (pre-plugin tasks, e.g. video tasks submitted on OpenAI-type
 // channels stored Platform "1").
 func taskPluginLegacyPlatforms(meta pluginruntime.Meta) []constant.TaskPlatform {
 	platforms := []constant.TaskPlatform{constant.TaskPlatform(meta.Key)}

@@ -88,7 +88,6 @@ const MODEL_PROVIDER_RULES: readonly ModelProviderRule[] = [
       'davinci-',
       'babbage-',
       'computer-use-preview',
-      'sora',
     ],
     pattern: /(?:^|[/.:])(?:o(?:1|3|4)(?=$|[-.:])|tts-)/,
   },

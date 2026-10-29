@@ -402,7 +402,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 	} else if strings.Contains(c.Request.URL.Path, "/v1/videos") {
 		//curl https://api.openai.com/v1/videos \
 		//  -H "Authorization: Bearer $OPENAI_API_KEY" \
-		//  -F "model=sora-2" \
+		//  -F "model=video-test-model" \
 		//  -F "prompt=A calico cat playing a piano on stage"
 		//	-F input_reference="@image.jpg"
 		relayMode := relayconstant.RelayModeUnknown
