@@ -96,6 +96,13 @@ func TestUsageExportOwnerCreatesAndDownloadsItsFile(t *testing.T) {
 	assert.True(t, strings.HasPrefix(body, "\xEF\xBB\xBF"), "the BOM was requested")
 	assert.Contains(t, body, "org-a-member")
 	assert.NotContains(t, body, "org-b-member", "the file holds only the organization's rows")
+
+	// The created and downloaded events are audited with the request's client address.
+	for _, action := range []string{"usage_export.created", "usage_export.downloaded"} {
+		var entry model.AuditLog
+		require.NoError(t, model.DB.Where("action = ? AND user_id = ?", action, usageOrgAAdmin).First(&entry).Error)
+		assert.Equal(t, "192.0.2.1", entry.Ip, action)
+	}
 }
 
 func TestUsageExportResponsesNeverRevealStorageKeys(t *testing.T) {

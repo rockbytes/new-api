@@ -89,7 +89,7 @@ func usageExportCreate(t *testing.T, caller int, role int, request UsageExportRe
 	t.Helper()
 	start, end := usageExportTestWindow()
 	request.StartTimestamp, request.EndTimestamp = start, end
-	job, err := CreateUsageExport(caller, role, request)
+	job, err := CreateUsageExport(nil, caller, role, request)
 	require.NoError(t, err)
 	require.Equal(t, model.UsageExportStatusSucceeded, job.Status, "error code: %s", job.ErrorCode)
 	return job
@@ -145,31 +145,31 @@ func TestUsageExportAuthorizesTheCallerWhenCreated(t *testing.T) {
 
 	orgA := base
 	orgA.View, orgA.OrganizationId = UsageViewOrganization, usageExportOrgA
-	_, err := CreateUsageExport(usageExportOrgAAdmin, common.RoleCommonUser, orgA)
+	_, err := CreateUsageExport(nil, usageExportOrgAAdmin, common.RoleCommonUser, orgA)
 	require.NoError(t, err, "an organization admin exports their own organization")
 
-	_, err = CreateUsageExport(usageExportOrgBMember, common.RoleCommonUser, orgA)
+	_, err = CreateUsageExport(nil, usageExportOrgBMember, common.RoleCommonUser, orgA)
 	require.Error(t, err, "a member of another organization cannot export this organization")
 	assert.True(t, errors.Is(err, ErrUsageViewForbidden) || errors.Is(err, ErrUsageScopeMismatch), "got %v", err)
 
 	otherUser := base
 	otherUser.View, otherUser.UserId = UsageViewSelf, usageExportOrgAAdmin
-	_, err = CreateUsageExport(usageExportOrgAMember, common.RoleCommonUser, otherUser)
+	_, err = CreateUsageExport(nil, usageExportOrgAMember, common.RoleCommonUser, otherUser)
 	require.Error(t, err, "a member cannot export another user's personal view")
 
 	platform := base
 	platform.View = UsageViewPlatform
-	_, err = CreateUsageExport(usageExportOrgAAdmin, common.RoleCommonUser, platform)
+	_, err = CreateUsageExport(nil, usageExportOrgAAdmin, common.RoleCommonUser, platform)
 	require.Error(t, err, "the platform view needs a root or admin caller")
 
 	bad := base
 	bad.View, bad.Kind = UsageViewSelf, "bogus"
-	_, err = CreateUsageExport(usageExportNoOrgUser, common.RoleCommonUser, bad)
+	_, err = CreateUsageExport(nil, usageExportNoOrgUser, common.RoleCommonUser, bad)
 	assert.ErrorIs(t, err, ErrUsageExportKind)
 
 	badFormat := base
 	badFormat.View, badFormat.Format = UsageViewSelf, "pdf"
-	_, err = CreateUsageExport(usageExportNoOrgUser, common.RoleCommonUser, badFormat)
+	_, err = CreateUsageExport(nil, usageExportNoOrgUser, common.RoleCommonUser, badFormat)
 	assert.ErrorIs(t, err, ErrUsageExportKind)
 }
 
@@ -312,10 +312,10 @@ func TestUsageExportLimitsActiveJobsPerUser(t *testing.T) {
 	start, end := usageExportTestWindow()
 	request := UsageExportRequest{View: UsageViewSelf, StartTimestamp: start, EndTimestamp: end, Format: UsageExportFormatCSV, Kind: UsageExportKindRecords}
 
-	_, err := CreateUsageExport(usageExportNoOrgUser, common.RoleCommonUser, request)
+	_, err := CreateUsageExport(nil, usageExportNoOrgUser, common.RoleCommonUser, request)
 	assert.ErrorIs(t, err, ErrUsageExportBusy)
 
-	job, err := CreateUsageExport(usageExportOrgAAdmin, common.RoleCommonUser, request)
+	job, err := CreateUsageExport(nil, usageExportOrgAAdmin, common.RoleCommonUser, request)
 	require.NoError(t, err, "the limit is per user")
 	assert.Equal(t, model.UsageExportStatusSucceeded, job.Status)
 }

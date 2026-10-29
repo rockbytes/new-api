@@ -60,6 +60,9 @@ export function UsageExportPanel(props: { params: UsageQueryParams }) {
   const exportsQuery = useQuery({
     queryKey: EXPORTS_QUERY_KEY,
     queryFn: getUsageExports,
+    // Keep polling while the tab is in the background, so a finished job is already up to
+    // date when the user returns. Polling stops by itself once no job is active.
+    refetchIntervalInBackground: true,
     refetchInterval: (query) =>
       hasActiveUsageExports(query.state.data ?? []) ? POLL_INTERVAL_MS : false,
   })

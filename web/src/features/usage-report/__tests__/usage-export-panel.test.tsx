@@ -177,4 +177,50 @@ describe('UsageExportPanel', () => {
     expect(mockedDownload).toHaveBeenCalledWith('ready')
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:usage')
   })
+
+  it('keeps polling a generating export until it is ready', async () => {
+    mockedList
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        job({ job_id: 'busy', status: 'running', row_count: 0 }),
+      ])
+      .mockResolvedValue([job({ job_id: 'busy', status: 'succeeded' })])
+    mockedCreate.mockResolvedValue(
+      job({ job_id: 'busy', status: 'queued', row_count: 0 })
+    )
+
+    renderPanel()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Usage records (CSV)' })
+    )
+
+    expect(await screen.findByText('Generating')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: 'Download' }, { timeout: 6000 })
+    ).toBeInTheDocument()
+  })
+
+  it('explains a refused export with the row-limit message for its server code', async () => {
+    mockedList.mockResolvedValue([])
+    mockedCreate.mockRejectedValue(
+      Object.assign(new Error('The export exceeds the row limit'), {
+        response: {
+          status: 400,
+          data: { success: false, code: 'USAGE_EXPORT_TOO_LARGE' },
+        },
+      })
+    )
+    const errorToast = vi.spyOn(toast, 'error')
+
+    renderPanel()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Usage workbook (XLSX)' })
+    )
+
+    await waitFor(() =>
+      expect(errorToast).toHaveBeenCalledWith(
+        'The export exceeds the row limit. Narrow the range or the scope, or use CSV.'
+      )
+    )
+  })
 })

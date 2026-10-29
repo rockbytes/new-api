@@ -101,7 +101,7 @@ func CreateUsageExport(c *gin.Context) {
 		return
 	}
 
-	job, err := service.CreateUsageExport(c.GetInt("id"), c.GetInt("role"), service.UsageExportRequest{
+	job, err := service.CreateUsageExport(c, c.GetInt("id"), c.GetInt("role"), service.UsageExportRequest{
 		View:            service.UsageView(request.View),
 		OrganizationId:  request.OrganizationId,
 		UserId:          request.UserId,
@@ -215,7 +215,7 @@ func DownloadUsageExport(c *gin.Context) {
 	}
 	defer file.Close()
 
-	service.RecordUsageExportDownloaded(job)
+	service.RecordUsageExportDownloaded(c, job)
 	c.Header("Content-Type", service.UsageExportContentType(job.Format))
 
 	c.Header("Content-Disposition", "attachment; filename=\""+job.FileName+"\"")

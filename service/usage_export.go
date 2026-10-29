@@ -31,6 +31,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/bytedance/gopkg/util/gopool"
+	"github.com/gin-gonic/gin"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -104,7 +105,7 @@ type UsageExportRequest struct {
 
 // CreateUsageExport authorizes the request now and stores a job. Small exports finish inside
 // the call; large ones run in the background and the caller polls the job.
-func CreateUsageExport(callerId int, callerRole int, request UsageExportRequest) (*model.UsageExportJob, error) {
+func CreateUsageExport(c *gin.Context, callerId int, callerRole int, request UsageExportRequest) (*model.UsageExportJob, error) {
 	format := request.Format
 	if format == "" {
 		format = UsageExportFormatCSV
@@ -159,7 +160,7 @@ func CreateUsageExport(callerId int, callerRole int, request UsageExportRequest)
 	if err := model.CreateUsageExportJob(job); err != nil {
 		return nil, err
 	}
-	recordUsageExportEvent(job, "created", "")
+	recordUsageExportEvent(c, job, "created", "")
 
 	if inline {
 		if err := RunUsageExportJob(job.JobId); err != nil {
@@ -225,14 +226,14 @@ func RunUsageExportJob(jobId string) error {
 		if finishErr := model.FinishUsageExportJob(jobId, model.UsageExportStatusFailed, 0, "", "", code, now, 0); finishErr != nil {
 			return finishErr
 		}
-		recordUsageExportEvent(job, "failed", " error="+code)
+		recordUsageExportEvent(nil, job, "failed", " error="+code)
 		return err
 	}
 	now := common.GetTimestamp()
 	if err := model.FinishUsageExportJob(jobId, model.UsageExportStatusSucceeded, rows, fileName, key, "", now, now+usageExportTTLSeconds); err != nil {
 		return err
 	}
-	recordUsageExportEvent(job, "succeeded", fmt.Sprintf(" rows=%d", rows))
+	recordUsageExportEvent(nil, job, "succeeded", fmt.Sprintf(" rows=%d", rows))
 	return nil
 }
 
@@ -668,9 +669,11 @@ func (cache *usageOrganizationNames) nameOf(organizationId int) string {
 }
 
 // recordUsageExportEvent writes an audit event for a job. Events carry the job id, the format
-// and the outcome, never file content or keys.
-func recordUsageExportEvent(job *model.UsageExportJob, action string, detail string) {
-	model.RecordAuditLog(nil, model.AuditLog{
+// and the outcome, never file content or keys. c is the request that caused the event, so the
+// audit row carries its IP and user agent; background generation passes nil, because it has no
+// request.
+func recordUsageExportEvent(c *gin.Context, job *model.UsageExportJob, action string, detail string) {
+	model.RecordAuditLog(c, model.AuditLog{
 		UserId:   job.UserId,
 		Category: model.AuditCategoryOperation,
 		Action:   "usage_export." + action,
@@ -680,8 +683,8 @@ func recordUsageExportEvent(job *model.UsageExportJob, action string, detail str
 }
 
 // RecordUsageExportDownloaded audits a download of a job's file.
-func RecordUsageExportDownloaded(job *model.UsageExportJob) {
-	recordUsageExportEvent(job, "downloaded", "")
+func RecordUsageExportDownloaded(c *gin.Context, job *model.UsageExportJob) {
+	recordUsageExportEvent(c, job, "downloaded", "")
 }
 
 // OpenUsageExportFile opens a succeeded job's file for download.
