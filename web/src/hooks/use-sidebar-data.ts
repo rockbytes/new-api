@@ -93,12 +93,6 @@ export function useSidebarData(): SidebarData {
             icon: BarChart3,
           },
           {
-            title: t('Platform operations'),
-            url: '/platform-ops',
-            icon: Network,
-            requiredRole: ROLE.ADMIN,
-          },
-          {
             title: t('API Keys'),
             url: '/keys',
             icon: Key,
@@ -165,6 +159,12 @@ export function useSidebarData(): SidebarData {
         id: 'admin',
         title: t('Admin'),
         items: [
+          {
+            title: t('Platform operations'),
+            url: '/platform-ops',
+            icon: Network,
+            requiredRole: ROLE.ADMIN,
+          },
           {
             title: t('Channels'),
             url: '/channels',

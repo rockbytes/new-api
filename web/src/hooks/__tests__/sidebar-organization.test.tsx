@@ -165,3 +165,19 @@ describe('organization sidebar section settings', () => {
     ])
   })
 })
+
+describe('platform operations placement', () => {
+  it('lists platform operations in the admin group and hides it when the admin switch is off', () => {
+    const { result } = sidebarAs(ROLE.ADMIN, null)
+    const groups = groupTitles(result.current.navGroups)
+    expect(groups.admin).toContain('Platform operations')
+    expect(groups.console ?? []).not.toContain('Platform operations')
+
+    const hidden = sidebarAs(ROLE.ADMIN, null, {
+      admin: { enabled: true, platform: false },
+    })
+    expect(
+      groupTitles(hidden.result.current.navGroups).admin ?? []
+    ).not.toContain('Platform operations')
+  })
+})

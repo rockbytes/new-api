@@ -154,6 +154,12 @@ export function SidebarModulesSection({
       },
     },
     admin: {
+      platform: {
+        title: t('Platform operations'),
+        description: t(
+          'Traffic and channel operations, visible to administrators only.'
+        ),
+      },
       channel: {
         title: t('Channels'),
         description: t('Configure upstream providers and routing.'),

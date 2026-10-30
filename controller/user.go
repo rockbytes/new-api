@@ -622,6 +622,7 @@ func generateDefaultSidebarConfig(userRole int) string {
 			"redemption": true,
 			"user":       true,
 			"setting":    false, // 管理员不能访问系统设置
+			"platform":   true,
 		}
 	} else if userRole == common.RoleRootUser {
 		// 超级管理员可以访问所有功能
@@ -632,6 +633,7 @@ func generateDefaultSidebarConfig(userRole int) string {
 			"redemption": true,
 			"user":       true,
 			"setting":    true,
+			"platform":   true,
 		}
 	}
 	// 普通用户不包含admin区域
