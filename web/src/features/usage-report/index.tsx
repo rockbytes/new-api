@@ -31,7 +31,6 @@ import {
 } from '@/features/organizations/api'
 import { CompactDateTimeRangePicker } from '@/features/usage-logs/components/compact-date-time-range-picker'
 import { toIntlLocale } from '@/i18n/languages'
-import { formatTimestamp } from '@/lib/format'
 
 import {
   getUsageModels,
@@ -46,7 +45,6 @@ import {
 } from './components/usage-breakdown-tables'
 import { UsageExportPanel } from './components/usage-export-panel'
 import { UsageRecordsTable } from './components/usage-records-table'
-import { UsageScopeHeader } from './components/usage-scope-header'
 import { UsageSummaryCards } from './components/usage-summary-cards'
 import { UsageTrendBars } from './components/usage-trend-bars'
 import {
@@ -180,89 +178,46 @@ export function UsageReport() {
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Usage report')}</SectionPageLayout.Title>
-      <SectionPageLayout.Actions>
-        <div
-          className='flex flex-wrap gap-2'
-          role='group'
-          aria-label={t('Time range')}
-        >
-          {USAGE_RANGE_DAYS.map((days) => (
-            <Button
-              key={days}
-              type='button'
-              size='sm'
-              variant={
-                !customRange && rangeDays === days ? 'default' : 'outline'
-              }
-              aria-pressed={!customRange && rangeDays === days}
-              onClick={() => {
-                setRangeDays(days)
-                setCustomRange(null)
-                setPage(1)
-              }}
-            >
-              {t('Last {{count}} days', { count: days })}
-            </Button>
-          ))}
-          <CompactDateTimeRangePicker
-            start={new Date(window.start_timestamp * 1000)}
-            end={new Date(window.end_timestamp * 1000)}
-            onChange={({ start, end }) => {
-              if (!start && !end) {
-                setCustomRange(null)
-                setPage(1)
-                return
-              }
-              if (start && end && end.getTime() > start.getTime()) {
-                setCustomRange({ start, end })
-                setPage(1)
-              }
-            }}
-          />
-        </div>
-      </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='flex flex-col gap-4'>
-          {view === 'platform' && (
-            <Card size='sm'>
-              <CardContent className='flex flex-wrap gap-3'>
-                <Combobox
-                  options={[
-                    { value: '0', label: t('All organizations') },
-                    ...(organizationsQuery.data?.items ?? []).map(
-                      (organization) => ({
-                        value: String(organization.id),
-                        label: organization.name,
-                      })
-                    ),
-                  ]}
-                  value={String(organizationId)}
-                  onValueChange={(value) => {
-                    setOrganizationId(Number(value ?? 0))
-                    setMemberId(0)
-                    setPage(1)
-                  }}
-                  placeholder={t('Organization')}
-                  searchPlaceholder={t('Search organizations')}
-                  emptyText={t('No matching results')}
-                  className='w-full sm:w-72'
-                />
-                {organizationId > 0 && (
-                  <MemberSelect
-                    value={memberId}
-                    options={memberOptions}
-                    onChange={(id) => {
-                      setMemberId(id)
+          <Card size='sm'>
+            <CardContent className='flex flex-wrap items-center gap-3'>
+              {view === 'platform' && (
+                <>
+                  <Combobox
+                    options={[
+                      { value: '0', label: t('All organizations') },
+                      ...(organizationsQuery.data?.items ?? []).map(
+                        (organization) => ({
+                          value: String(organization.id),
+                          label: organization.name,
+                        })
+                      ),
+                    ]}
+                    value={String(organizationId)}
+                    onValueChange={(value) => {
+                      setOrganizationId(Number(value ?? 0))
+                      setMemberId(0)
                       setPage(1)
                     }}
+                    placeholder={t('Organization')}
+                    searchPlaceholder={t('Search organizations')}
+                    emptyText={t('No matching results')}
+                    className='w-full sm:w-72'
                   />
-                )}
-              </CardContent>
-            </Card>
-          )}
-          {view === 'organization' && (
-            <Card size='sm'>
-              <CardContent className='flex flex-wrap gap-3'>
+                  {organizationId > 0 && (
+                    <MemberSelect
+                      value={memberId}
+                      options={memberOptions}
+                      onChange={(id) => {
+                        setMemberId(id)
+                        setPage(1)
+                      }}
+                    />
+                  )}
+                </>
+              )}
+              {view === 'organization' && (
                 <MemberSelect
                   value={memberId}
                   options={memberOptions}
@@ -271,27 +226,58 @@ export function UsageReport() {
                     setPage(1)
                   }}
                 />
-              </CardContent>
-            </Card>
-          )}
+              )}
+              <div
+                className='flex flex-wrap items-center gap-2 sm:ml-auto'
+                role='group'
+                aria-label={t('Time range')}
+              >
+                {USAGE_RANGE_DAYS.map((days) => (
+                  <Button
+                    key={days}
+                    type='button'
+                    size='sm'
+                    variant={
+                      !customRange && rangeDays === days ? 'default' : 'outline'
+                    }
+                    aria-pressed={!customRange && rangeDays === days}
+                    onClick={() => {
+                      setRangeDays(days)
+                      setCustomRange(null)
+                      setPage(1)
+                    }}
+                  >
+                    {t('Last {{count}} days', { count: days })}
+                  </Button>
+                ))}
+                <CompactDateTimeRangePicker
+                  start={new Date(window.start_timestamp * 1000)}
+                  end={new Date(window.end_timestamp * 1000)}
+                  onChange={({ start, end }) => {
+                    if (!start && !end) {
+                      setCustomRange(null)
+                      setPage(1)
+                      return
+                    }
+                    if (start && end && end.getTime() > start.getTime()) {
+                      setCustomRange({ start, end })
+                      setPage(1)
+                    }
+                  }}
+                />
+              </div>
+            </CardContent>
+          </Card>
           {failed && (
             <p role='alert' className='text-destructive text-sm'>
               {t('The usage report could not be loaded')}
             </p>
           )}
           {summaryQuery.data && (
-            <>
-              <UsageScopeHeader
-                meta={summaryQuery.data.meta}
-                locale={locale}
-                startLabel={formatTimestamp(window.start_timestamp)}
-                endLabel={formatTimestamp(window.end_timestamp)}
-              />
-              <UsageSummaryCards
-                summary={summaryQuery.data.summary}
-                locale={locale}
-              />
-            </>
+            <UsageSummaryCards
+              summary={summaryQuery.data.summary}
+              locale={locale}
+            />
           )}
           <Card>
             <CardHeader>
