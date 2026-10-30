@@ -29,6 +29,7 @@ import {
   getOrganizationDetail,
   getOrganizations,
 } from '@/features/organizations/api'
+import { CompactDateTimeRangePicker } from '@/features/usage-logs/components/compact-date-time-range-picker'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatTimestamp } from '@/lib/format'
 
@@ -54,6 +55,7 @@ import {
 } from './constants'
 import {
   USAGE_RANGE_DAYS,
+  buildCustomUsageWindow,
   buildUsageWindow,
   localTzOffsetMinutes,
   type UsageRangeDays,
@@ -77,20 +79,31 @@ export function UsageReport() {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const [rangeDays, setRangeDays] = useState<UsageRangeDays>(7)
+  // A start and end picked by the caller. When set, it replaces the day range.
+  const [customRange, setCustomRange] = useState<{
+    start: Date
+    end: Date
+  } | null>(null)
   const [organizationId, setOrganizationId] = useState(0)
   const [memberId, setMemberId] = useState(0)
   const [page, setPage] = useState(1)
 
   // The window is fixed per range choice, so every query of one view shares the same bounds.
-  const window = useMemo(
-    () =>
-      buildUsageWindow(
-        rangeDays,
-        Math.floor(Date.now() / 1000),
-        localTzOffsetMinutes(new Date())
-      ),
-    [rangeDays]
-  )
+  const window = useMemo(() => {
+    const tzOffsetMinutes = localTzOffsetMinutes(new Date())
+    if (customRange) {
+      return buildCustomUsageWindow(
+        customRange.start,
+        customRange.end,
+        tzOffsetMinutes
+      )
+    }
+    return buildUsageWindow(
+      rangeDays,
+      Math.floor(Date.now() / 1000),
+      tzOffsetMinutes
+    )
+  }, [rangeDays, customRange])
   const params: UsageQueryParams = {
     ...window,
     view: organizationId > 0 ? 'platform' : undefined,
@@ -178,16 +191,34 @@ export function UsageReport() {
               key={days}
               type='button'
               size='sm'
-              variant={rangeDays === days ? 'default' : 'outline'}
-              aria-pressed={rangeDays === days}
+              variant={
+                !customRange && rangeDays === days ? 'default' : 'outline'
+              }
+              aria-pressed={!customRange && rangeDays === days}
               onClick={() => {
                 setRangeDays(days)
+                setCustomRange(null)
                 setPage(1)
               }}
             >
               {t('Last {{count}} days', { count: days })}
             </Button>
           ))}
+          <CompactDateTimeRangePicker
+            start={new Date(window.start_timestamp * 1000)}
+            end={new Date(window.end_timestamp * 1000)}
+            onChange={({ start, end }) => {
+              if (!start && !end) {
+                setCustomRange(null)
+                setPage(1)
+                return
+              }
+              if (start && end && end.getTime() > start.getTime()) {
+                setCustomRange({ start, end })
+                setPage(1)
+              }
+            }}
+          />
         </div>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>

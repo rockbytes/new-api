@@ -42,6 +42,20 @@ export function buildUsageWindow(
   }
 }
 
+// A window from an explicit start and end chosen by the caller, bounded to whole seconds.
+// It is used only when the end is after the start.
+export function buildCustomUsageWindow(
+  start: Date,
+  end: Date,
+  tzOffsetMinutes: number
+): UsageWindow {
+  return {
+    start_timestamp: Math.floor(start.getTime() / 1000),
+    end_timestamp: Math.floor(end.getTime() / 1000),
+    tz_offset_minutes: tzOffsetMinutes,
+  }
+}
+
 // Date.getTimezoneOffset is positive west of UTC, while the API counts east of UTC.
 export function localTzOffsetMinutes(date: Date): number {
   return -date.getTimezoneOffset()
