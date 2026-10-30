@@ -19,6 +19,17 @@ import (
 
 const UserNameMaxLength = 20
 
+// UserOrganizationNone selects the users that belong to no organization, in the
+// organization filter of the user list.
+const UserOrganizationNone = 0
+
+// UserOrganization is the organization a user belongs to, as shown in user lists.
+// Deleted organizations are not reported.
+type UserOrganization struct {
+	Id   int    `json:"id"`
+	Name string `json:"name"`
+}
+
 var userSortColumns = map[string]string{
 	"id":            "id",
 	"username":      "username",
@@ -113,6 +124,7 @@ type User struct {
 	LastLoginAt          int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
 	AuthVersion          int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
 	AdminPermissions     map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
+	Organization         *UserOrganization          `json:"organization" gorm:"-:all"`
 }
 
 func (user *User) ToBaseUser() *UserBase {
@@ -402,6 +414,54 @@ func GetMaxUserId() int {
 	return user.Id
 }
 
+// applyUserOrganizationFilter keeps the users of one organization, or the users of
+// no organization when organizationId is UserOrganizationNone. Deleted organizations
+// do not count as memberships.
+func applyUserOrganizationFilter(query *gorm.DB, organizationId int) *gorm.DB {
+	memberships := DB.Model(&OrganizationMembership{}).
+		Select("organization_memberships.user_id").
+		Joins("JOIN organizations ON organizations.id = organization_memberships.organization_id").
+		Where("organizations.status <> ?", OrganizationStatusDeleted)
+	if organizationId == UserOrganizationNone {
+		return query.Where("users.id NOT IN (?)", memberships)
+	}
+	return query.Where("users.id IN (?)", memberships.Where("organization_memberships.organization_id = ?", organizationId))
+}
+
+// attachUserOrganizations sets the organization of each user. Users whose only
+// membership is in a deleted organization get no organization.
+func attachUserOrganizations(db *gorm.DB, users []*User) error {
+	if len(users) == 0 {
+		return nil
+	}
+	userIds := make([]int, 0, len(users))
+	for _, user := range users {
+		userIds = append(userIds, user.Id)
+	}
+	var rows []struct {
+		UserId int
+		Id     int
+		Name   string
+	}
+	err := db.Model(&OrganizationMembership{}).
+		Select("organization_memberships.user_id AS user_id, organizations.id AS id, organizations.name AS name").
+		Joins("JOIN organizations ON organizations.id = organization_memberships.organization_id").
+		Where("organization_memberships.user_id IN ?", userIds).
+		Where("organizations.status <> ?", OrganizationStatusDeleted).
+		Scan(&rows).Error
+	if err != nil {
+		return err
+	}
+	byUser := make(map[int]*UserOrganization, len(rows))
+	for _, row := range rows {
+		byUser[row.UserId] = &UserOrganization{Id: row.Id, Name: row.Name}
+	}
+	for _, user := range users {
+		user.Organization = byUser[user.Id]
+	}
+	return nil
+}
+
 func GetAllUsers(pageInfo *common.PageInfo, sortOptions ...UserSortOptions) (users []*User, total int64, err error) {
 	// Start transaction
 	tx := DB.Begin()
@@ -429,6 +489,10 @@ func GetAllUsers(pageInfo *common.PageInfo, sortOptions ...UserSortOptions) (use
 		return nil, 0, err
 	}
 
+	if err = attachUserOrganizations(tx, users); err != nil {
+		tx.Rollback()
+		return nil, 0, err
+	}
 	// Commit transaction
 	if err = tx.Commit().Error; err != nil {
 		return nil, 0, err
@@ -437,7 +501,7 @@ func GetAllUsers(pageInfo *common.PageInfo, sortOptions ...UserSortOptions) (use
 	return users, total, nil
 }
 
-func SearchUsers(keyword string, group string, role *int, status *int, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
+func SearchUsers(keyword string, group string, role *int, status *int, organizationId *int, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
 	var users []*User
 	var total int64
 	var err error
@@ -483,6 +547,9 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 		}
 	}
 
+	if organizationId != nil {
+		query = applyUserOrganizationFilter(query, *organizationId)
+	}
 	// 获取总数
 	err = query.Count(&total).Error
 	if err != nil {
@@ -498,6 +565,10 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 		return nil, 0, err
 	}
 
+	if err = attachUserOrganizations(tx, users); err != nil {
+		tx.Rollback()
+		return nil, 0, err
+	}
 	// 提交事务
 	if err = tx.Commit().Error; err != nil {
 		return nil, 0, err

@@ -54,6 +54,10 @@ export const userSchema = z.object({
   linux_do_id: z.string().optional(),
   status: userStatusSchema,
   role: userRoleSchema,
+  organization: z
+    .object({ id: z.number(), name: z.string() })
+    .nullable()
+    .optional(),
   created_at: z.number().optional(),
   updated_at: z.number().optional(),
   last_login_at: z.number().optional(),
@@ -111,6 +115,8 @@ export interface SearchUsersParams {
   group?: string
   role?: string
   status?: string
+  // '0' selects users without an organization; an organization ID selects its members.
+  organization_id?: string
   p?: number
   page_size?: number
   sort_by?: UserSortBy

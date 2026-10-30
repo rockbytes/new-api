@@ -366,9 +366,16 @@ func SearchUsers(c *gin.Context) {
 			status = &parsed
 		}
 	}
+	// 0 selects users without an organization; a positive ID selects one organization.
+	var organizationId *int
+	if organizationStr := c.Query("organization_id"); organizationStr != "" {
+		if parsed, err := strconv.Atoi(organizationStr); err == nil && parsed >= model.UserOrganizationNone {
+			organizationId = &parsed
+		}
+	}
 	pageInfo := common.GetPageQuery(c)
 	sortOptions := model.NewUserSortOptions(c.Query("sort_by"), c.Query("sort_order"))
-	users, total, err := model.SearchUsers(keyword, group, role, status, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
+	users, total, err := model.SearchUsers(keyword, group, role, status, organizationId, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
 	if err != nil {
 		common.ApiError(c, err)
 		return

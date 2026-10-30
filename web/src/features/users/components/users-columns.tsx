@@ -236,6 +236,27 @@ export function useUsersColumns(): ColumnDef<User>[] {
         meta: { mobileOrder: 20 },
       },
       {
+        id: 'organization',
+        header: t('Organization'),
+        cell: ({ row }) => {
+          const organization = row.original.organization
+          if (!organization) {
+            return <span className='text-muted-foreground text-sm'>-</span>
+          }
+          return (
+            <Tooltip>
+              <TooltipTrigger render={<span className='cursor-help text-sm' />}>
+                {organization.name}
+              </TooltipTrigger>
+              <TooltipContent>{organization.id}</TooltipContent>
+            </Tooltip>
+          )
+        },
+        enableSorting: false,
+        size: 160,
+        meta: { mobileOrder: 25 },
+      },
+      {
         id: 'invite_info',
         header: t('Invite Info'),
         cell: ({ row }) => {

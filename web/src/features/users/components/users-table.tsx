@@ -28,6 +28,7 @@ import {
   DataTablePage,
   useDataTable,
 } from '@/components/data-table'
+import { getOrganizations } from '@/features/organizations/api'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import {
@@ -48,6 +49,9 @@ import { useUsersColumns } from './users-columns'
 import { useUsers } from './users-provider'
 
 const route = getRouteApi('/_authenticated/users/')
+
+// The organization filter value that selects users without an organization.
+const NO_ORGANIZATION_FILTER_VALUE = '0'
 
 const USER_SORTABLE_COLUMNS = new Set<UserSortBy>([
   'id',
@@ -86,6 +90,7 @@ export function UsersTable() {
       { columnId: 'status', searchKey: 'status', type: 'array' },
       { columnId: 'role', searchKey: 'role', type: 'array' },
       { columnId: 'group', searchKey: 'group', type: 'array' },
+      { columnId: 'organization', searchKey: 'organization', type: 'array' },
     ],
   })
   const statusFilter =
@@ -101,9 +106,20 @@ export function UsersTable() {
       | string[]
       | undefined) ?? []
 
+  const organizationFilter =
+    (columnFilters.find((filter) => filter.id === 'organization')?.value as
+      | string[]
+      | undefined) ?? []
+
   const { data: groupsData } = useQuery({
     queryKey: ['groups'],
     queryFn: async () => requireServerSuccess(await getGroups()),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const { data: organizationsData } = useQuery({
+    queryKey: ['users', 'organization-options'],
+    queryFn: () => getOrganizations(1, 100),
     staleTime: 5 * 60 * 1000,
   })
 
@@ -139,6 +155,7 @@ export function UsersTable() {
       statusFilter,
       roleFilter,
       groupFilter,
+      organizationFilter,
       sortParams,
       refreshTrigger,
     ],
@@ -147,7 +164,8 @@ export function UsersTable() {
       const hasColumnFilter =
         statusFilter.length > 0 ||
         roleFilter.length > 0 ||
-        groupFilter.length > 0
+        groupFilter.length > 0 ||
+        organizationFilter.length > 0
       const params = {
         p: pagination.pageIndex + 1,
         page_size: pagination.pageSize,
@@ -162,6 +180,7 @@ export function UsersTable() {
               status: statusFilter[0] ?? '',
               role: roleFilter[0] ?? '',
               group: groupFilter[0] ?? '',
+              organization_id: organizationFilter[0] ?? '',
             })
           : await getUsers(params)
 
@@ -249,6 +268,21 @@ export function UsersTable() {
               label: group,
               value: group,
             })),
+            singleSelect: true,
+          },
+          {
+            columnId: 'organization',
+            title: t('Organization'),
+            options: [
+              {
+                label: t('No organization'),
+                value: NO_ORGANIZATION_FILTER_VALUE,
+              },
+              ...(organizationsData?.items ?? []).map((organization) => ({
+                label: organization.name,
+                value: String(organization.id),
+              })),
+            ],
             singleSelect: true,
           },
         ],
