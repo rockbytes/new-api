@@ -16,19 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type {
-  UsageExportFormat,
-  UsageExportStatus,
-  UsageRankBy,
-  UsageView,
-} from './types'
-
-// Labels are translation keys, so the page translates them where it renders.
-export const USAGE_VIEW_LABEL_KEYS: Record<UsageView, string> = {
-  platform: 'Platform view',
-  organization: 'Organization view',
-  self: 'Personal view',
-}
+import type { UsageExportFormat, UsageExportStatus, UsageRankBy } from './types'
 
 export const USAGE_RANK_BY_LABEL_KEYS: Record<UsageRankBy, string> = {
   user: 'Ranking by member',
