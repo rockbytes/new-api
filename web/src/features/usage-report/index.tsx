@@ -23,7 +23,7 @@ import { useTranslation } from 'react-i18next'
 import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Combobox } from '@/components/ui/combobox'
 import { getOrganizationMembers } from '@/features/organization-admin/api'
 import {
   getOrganizationDetail,
@@ -195,29 +195,27 @@ export function UsageReport() {
           {view === 'platform' && (
             <Card size='sm'>
               <CardContent className='flex flex-wrap gap-3'>
-                <NativeSelect
-                  aria-label={t('Organization')}
+                <Combobox
+                  options={[
+                    { value: '0', label: t('All organizations') },
+                    ...(organizationsQuery.data?.items ?? []).map(
+                      (organization) => ({
+                        value: String(organization.id),
+                        label: organization.name,
+                      })
+                    ),
+                  ]}
                   value={String(organizationId)}
-                  onChange={(event) => {
-                    setOrganizationId(Number(event.target.value))
+                  onValueChange={(value) => {
+                    setOrganizationId(Number(value ?? 0))
                     setMemberId(0)
                     setPage(1)
                   }}
-                >
-                  <NativeSelectOption value='0'>
-                    {t('All organizations')}
-                  </NativeSelectOption>
-                  {(organizationsQuery.data?.items ?? []).map(
-                    (organization) => (
-                      <NativeSelectOption
-                        key={organization.id}
-                        value={String(organization.id)}
-                      >
-                        {organization.name}
-                      </NativeSelectOption>
-                    )
-                  )}
-                </NativeSelect>
+                  placeholder={t('Organization')}
+                  searchPlaceholder={t('Search organizations')}
+                  emptyText={t('No matching results')}
+                  className='w-full sm:w-72'
+                />
                 {organizationId > 0 && (
                   <MemberSelect
                     value={memberId}
@@ -341,17 +339,20 @@ function MemberSelect(props: {
 }) {
   const { t } = useTranslation()
   return (
-    <NativeSelect
-      aria-label={t('Member')}
+    <Combobox
+      options={[
+        { value: '0', label: t('All members') },
+        ...props.options.map((member) => ({
+          value: String(member.id),
+          label: member.name,
+        })),
+      ]}
       value={String(props.value)}
-      onChange={(event) => props.onChange(Number(event.target.value))}
-    >
-      <NativeSelectOption value='0'>{t('All members')}</NativeSelectOption>
-      {props.options.map((member) => (
-        <NativeSelectOption key={member.id} value={String(member.id)}>
-          {member.name}
-        </NativeSelectOption>
-      ))}
-    </NativeSelect>
+      onValueChange={(value) => props.onChange(Number(value ?? 0))}
+      placeholder={t('Member')}
+      searchPlaceholder={t('Search members')}
+      emptyText={t('No matching results')}
+      className='w-full sm:w-64'
+    />
   )
 }
