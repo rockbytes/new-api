@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { Eye, Plus } from 'lucide-react'
+import { Pencil, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -75,10 +75,10 @@ export function Organizations() {
         <Button
           variant='ghost'
           size='icon-sm'
-          aria-label={t('View organization')}
+          aria-label={t('Edit')}
           onClick={() => setSelectedId(row.id)}
         >
-          <Eye />
+          <Pencil />
         </Button>
       ),
     },
