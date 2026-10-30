@@ -173,13 +173,15 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
     },
     {
       id: 'allocated',
-      header: t('Allocated quota'),
+      header: t('Total quota'),
       cell: (row) => formatQuotaWithCurrency(row.allocated_quota),
     },
     {
-      id: 'used',
-      header: t('Used quota'),
-      cell: (row) => formatQuotaWithCurrency(row.used_quota),
+      id: 'remaining',
+      header: t('Remaining quota'),
+      // Allocation cannot go below usage, so the remainder is never negative.
+      cell: (row) =>
+        formatQuotaWithCurrency(row.allocated_quota - row.used_quota),
     },
     {
       id: 'actions',

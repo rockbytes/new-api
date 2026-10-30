@@ -6772,6 +6772,7 @@
     "Total GPUs": "合計 GPU",
     "Total invitation revenue": "招待による総収益",
     "Total Log Size": "ログ合計サイズ",
+    "Total quota": "総クォータ",
     "Total Quota": "合計クォータ",
     "Total quota cannot be negative": "合計クォータを負の値にすることはできません",
     "Total quota included in the plan, usable per billing period. 0 means unlimited.": "プランに含まれる合計クォータ。請求期間ごとに使用可能。0 は無制限を意味します。",

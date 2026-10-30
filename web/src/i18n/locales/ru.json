@@ -6772,6 +6772,7 @@
     "Total GPUs": "Всего GPU",
     "Total invitation revenue": "Общий доход от приглашений",
     "Total Log Size": "Общий размер журналов",
+    "Total quota": "Общая квота",
     "Total Quota": "Общая квота",
     "Total quota cannot be negative": "Общая квота не может быть отрицательной",
     "Total quota included in the plan, usable per billing period. 0 means unlimited.": "Общая квота, включённая в тариф, доступна за каждый расчётный период. 0 означает безлимит.",
