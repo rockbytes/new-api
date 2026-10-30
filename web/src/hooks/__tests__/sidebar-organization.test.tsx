@@ -119,7 +119,7 @@ describe('organization sidebar group', () => {
       status: 'active',
     })
     const groups = groupTitles(result.current.navGroups)
-    expect(groups.organization).toEqual(['Organization management'])
+    expect(groups.organization).toEqual(['My organization'])
     expect(groups.personal).not.toContain('Organization')
   })
 })

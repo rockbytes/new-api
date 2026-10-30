@@ -154,7 +154,7 @@ export function useSidebarData(): SidebarData {
             requiredRole: ROLE.ADMIN,
           },
           {
-            title: t('Organization management'),
+            title: t('My organization'),
             url: '/organization',
             icon: Building2,
             requiresOrganizationAdmin: true,
