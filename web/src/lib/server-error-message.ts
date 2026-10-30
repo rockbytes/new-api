@@ -115,6 +115,8 @@ const serverErrorMessageKeys = {
     'Refund exceeds the settled quota of the request.',
   ORGANIZATION_REQUEST_NOT_FOUND: 'No quota was charged for this request.',
   ORGANIZATION_QUOTA_OVERFLOW: 'Quota total would overflow.',
+  ORGANIZATION_ADMIN_NOT_ELIGIBLE:
+    'This user cannot be the first organization admin.',
   ORGANIZATION_QUOTA_INSUFFICIENT:
     'Unallocated quota is not enough for this change.',
   ORGANIZATION_DELETE_NOT_SUSPENDED:

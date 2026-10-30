@@ -20,6 +20,8 @@ type organizationCreateRequest struct {
 	Name          string `json:"name"`
 	AdminUsername string `json:"admin_username"`
 	AdminPassword string `json:"admin_password"`
+	// AdminUserId selects an existing account as the first admin instead of creating one.
+	AdminUserId int `json:"admin_user_id"`
 }
 
 type organizationNameRequest struct {
@@ -83,6 +85,8 @@ func respondOrganizationError(c *gin.Context, err error) {
 		writeOrganizationError(c, http.StatusConflict, "ORGANIZATION_USERNAME_TAKEN", "Username is already taken")
 	case errors.Is(err, model.ErrUserInOrganization):
 		writeOrganizationError(c, http.StatusConflict, "USER_IN_ORGANIZATION", "User belongs to an organization; remove the membership first")
+	case errors.Is(err, model.ErrOrganizationAdminNotEligible):
+		writeOrganizationError(c, http.StatusConflict, "ORGANIZATION_ADMIN_NOT_ELIGIBLE", "This user cannot be the first organization admin")
 	case errors.Is(err, model.ErrOrganizationUnallocatedInsufficient):
 		writeOrganizationError(c, http.StatusConflict, "ORGANIZATION_QUOTA_INSUFFICIENT", "Unallocated quota is not enough for this change")
 	case errors.Is(err, model.ErrOrganizationAdjustModeInvalid):
@@ -176,6 +180,15 @@ func CreateOrganization(c *gin.Context) {
 	name, ok := normalizeOrganizationName(request.Name)
 	if !ok {
 		writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_NAME_REQUIRED", "Organization name is required")
+		return
+	}
+	if request.AdminUserId > 0 {
+		organization, err := model.CreateOrganizationWithExistingAdmin(name, request.AdminUserId, c.GetInt("id"), common.GetTimestamp())
+		if err != nil {
+			respondOrganizationError(c, err)
+			return
+		}
+		common.ApiSuccess(c, organization)
 		return
 	}
 	adminUsername := strings.TrimSpace(request.AdminUsername)

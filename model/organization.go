@@ -161,6 +161,61 @@ func (update userAuthUpdate) finish() {
 	}
 }
 
+// ErrOrganizationAdminNotEligible means the account cannot become the first admin of an
+// organization: it is missing, not an enabled common user, or already in an organization.
+var ErrOrganizationAdminNotEligible = errors.New("user cannot be an organization administrator")
+
+// CreateOrganizationWithExistingAdmin creates an organization whose first admin is an
+// existing account. The account keeps its password and login state.
+func CreateOrganizationWithExistingAdmin(name string, adminUserId int, operatorId int, now int64) (*Organization, error) {
+	organization := &Organization{Name: name, Status: OrganizationStatusActive, CreatedTime: now, UpdatedTime: now}
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := ensureOrganizationAdminEligibleTx(tx, adminUserId); err != nil {
+			return err
+		}
+		if err := tx.Create(organization).Error; err != nil {
+			return err
+		}
+		return tx.Create(&OrganizationMembership{
+			OrganizationId: organization.Id,
+			UserId:         adminUserId,
+			Role:           OrganizationRoleAdmin,
+			Status:         OrganizationMembershipActive,
+			InvitedBy:      operatorId,
+			CreatedTime:    now,
+			UpdatedTime:    now,
+		}).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return organization, nil
+}
+
+// ensureOrganizationAdminEligibleTx locks the account and checks that it can be the
+// first admin of a new organization. Platform administrators and Root are never offered.
+func ensureOrganizationAdminEligibleTx(tx *gorm.DB, userId int) error {
+	var user User
+	err := lockForUpdate(tx).Where("id = ?", userId).First(&user).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return ErrOrganizationAdminNotEligible
+	}
+	if err != nil {
+		return err
+	}
+	if user.Role != common.RoleCommonUser || user.Status != common.UserStatusEnabled {
+		return ErrOrganizationAdminNotEligible
+	}
+	var memberships int64
+	if err := tx.Model(&OrganizationMembership{}).Where("user_id = ?", userId).Count(&memberships).Error; err != nil {
+		return err
+	}
+	if memberships > 0 {
+		return ErrOrganizationAdminNotEligible
+	}
+	return nil
+}
+
 func CreateOrganizationWithAdmin(name string, adminUsername string, adminPassword string, operatorId int, now int64) (*Organization, error) {
 	organization := &Organization{Name: name, Status: OrganizationStatusActive, CreatedTime: now, UpdatedTime: now}
 	err := DB.Transaction(func(tx *gorm.DB) error {

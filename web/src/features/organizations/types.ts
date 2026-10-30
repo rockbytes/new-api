@@ -55,8 +55,10 @@ export interface OrganizationDetail {
 
 export interface CreateOrganizationPayload {
   name: string
-  admin_username: string
-  admin_password: string
+  // Either a new first admin account, or the ID of an existing eligible user.
+  admin_username?: string
+  admin_password?: string
+  admin_user_id?: number
 }
 
 export interface OrganizationQuota {
