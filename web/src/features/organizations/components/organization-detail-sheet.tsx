@@ -31,6 +31,10 @@ import {
   sideDrawerHeaderClassName,
   sideDrawerSectionClassName,
 } from '@/components/drawer-layout'
+import {
+  QuotaAdjustDialog,
+  type QuotaAdjustMode,
+} from '@/components/quota-adjust-dialog'
 import { StatusBadge, statusPresets } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -41,7 +45,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { AllocationSheet } from '@/features/organization-admin/components/allocation-sheet'
 import { formatQuotaWithCurrency } from '@/lib/currency'
 import { formatTimestamp } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
@@ -112,24 +115,32 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
       handleServerError(error, t('Failed to update organization status.')),
   })
 
-  const allocationMutation = useMutation({
-    mutationFn: (args: { userId: number; allocated: number }) =>
-      setOrganizationMemberAllocation(
+  // Changes a member's allocation the way the organization balance is adjusted: add,
+  // subtract, or override. The member's usage is the lowest value the dialog allows.
+  const handleAllocate = async (mode: QuotaAdjustMode, value: number) => {
+    if (!allocationTarget) return false
+    const current = allocationTarget.allocated_quota
+    let allocated = value
+    if (mode === 'add') allocated = current + value
+    if (mode === 'subtract') allocated = current - value
+    try {
+      await setOrganizationMemberAllocation(
         organizationId ?? 0,
-        args.userId,
-        args.allocated
-      ),
-    onSuccess: () => {
+        allocationTarget.user_id,
+        allocated
+      )
       toast.success(t('Allocation updated.'))
       setAllocationTarget(null)
       refresh()
       queryClient.invalidateQueries({
         queryKey: ['organization-quota', organizationId],
       })
-    },
-    onError: (error) =>
-      handleServerError(error, t('Failed to update allocation.')),
-  })
+      return true
+    } catch (error) {
+      handleServerError(error, t('Failed to update allocation.'))
+      return false
+    }
+  }
 
   const nextStatus: OrganizationStatus =
     organization?.status === 'active' ? 'suspended' : 'active'
@@ -177,6 +188,7 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
         <Button
           variant='ghost'
           size='sm'
+          className='text-primary hover:text-primary'
           onClick={() => setAllocationTarget(row)}
         >
           {t('Set allocation')}
@@ -287,20 +299,12 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
           ) : null}
         </SheetContent>
       </Sheet>
-      <AllocationSheet
+      <QuotaAdjustDialog
         open={allocationTarget !== null}
         onOpenChange={(open) => !open && setAllocationTarget(null)}
-        username={allocationTarget?.username ?? ''}
-        allocated={allocationTarget?.allocated_quota ?? 0}
-        used={allocationTarget?.used_quota ?? 0}
-        isPending={allocationMutation.isPending}
-        onSubmit={(allocated) =>
-          allocationTarget &&
-          allocationMutation.mutate({
-            userId: allocationTarget.user_id,
-            allocated,
-          })
-        }
+        currentQuota={allocationTarget?.allocated_quota ?? 0}
+        minimumQuota={allocationTarget?.used_quota ?? 0}
+        onConfirm={handleAllocate}
       />
       <OrganizationDeleteDialog
         organizationId={organizationId ?? 0}
