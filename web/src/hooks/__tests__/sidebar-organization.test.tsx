@@ -60,12 +60,16 @@ function sidebarAs(
     id: number
     role: 'admin' | 'member'
     status: string
-  } | null = null
+  } | null = null,
+  adminConfig?: object
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  client.setQueryData(['status'], {})
+  client.setQueryData(
+    ['status'],
+    adminConfig ? { SidebarModulesAdmin: JSON.stringify(adminConfig) } : {}
+  )
   useAuthStore.getState().auth.setUser({
     id: 7,
     username: 'tester',
@@ -121,5 +125,43 @@ describe('organization sidebar group', () => {
     const groups = groupTitles(result.current.navGroups)
     expect(groups.organization).toEqual(['My organization'])
     expect(groups.personal).not.toContain('Organization')
+  })
+})
+
+describe('organization sidebar section settings', () => {
+  it('hides the platform entry when the administrator turns it off', () => {
+    const { result } = sidebarAs(ROLE.ADMIN, null, {
+      organization: { enabled: true, platform: false, company: true },
+    })
+    const groups = groupTitles(result.current.navGroups)
+    expect(groups.organization).toBeUndefined()
+  })
+
+  it('hides only the company entry when that switch is off', () => {
+    const { result } = sidebarAs(
+      ROLE.USER,
+      { id: 3, role: 'admin', status: 'active' },
+      {
+        organization: { enabled: true, platform: true, company: false },
+      }
+    )
+    const groups = groupTitles(result.current.navGroups)
+    expect(groups.organization).toBeUndefined()
+  })
+
+  it('hides the whole organization group when the section is turned off', () => {
+    const { result } = sidebarAs(ROLE.ADMIN, null, {
+      organization: { enabled: false, platform: true, company: true },
+    })
+    expect(groupTitles(result.current.navGroups).organization).toBeUndefined()
+  })
+
+  it('keeps the entries visible for saved configurations that predate the section', () => {
+    const { result } = sidebarAs(ROLE.ADMIN, null, {
+      chat: { enabled: true, playground: true, chat: true },
+    })
+    expect(groupTitles(result.current.navGroups).organization).toEqual([
+      'Company Organizations',
+    ])
   })
 })

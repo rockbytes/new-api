@@ -77,6 +77,10 @@ export function SidebarModulesSection({
       title: t('Personal area'),
       description: t('Wallet management and personal preferences.'),
     },
+    organization: {
+      title: t('Organization management'),
+      description: t('Platform and company entries for organizations.'),
+    },
     admin: {
       title: t('Admin area'),
       description: t('Global configuration and administrative tools.'),
@@ -135,6 +139,18 @@ export function SidebarModulesSection({
       security: {
         title: t('Security & Access'),
         description: t('Manage your security settings and account access'),
+      },
+    },
+    organization: {
+      platform: {
+        title: t('Company Organizations'),
+        description: t(
+          'Create companies, set their balance, and choose their first admin.'
+        ),
+      },
+      company: {
+        title: t('My organization'),
+        description: t('Manage your organization members and their quota.'),
       },
     },
     admin: {

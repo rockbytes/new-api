@@ -57,6 +57,11 @@ const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
     personal: true,
     security: true,
   },
+  organization: {
+    enabled: true,
+    platform: true,
+    company: true,
+  },
   admin: {
     enabled: true,
     channel: true,
@@ -113,6 +118,8 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/wallet': { section: 'personal', module: 'topup' },
   '/profile': { section: 'personal', module: 'personal' },
   '/security': { section: 'personal', module: 'security' },
+  '/organizations': { section: 'organization', module: 'platform' },
+  '/organization': { section: 'organization', module: 'company' },
   '/channels': { section: 'admin', module: 'channel' },
   '/models': { section: 'admin', module: 'models' },
   '/models/metadata': { section: 'admin', module: 'models' },
