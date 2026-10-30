@@ -55,16 +55,22 @@ export function useSidebarView(): ResolvedSidebarView {
   const rootNavGroups = useMemo<NavGroup[]>(() => {
     const role = userRole ?? ROLE.GUEST
     const isAdmin = role >= ROLE.ADMIN
-    return configFilteredRoot
-      .filter((group) => (group.id === 'admin' ? isAdmin : true))
-      .map((group) => {
-        const items = group.items.filter(
-          (item) =>
-            (item.requiredRole === undefined || role >= item.requiredRole) &&
-            (!item.requiresOrganizationAdmin || organizationRole === 'admin')
-        )
-        return items.length === group.items.length ? group : { ...group, items }
-      })
+    return (
+      configFilteredRoot
+        .filter((group) => (group.id === 'admin' ? isAdmin : true))
+        .map((group) => {
+          const items = group.items.filter(
+            (item) =>
+              (item.requiredRole === undefined || role >= item.requiredRole) &&
+              (!item.requiresOrganizationAdmin || organizationRole === 'admin')
+          )
+          return items.length === group.items.length
+            ? group
+            : { ...group, items }
+        })
+        // A group whose items are all hidden for this user is not shown at all.
+        .filter((group) => group.items.length > 0)
+    )
   }, [configFilteredRoot, organizationRole, userRole])
 
   const view = resolveSidebarView(pathname)

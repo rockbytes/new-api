@@ -141,8 +141,20 @@ export function useSidebarData(): SidebarData {
             url: '/security',
             icon: ShieldCheck,
           },
+        ],
+      },
+      {
+        id: 'organization',
+        title: t('Organization'),
+        items: [
           {
-            title: t('Organization'),
+            title: t('Company Organizations'),
+            url: '/organizations',
+            icon: Building2,
+            requiredRole: ROLE.ADMIN,
+          },
+          {
+            title: t('Organization management'),
             url: '/organization',
             icon: Building2,
             requiresOrganizationAdmin: true,
@@ -167,12 +179,6 @@ export function useSidebarData(): SidebarData {
             title: t('Users'),
             url: '/users',
             icon: Users,
-          },
-          {
-            title: t('Organizations'),
-            url: '/organizations',
-            icon: Building2,
-            requiredRole: ROLE.SUPER_ADMIN,
           },
           {
             title: t('Redemption Codes'),
