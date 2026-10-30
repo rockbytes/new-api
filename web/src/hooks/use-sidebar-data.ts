@@ -145,7 +145,7 @@ export function useSidebarData(): SidebarData {
       },
       {
         id: 'organization',
-        title: t('Organization'),
+        title: t('Organization management'),
         items: [
           {
             title: t('Company Organizations'),
