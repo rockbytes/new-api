@@ -33,6 +33,8 @@ interface QuotaAdjustDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   currentQuota: number
+  // When set, a change that would leave the balance below this value is refused in the dialog.
+  minimumQuota?: number
   // Receives the mode and the quota value: the amount for add and subtract, the target for override.
   // Resolves to true when the change was applied, which closes the dialog.
   onConfirm: (mode: QuotaAdjustMode, value: number) => Promise<boolean>
@@ -52,9 +54,24 @@ export function QuotaAdjustDialog(props: QuotaAdjustDialogProps) {
 
   const amountValue = Number.parseFloat(amount) || 0
   const quotaValue = parseQuotaFromDollars(Math.abs(amountValue))
+  const overrideValue = parseQuotaFromDollars(amountValue)
+  const getNextQuota = (): number => {
+    switch (mode) {
+      case 'add':
+        return props.currentQuota + quotaValue
+      case 'subtract':
+        return props.currentQuota - quotaValue
+      case 'override':
+        return overrideValue
+    }
+  }
+  const belowMinimum =
+    props.minimumQuota !== undefined && getNextQuota() < props.minimumQuota
 
   const getPreviewText = () => {
     const current = props.currentQuota
+    // A result below the minimum is not shown as a number; the warning explains why.
+    if (belowMinimum) return `${t('Current quota')}: ${formatQuota(current)}`
     switch (mode) {
       case 'add':
         return `${t('Current quota')}: ${formatQuota(current)}  +${formatQuota(quotaValue)} = ${formatQuota(current + quotaValue)}`
@@ -75,11 +92,11 @@ export function QuotaAdjustDialog(props: QuotaAdjustDialogProps) {
   const handleConfirm = async () => {
     if (!amount && mode !== 'override') return
     if (quotaValue <= 0 && mode !== 'override') return
+    if (belowMinimum) return
 
     setLoading(true)
     try {
-      const value =
-        mode === 'override' ? parseQuotaFromDollars(amountValue) : quotaValue
+      const value = mode === 'override' ? overrideValue : quotaValue
       const applied = await props.onConfirm(mode, value)
       if (applied) {
         reset()
@@ -112,7 +129,7 @@ export function QuotaAdjustDialog(props: QuotaAdjustDialogProps) {
           <Button variant='outline' onClick={handleCancel}>
             {t('Cancel')}
           </Button>
-          <Button onClick={handleConfirm} disabled={loading}>
+          <Button onClick={handleConfirm} disabled={loading || belowMinimum}>
             {loading ? t('Processing...') : t('Confirm')}
           </Button>
         </>
@@ -120,6 +137,11 @@ export function QuotaAdjustDialog(props: QuotaAdjustDialogProps) {
     >
       <div className='space-y-4'>
         <div className='text-muted-foreground text-sm'>{getPreviewText()}</div>
+        {belowMinimum && (
+          <div className='text-destructive text-sm'>
+            {t('Amount exceeds the available quota.')}
+          </div>
+        )}
 
         <div className='space-y-2'>
           <Label>{t('Mode')}</Label>

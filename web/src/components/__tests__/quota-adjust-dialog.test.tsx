@@ -66,4 +66,28 @@ describe('QuotaAdjustDialog', () => {
     await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1))
     expect(onOpenChange).not.toHaveBeenCalledWith(false)
   })
+
+  it('refuses a subtraction that would take the balance below the minimum', async () => {
+    const onConfirm = vi.fn().mockResolvedValue(true)
+    const user = userEvent.setup()
+    render(
+      <QuotaAdjustDialog
+        open
+        onOpenChange={vi.fn()}
+        currentQuota={5_000_000}
+        minimumQuota={0}
+        onConfirm={onConfirm}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Subtract' }))
+    await user.type(screen.getByRole('spinbutton'), '100')
+
+    expect(
+      screen.getByText('Amount exceeds the available quota.')
+    ).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeDisabled()
+    expect(screen.queryByText(/-\$/)).not.toBeInTheDocument()
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
 })

@@ -217,6 +217,7 @@ export function OrganizationQuotaSection(props: OrganizationQuotaSectionProps) {
         open={adjustOpen}
         onOpenChange={setAdjustOpen}
         currentQuota={quota?.unallocated ?? 0}
+        minimumQuota={0}
         onConfirm={handleAdjust}
       />
 
