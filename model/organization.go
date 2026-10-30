@@ -538,6 +538,94 @@ func ensureUserNotInOrganization(tx *gorm.DB, userId int) error {
 	return nil
 }
 
+// removeUserOrganizationMembershipsTx removes every organization membership of a user.
+// The Keys the user bound to those organizations are disabled. The caller invalidates
+// the returned Keys after the transaction commits.
+func removeUserOrganizationMembershipsTx(tx *gorm.DB, userId int) ([]string, error) {
+	var memberships []OrganizationMembership
+	if err := tx.Where("user_id = ?", userId).Find(&memberships).Error; err != nil {
+		return nil, err
+	}
+	var disabledKeys []string
+	for _, membership := range memberships {
+		if _, err := lockOrganization(tx, membership.OrganizationId); err != nil && !errors.Is(err, ErrOrganizationNotFound) {
+			return nil, err
+		}
+		keys, err := disableOrganizationPaidTokensTx(tx, membership.OrganizationId, userId)
+		if err != nil {
+			return nil, err
+		}
+		disabledKeys = append(disabledKeys, keys...)
+	}
+	if len(memberships) > 0 {
+		if err := tx.Where("user_id = ?", userId).Delete(&OrganizationMembership{}).Error; err != nil {
+			return nil, err
+		}
+	}
+	return disabledKeys, nil
+}
+
+// SetUserOrganizationWithTx places a user in an organization with a role. A zero
+// organizationId removes the user's membership. An empty role keeps the current role
+// when the user is already in the organization, and otherwise makes the user a member.
+// Moving to another organization removes the old membership and disables the Keys bound
+// to it. The caller invalidates the returned Keys after the transaction commits.
+func SetUserOrganizationWithTx(tx *gorm.DB, userId int, organizationId int, role string) ([]string, error) {
+	if organizationId == UserOrganizationNone {
+		return removeUserOrganizationMembershipsTx(tx, userId)
+	}
+	if role != "" && !ValidOrganizationRole(role) {
+		return nil, ErrOrganizationInvalidRole
+	}
+	organization, err := lockOrganization(tx, organizationId)
+	if err != nil {
+		return nil, err
+	}
+	if organization.Status == OrganizationStatusDeleted {
+		return nil, ErrOrganizationNotFound
+	}
+
+	var current []OrganizationMembership
+	if err := tx.Where("user_id = ?", userId).Find(&current).Error; err != nil {
+		return nil, err
+	}
+	for _, membership := range current {
+		if membership.OrganizationId != organizationId {
+			continue
+		}
+		if role == "" {
+			role = membership.Role
+		}
+		if membership.Role == role && membership.Status == OrganizationMembershipActive {
+			return nil, nil
+		}
+		return nil, tx.Model(&OrganizationMembership{}).Where("id = ?", membership.Id).Updates(map[string]any{
+			"role":         role,
+			"status":       OrganizationMembershipActive,
+			"updated_time": common.GetTimestamp(),
+		}).Error
+	}
+
+	if role == "" {
+		role = OrganizationRoleMember
+	}
+	disabledKeys, err := removeUserOrganizationMembershipsTx(tx, userId)
+	if err != nil {
+		return nil, err
+	}
+	now := common.GetTimestamp()
+	if err := tx.Create(&OrganizationMembership{OrganizationId: organizationId, UserId: userId, Role: role,
+		Status: OrganizationMembershipActive, CreatedTime: now, UpdatedTime: now}).Error; err != nil {
+		return nil, err
+	}
+	return disabledKeys, nil
+}
+
+// InvalidateOrganizationTokenKeys drops cached copies of Keys disabled by a membership change.
+func InvalidateOrganizationTokenKeys(keys []string) {
+	invalidateTokenKeys(keys)
+}
+
 var (
 	ErrOrganizationDeleteNotSuspended = errors.New("organization must be suspended before deletion")
 	ErrOrganizationDeleteBlocked      = errors.New("organization still has dependencies that must be cleared")

@@ -513,24 +513,28 @@ func TestOrganizationMembershipRejectsSecondOrganizationForSameUser(t *testing.T
 	assert.Error(t, err)
 }
 
-// A user with an organization membership cannot be deleted through the Root or
-// self-service paths; the organization's own delete route is the only way out.
-func TestOrganizationMemberCannotBeDeletedThroughRootOrSelfPaths(t *testing.T) {
+// An administrator can delete a user who belongs to an organization: the membership is
+// removed together with the account. Self-service deletion stays blocked while the user
+// belongs to an organization.
+func TestOrganizationMemberDeletedByAdministratorLeavesTheOrganization(t *testing.T) {
 	db := setupOrganizationTestDB(t)
 	createOrganizationTestUser(t, db, "root", common.UserStatusEnabled)
 	createOrganizationWithAdmin(t, "Guarded", "alice")
 	alice := userByName(t, db, "alice")
 
-	adminDelete := &model.User{Id: alice.Id}
-	_, err := adminDelete.HardDelete()
-	require.ErrorIs(t, err, model.ErrUserInOrganization)
 	selfDelete := &model.User{Id: alice.Id}
-	_, err = selfDelete.Delete()
+	_, err := selfDelete.Delete()
 	require.ErrorIs(t, err, model.ErrUserInOrganization)
 
+	_, err = model.HardDeleteUserById(alice.Id)
+	require.NoError(t, err)
+
 	var remaining int64
-	require.NoError(t, db.Model(&model.User{}).Where("id = ?", alice.Id).Count(&remaining).Error)
-	assert.Equal(t, int64(1), remaining)
+	require.NoError(t, db.Unscoped().Model(&model.User{}).Where("id = ?", alice.Id).Count(&remaining).Error)
+	assert.Equal(t, int64(0), remaining)
+	var memberships int64
+	require.NoError(t, db.Model(&model.OrganizationMembership{}).Where("user_id = ?", alice.Id).Count(&memberships).Error)
+	assert.Equal(t, int64(0), memberships)
 }
 
 func TestOrganizationDeleteEndpointBlocksUntilClearedThenSoftDeletes(t *testing.T) {

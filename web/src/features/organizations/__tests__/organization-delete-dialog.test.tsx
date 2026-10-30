@@ -89,7 +89,7 @@ describe('OrganizationDeleteDialog', () => {
     expect(
       await screen.findByText('Suspend the organization before deleting it.')
     ).toBeVisible()
-    expect(screen.getByText('Remove the remaining members.')).toBeVisible()
+    expect(screen.getByText('Delete the remaining members.')).toBeVisible()
     expect(
       screen.getByRole('button', { name: 'Delete organization' })
     ).toBeDisabled()

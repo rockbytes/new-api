@@ -41,6 +41,8 @@ export const userFormSchema = z.object({
   quota_dollars: z.number().min(0).optional(),
   group: z.string().optional(),
   remark: z.string().optional(),
+  organization_id: z.string().optional(),
+  organization_role: z.string().optional(),
   admin_permissions: z
     .record(z.string(), z.record(z.string(), z.boolean()))
     .optional(),
@@ -60,6 +62,8 @@ export const USER_FORM_DEFAULT_VALUES: UserFormValues = {
   quota_dollars: 0,
   group: DEFAULT_GROUP,
   remark: '',
+  organization_id: '0',
+  organization_role: 'member',
   // Filled against the backend catalog at render time; see UsersMutateDrawer.
   admin_permissions: {},
 }
@@ -94,6 +98,11 @@ export function transformFormDataToPayload(
     )
   }
 
+  // Organization placement applies on create and on update. 0 removes the user from
+  // its organization.
+  payload.organization_id = Number(data.organization_id || 0)
+  payload.organization_role = data.organization_role || undefined
+
   // For create: only send required fields
   if (userId === undefined) {
     payload.role = role
@@ -121,6 +130,8 @@ export function transformUserToFormDefaults(user: User): UserFormValues {
     quota_dollars: quotaUnitsToDollars(user.quota),
     group: user.group || DEFAULT_GROUP,
     remark: user.remark || '',
+    organization_id: String(user.organization?.id ?? 0),
+    organization_role: user.organization?.role || 'member',
     admin_permissions: user.admin_permissions ?? {},
   }
 }

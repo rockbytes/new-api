@@ -63,6 +63,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
+import { getOrganizations } from '@/features/organizations/api'
 import {
   ADMIN_PERMISSION_ACTIONS,
   ADMIN_PERMISSION_RESOURCES,
@@ -129,6 +130,12 @@ export function UsersMutateDrawer({
 
   const groups = groupsData?.data || []
 
+  // Organizations offered when placing a user. Deleted organizations are not listed.
+  const { data: organizationsData } = useQuery({
+    queryKey: ['users', 'organization-options'],
+    queryFn: () => getOrganizations(1, 100),
+    staleTime: 5 * 60 * 1000,
+  })
   // Permission catalog is owned by the backend; fetched once and reused.
   const { data: permissionCatalog = EMPTY_PERMISSION_CATALOG } = useQuery({
     queryKey: ['admin-permission-catalog'],
@@ -167,6 +174,7 @@ export function UsersMutateDrawer({
 
   const currentQuotaRaw = form.watch('quota_dollars') || 0
   const selectedRole = form.watch('role')
+  const selectedOrganizationId = form.watch('organization_id')
   const canEditAdminPermissions = currentUser?.role === ROLE.SUPER_ADMIN
   const targetIsAdmin = (selectedRole ?? currentRow?.role ?? 0) >= ROLE.ADMIN
 
@@ -408,6 +416,60 @@ export function UsersMutateDrawer({
                     </FormItem>
                   )}
                 />
+              </SideDrawerSection>
+
+              {/* Organization placement, on create and update */}
+              <SideDrawerSection>
+                <FormField
+                  control={form.control}
+                  name='organization_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Organization')}</FormLabel>
+                      <FormControl>
+                        <Combobox
+                          options={[
+                            { value: '0', label: t('No organization') },
+                            ...(organizationsData?.items ?? []).map(
+                              (organization) => ({
+                                value: String(organization.id),
+                                label: organization.name,
+                              })
+                            ),
+                          ]}
+                          onValueChange={field.onChange}
+                          value={field.value}
+                          className='w-full'
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {selectedOrganizationId && selectedOrganizationId !== '0' && (
+                  <FormField
+                    control={form.control}
+                    name='organization_role'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Organization role')}</FormLabel>
+                        <FormControl>
+                          <Combobox
+                            options={[
+                              { value: 'member', label: t('Member') },
+                              { value: 'admin', label: t('Admin') },
+                            ]}
+                            onValueChange={field.onChange}
+                            value={field.value}
+                            className='w-full'
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
               </SideDrawerSection>
 
               {/* Group & Quota Settings (Update only) */}

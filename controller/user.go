@@ -407,6 +407,10 @@ func GetUser(c *gin.Context) {
 		common.ApiErrorT(c, "No permission to access users of same or higher level")
 		return
 	}
+	if err := model.AttachUserOrganizations([]*model.User{user}); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -676,6 +680,14 @@ func GetUserModels(c *gin.Context) {
 	})
 }
 
+func respondUserOrganizationAssignmentError(c *gin.Context, err error) {
+	if errors.Is(err, model.ErrOrganizationNotFound) || errors.Is(err, model.ErrOrganizationInvalidRole) {
+		respondOrganizationError(c, err)
+		return
+	}
+	common.ApiError(c, err)
+}
+
 func UpdateUser(c *gin.Context) {
 	var updatedUser model.User
 	err := common.DecodeJson(c.Request.Body, &updatedUser)
@@ -724,16 +736,29 @@ func UpdateUser(c *gin.Context) {
 		auditParams["admin_permissions_updated"] = updatedUser.AdminPermissions != nil
 	}
 	authzTouched := false
+	var organizationKeys []string
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {
 		if err := updatedUser.EditWithTx(tx, updatePassword); err != nil {
 			return err
+		}
+		if updatedUser.OrganizationId != nil {
+			keys, err := model.SetUserOrganizationWithTx(tx, updatedUser.Id, *updatedUser.OrganizationId, updatedUser.OrganizationRole)
+			if err != nil {
+				return err
+			}
+			organizationKeys = keys
 		}
 		touched, err := updateAdminPermissionsForUserInTx(c, tx, updatedUser.Id, originUser.Role, updatedUser.AdminPermissions)
 		authzTouched = touched
 		return err
 	}); err != nil {
-		common.ApiError(c, err)
+		respondUserOrganizationAssignmentError(c, err)
 		return
+	}
+	model.InvalidateOrganizationTokenKeys(organizationKeys)
+	if updatedUser.OrganizationId != nil {
+		auditParams["organization_id"] = *updatedUser.OrganizationId
+		auditParams["organization_role"] = updatedUser.OrganizationRole
 	}
 	if authzTouched {
 		if err := authz.ReloadPolicy(); err != nil {
@@ -973,10 +998,6 @@ func DeleteUser(c *gin.Context) {
 		return
 	}
 	revokedAccessTokens, err := model.HardDeleteUserById(id)
-	if errors.Is(err, model.ErrUserInOrganization) {
-		writeOrganizationError(c, http.StatusConflict, "USER_IN_ORGANIZATION", "User belongs to an organization; remove the membership first")
-		return
-	}
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -1113,11 +1134,18 @@ func CreateUser(c *gin.Context) {
 		if err := cleanUser.InsertWithTx(tx, 0); err != nil {
 			return err
 		}
+		if user.OrganizationId != nil {
+			if _, err := model.SetUserOrganizationWithTx(tx, cleanUser.Id, *user.OrganizationId, user.OrganizationRole); err != nil {
+				return err
+			}
+			auditParams["organization_id"] = *user.OrganizationId
+			auditParams["organization_role"] = user.OrganizationRole
+		}
 		touched, err := updateAdminPermissionsForUserInTx(c, tx, cleanUser.Id, cleanUser.Role, user.AdminPermissions)
 		authzTouched = touched
 		return err
 	}); err != nil {
-		common.ApiError(c, err)
+		respondUserOrganizationAssignmentError(c, err)
 		return
 	}
 	if authzTouched {

@@ -28,6 +28,7 @@ const UserOrganizationNone = 0
 type UserOrganization struct {
 	Id   int    `json:"id"`
 	Name string `json:"name"`
+	Role string `json:"role"`
 }
 
 var userSortColumns = map[string]string{
@@ -125,6 +126,10 @@ type User struct {
 	AuthVersion          int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
 	AdminPermissions     map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
 	Organization         *UserOrganization          `json:"organization" gorm:"-:all"`
+	// OrganizationId and OrganizationRole are write-only: an administrator sets them when
+	// creating or editing a user. Zero removes the user from its organization.
+	OrganizationId   *int   `json:"organization_id,omitempty" gorm:"-:all"`
+	OrganizationRole string `json:"organization_role,omitempty" gorm:"-:all"`
 }
 
 func (user *User) ToBaseUser() *UserBase {
@@ -428,6 +433,12 @@ func applyUserOrganizationFilter(query *gorm.DB, organizationId int) *gorm.DB {
 	return query.Where("users.id IN (?)", memberships.Where("organization_memberships.organization_id = ?", organizationId))
 }
 
+// AttachUserOrganizations fills the organization of each user, for responses that show
+// a single user.
+func AttachUserOrganizations(users []*User) error {
+	return attachUserOrganizations(DB, users)
+}
+
 // attachUserOrganizations sets the organization of each user. Users whose only
 // membership is in a deleted organization get no organization.
 func attachUserOrganizations(db *gorm.DB, users []*User) error {
@@ -442,9 +453,10 @@ func attachUserOrganizations(db *gorm.DB, users []*User) error {
 		UserId int
 		Id     int
 		Name   string
+		Role   string
 	}
 	err := db.Model(&OrganizationMembership{}).
-		Select("organization_memberships.user_id AS user_id, organizations.id AS id, organizations.name AS name").
+		Select("organization_memberships.user_id AS user_id, organizations.id AS id, organizations.name AS name, organization_memberships.role AS role").
 		Joins("JOIN organizations ON organizations.id = organization_memberships.organization_id").
 		Where("organization_memberships.user_id IN ?", userIds).
 		Where("organizations.status <> ?", OrganizationStatusDeleted).
@@ -454,7 +466,7 @@ func attachUserOrganizations(db *gorm.DB, users []*User) error {
 	}
 	byUser := make(map[int]*UserOrganization, len(rows))
 	for _, row := range rows {
-		byUser[row.UserId] = &UserOrganization{Id: row.Id, Name: row.Name}
+		byUser[row.UserId] = &UserOrganization{Id: row.Id, Name: row.Name, Role: row.Role}
 	}
 	for _, user := range users {
 		user.Organization = byUser[user.Id]
@@ -1069,22 +1081,27 @@ func (user *User) delete(identity *AuthSessionIdentity) (int64, error) {
 	return revokedAccessTokens, invalidateUserCache(user.Id)
 }
 
+// HardDelete deletes the account. Organization memberships are removed in the same
+// transaction, and the Keys bound to those organizations are disabled.
 func (user *User) HardDelete() (int64, error) {
 	if user.Id == 0 {
 		return 0, common.NewMessage("ID is empty!")
 	}
 	var result hardDeleteResult
+	var disabledKeys []string
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		if err := ensureUserNotInOrganization(tx, user.Id); err != nil {
+		var err error
+		disabledKeys, err = removeUserOrganizationMembershipsTx(tx, user.Id)
+		if err != nil {
 			return err
 		}
-		var err error
 		result, err = user.hardDeleteWithTx(tx)
 		return err
 	})
 	if err != nil {
 		return 0, err
 	}
+	InvalidateOrganizationTokenKeys(disabledKeys)
 	result.finish(user.Id)
 	return result.revokedAccessTokens, nil
 }

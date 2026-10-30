@@ -55,7 +55,7 @@ export const userSchema = z.object({
   status: userStatusSchema,
   role: userRoleSchema,
   organization: z
-    .object({ id: z.number(), name: z.string() })
+    .object({ id: z.number(), name: z.string(), role: z.string().optional() })
     .nullable()
     .optional(),
   created_at: z.number().optional(),
@@ -132,6 +132,9 @@ export interface UserFormData {
   group?: string // Only used when updating user
   remark?: string // Only used when updating user
   admin_permissions?: AdminPermissionMatrix
+  // Organization placement for create and update: 0 means no organization.
+  organization_id?: number
+  organization_role?: string
 }
 
 export type ManageUserAction =
