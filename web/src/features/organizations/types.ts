@@ -81,18 +81,6 @@ export interface OrganizationQuotaAdjustment {
   unallocated: number
 }
 
-export interface GrantOrganizationQuotaPayload {
-  amount: number
-  reason: string
-  reference: string
-}
-
-export interface RefundOrganizationRequestPayload {
-  request_id: string
-  amount: number
-  reference: string
-}
-
 // Counts and unmet preconditions for deleting an organization. Blockers are codes that
 // the dialog maps to labels; an empty list means the organization can be deleted.
 export interface OrganizationDeletionImpact {

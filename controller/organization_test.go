@@ -558,14 +558,16 @@ func TestOrganizationDeleteEndpointBlocksUntilClearedThenSoftDeletes(t *testing.
 		`{"amount":1000,"reason":"initial","reference":"grant-delete-blocked"}`)
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 
-	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodDelete, path, "")
-	assert.Equal(t, http.StatusConflict, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "ORGANIZATION_DELETE_BLOCKED")
-	assert.Contains(t, recorder.Body.String(), "unallocated_quota_remaining", "the blocked response lists what remains")
-
 	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodGet, path+"/deletion-impact", "")
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	assert.Contains(t, recorder.Body.String(), `"unallocated_quota":1000`)
+	assert.NotContains(t, recorder.Body.String(), "unallocated_quota_remaining", "a leftover balance does not block deletion")
+
+	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodDelete, path, "")
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	deleted, err := model.GetOrganizationById(organizationId)
+	require.NoError(t, err)
+	assert.Equal(t, model.OrganizationStatusDeleted, deleted.Status)
 
 	emptyId := createOrganizationWithAdmin(t, "Empty Co", "empty-admin")
 	emptyPath := fmt.Sprintf("/api/organization/%d", emptyId)

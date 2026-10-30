@@ -710,9 +710,6 @@ func organizationDeletionBlockers(impact *OrganizationDeletionImpact) []string {
 	if impact.MemberCount > 0 {
 		blockers = append(blockers, "members_remaining")
 	}
-	if impact.UnallocatedQuota != 0 {
-		blockers = append(blockers, "unallocated_quota_remaining")
-	}
 	if impact.EnabledPaidKeys > 0 {
 		blockers = append(blockers, "enabled_paid_keys")
 	}
