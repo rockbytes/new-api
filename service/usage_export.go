@@ -517,7 +517,7 @@ func usageRecordCells(view UsageView, log model.Log, tzOffsetMinutes int, names 
 	cells := []usageCell{
 		usageNumberCell(int64(log.Id)),
 		usageTextCell(usageExportTime(log.CreatedAt, tzOffsetMinutes)),
-		usageTextCell(usageLogTypeLabel(log.Type)),
+		usageTextCell("consume"),
 		usageTextCell(log.Username),
 		usageTextCell(log.TokenName),
 		usageTextCell(log.ModelName),
@@ -549,11 +549,11 @@ func writeUsageSummaryTables(out usageSheetWriter, resolved ResolvedUsageScope, 
 	if err != nil {
 		return 0, err
 	}
-	if err := out.StartTable("summary", "汇总", usageHeader("net_quota", "consume_quota", "refund_quota", "requests", "prompt_tokens", "completion_tokens")); err != nil {
+	if err := out.StartTable("summary", "汇总", usageHeader("消费", "requests", "prompt_tokens", "completion_tokens")); err != nil {
 		return 0, err
 	}
-	if err := out.WriteRow([]usageCell{usageNumberCell(summary.NetQuota), usageNumberCell(summary.ConsumeQuota),
-		usageNumberCell(summary.RefundQuota), usageNumberCell(summary.Requests), usageNumberCell(summary.PromptTokens), usageNumberCell(summary.CompletionTokens)}); err != nil {
+	if err := out.WriteRow([]usageCell{usageNumberCell(summary.ConsumeQuota), usageNumberCell(summary.Requests),
+		usageNumberCell(summary.PromptTokens), usageNumberCell(summary.CompletionTokens)}); err != nil {
 		return 0, err
 	}
 	rows++
@@ -562,12 +562,12 @@ func writeUsageSummaryTables(out usageSheetWriter, resolved ResolvedUsageScope, 
 	if err != nil {
 		return 0, err
 	}
-	if err := out.StartTable("models", "按模型", usageHeader("model_name", "net_quota", "requests", "prompt_tokens", "completion_tokens")); err != nil {
+	if err := out.StartTable("models", "按模型", usageHeader("model_name", "消费", "requests", "prompt_tokens", "completion_tokens")); err != nil {
 		return 0, err
 	}
 	for _, row := range models {
 		rows++
-		if err := out.WriteRow([]usageCell{usageTextCell(row.ModelName), usageNumberCell(row.NetQuota),
+		if err := out.WriteRow([]usageCell{usageTextCell(row.ModelName), usageNumberCell(row.ConsumeQuota),
 			usageNumberCell(row.Requests), usageNumberCell(row.PromptTokens), usageNumberCell(row.CompletionTokens)}); err != nil {
 			return 0, err
 		}
@@ -585,7 +585,7 @@ func writeUsageSummaryTables(out usageSheetWriter, resolved ResolvedUsageScope, 
 	if by == model.UsageRankByOrganization {
 		title = "按组织"
 	}
-	if err := out.StartTable("rankings", title, usageHeader("key", "name", "net_quota", "requests")); err != nil {
+	if err := out.StartTable("rankings", title, usageHeader("key", "name", "消费", "requests")); err != nil {
 		return 0, err
 	}
 	for _, row := range ranking {
@@ -595,7 +595,7 @@ func writeUsageSummaryTables(out usageSheetWriter, resolved ResolvedUsageScope, 
 			name = usageTextCell(names.nameOf(int(row.Key)))
 		}
 		if err := out.WriteRow([]usageCell{usageNumberCell(row.Key), name,
-			usageNumberCell(row.NetQuota), usageNumberCell(row.Requests)}); err != nil {
+			usageNumberCell(row.ConsumeQuota), usageNumberCell(row.Requests)}); err != nil {
 			return 0, err
 		}
 	}
@@ -613,13 +613,6 @@ func usageText(value string) string {
 		return "'" + value
 	}
 	return value
-}
-
-func usageLogTypeLabel(logType int) string {
-	if logType == model.LogTypeRefund {
-		return "refund"
-	}
-	return "consume"
 }
 
 func usageExportTime(timestamp int64, tzOffsetMinutes int) string {

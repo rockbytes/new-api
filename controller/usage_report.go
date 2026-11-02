@@ -37,7 +37,7 @@ const (
 	usageMaxTzOffsetMinutes   = 14 * 60
 	usageDefaultPageSize      = 20
 	usageMaxPageSize          = 100
-	usageBasis                = "settled_net"
+	usageBasis                = "settled_consumption"
 	usageUnit                 = "platform_quota"
 )
 
@@ -226,7 +226,7 @@ func usageOrganizationNames(ids []int) (map[int]string, error) {
 	return names, nil
 }
 
-// GetUsageSummary returns the net consumption and request totals of the caller's scope.
+// GetUsageSummary returns the consumption and request totals of the caller's scope.
 func GetUsageSummary(c *gin.Context) {
 	request, ok := parseUsageRequest(c)
 	if !ok {
@@ -245,7 +245,7 @@ func GetUsageSummary(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{"meta": usageMeta(request, names), "summary": summary})
 }
 
-// GetUsageTrend returns the net consumption per local day of the caller's scope.
+// GetUsageTrend returns the consumption per local day of the caller's scope.
 func GetUsageTrend(c *gin.Context) {
 	request, ok := parseUsageRequest(c)
 	if !ok {
@@ -264,7 +264,7 @@ func GetUsageTrend(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{"meta": usageMeta(request, names), "points": points})
 }
 
-// GetUsageModels returns the net consumption per model of the caller's scope.
+// GetUsageModels returns the consumption per model of the caller's scope.
 func GetUsageModels(c *gin.Context) {
 	request, ok := parseUsageRequest(c)
 	if !ok {

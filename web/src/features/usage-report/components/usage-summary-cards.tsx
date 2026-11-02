@@ -29,16 +29,10 @@ export function UsageSummaryCards(props: {
 }) {
   const { t } = useTranslation()
   const cards = [
-    { key: 'net', label: t('Net consumption'), value: props.summary.net_quota },
     {
       key: 'consumed',
       label: t('Consumed'),
       value: props.summary.consume_quota,
-    },
-    {
-      key: 'refunded',
-      label: t('Refunded'),
-      value: props.summary.refund_quota,
     },
     { key: 'requests', label: t('Requests'), value: props.summary.requests },
     {
@@ -53,7 +47,7 @@ export function UsageSummaryCards(props: {
     },
   ]
   return (
-    <div className='grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6'>
+    <div className='grid grid-cols-2 gap-3 md:grid-cols-4'>
       {cards.map((card) => (
         <Card key={card.key} size='sm'>
           <CardHeader>

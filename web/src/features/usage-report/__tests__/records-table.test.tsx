@@ -24,7 +24,6 @@ import { UsageRecordsTable } from '../components/usage-records-table'
 import type { UsageSelfRecord } from '../types'
 
 const CONSUME = 2
-const REFUND = 6
 
 function record(overrides: Partial<UsageSelfRecord>): UsageSelfRecord {
   return {
@@ -84,17 +83,7 @@ describe('UsageRecordsTable payer column', () => {
   })
 })
 
-describe('UsageRecordsTable refunds', () => {
-  it('shows a refund row with a leading minus sign', () => {
-    renderRecords({
-      view: 'self',
-      items: [record({ type: REFUND, quota: 40 })],
-    })
-
-    const row = screen.getByRole('row', { name: /req-1|gpt-4o-mini/ })
-    expect(row).toHaveTextContent('-40')
-  })
-
+describe('UsageRecordsTable amounts', () => {
   it('shows a consume row without a sign', () => {
     renderRecords({
       view: 'self',

@@ -40,7 +40,7 @@ export function UsageModelsTable(props: {
       <TableHeader>
         <TableRow>
           <TableHead>{t('Model')}</TableHead>
-          <TableHead className='text-right'>{t('Net consumption')}</TableHead>
+          <TableHead className='text-right'>{t('Consumed')}</TableHead>
           <TableHead className='text-right'>{t('Requests')}</TableHead>
         </TableRow>
       </TableHeader>
@@ -61,7 +61,7 @@ export function UsageModelsTable(props: {
               {row.model_name}
             </TableCell>
             <TableCell className='text-right tabular-nums'>
-              {formatNumber(row.net_quota, props.locale)}
+              {formatNumber(row.consume_quota, props.locale)}
             </TableCell>
             <TableCell className='text-right tabular-nums'>
               {formatNumber(row.requests, props.locale)}
@@ -85,7 +85,7 @@ export function UsageRankingTable(props: {
       <TableHeader>
         <TableRow>
           <TableHead>{t('Name')}</TableHead>
-          <TableHead className='text-right'>{t('Net consumption')}</TableHead>
+          <TableHead className='text-right'>{t('Consumed')}</TableHead>
           <TableHead className='text-right'>{t('Requests')}</TableHead>
         </TableRow>
       </TableHeader>
@@ -104,7 +104,7 @@ export function UsageRankingTable(props: {
           <TableRow key={row.key}>
             <TableCell>{props.nameFor(row)}</TableCell>
             <TableCell className='text-right tabular-nums'>
-              {formatNumber(row.net_quota, props.locale)}
+              {formatNumber(row.consume_quota, props.locale)}
             </TableCell>
             <TableCell className='text-right tabular-nums'>
               {formatNumber(row.requests, props.locale)}

@@ -187,17 +187,17 @@ func TestUsageReportTotalsFollowTheCallersScope(t *testing.T) {
 	engine := setupUsageReportEndpoints(t)
 
 	_, platform := usageCall(t, engine, usageRootUser, common.RoleRootUser, "/api/usage/summary")
-	assert.Equal(t, float64(234), usageData(platform)["summary"].(map[string]any)["net_quota"], "all payers: 100+40+15+70+9")
+	assert.Equal(t, float64(234), usageData(platform)["summary"].(map[string]any)["consume_quota"], "all payers: 100+40+15+70+9")
 
 	_, organization := usageCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, "/api/usage/summary")
-	assert.Equal(t, float64(140), usageData(organization)["summary"].(map[string]any)["net_quota"], "organization A pays 100+40")
+	assert.Equal(t, float64(140), usageData(organization)["summary"].(map[string]any)["consume_quota"], "organization A pays 100+40")
 	assert.Equal(t, float64(2), usageData(organization)["summary"].(map[string]any)["requests"], "two organization-paid requests")
 
 	_, member := usageCall(t, engine, usageOrgAMember, common.RoleCommonUser, "/api/usage/summary")
-	assert.Equal(t, float64(55), usageData(member)["summary"].(map[string]any)["net_quota"], "own usage: 40 paid by A plus 15 personal")
+	assert.Equal(t, float64(55), usageData(member)["summary"].(map[string]any)["consume_quota"], "own usage: 40 paid by A plus 15 personal")
 
 	_, personal := usageCall(t, engine, usageNoOrgUser, common.RoleCommonUser, "/api/usage/summary")
-	assert.Equal(t, float64(9), usageData(personal)["summary"].(map[string]any)["net_quota"])
+	assert.Equal(t, float64(9), usageData(personal)["summary"].(map[string]any)["consume_quota"])
 }
 
 func TestUsageRecordsExposeOnlyTheWhitelistForEachView(t *testing.T) {
@@ -236,7 +236,7 @@ func TestUsageHistoryKeepsDepartedMemberUsage(t *testing.T) {
 	require.NoError(t, model.DB.Where("user_id = ?", usageOrgAMember).Delete(&model.OrganizationMembership{}).Error)
 
 	_, organization := usageCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, "/api/usage/summary")
-	assert.Equal(t, float64(140), usageData(organization)["summary"].(map[string]any)["net_quota"], "the departed member's 40 stays in organization A's history")
+	assert.Equal(t, float64(140), usageData(organization)["summary"].(map[string]any)["consume_quota"], "the departed member's 40 stays in organization A's history")
 
 	_, records := usageCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, "/api/usage/records")
 	var requestIds []string

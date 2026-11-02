@@ -28,7 +28,7 @@ export function UsageTrendBars(props: {
   locale: string | undefined
 }) {
   const { t } = useTranslation()
-  const max = Math.max(1, ...props.points.map((point) => point.net_quota))
+  const max = Math.max(1, ...props.points.map((point) => point.consume_quota))
   if (props.points.length === 0) {
     return (
       <p className='text-muted-foreground text-sm'>
@@ -49,11 +49,11 @@ export function UsageTrendBars(props: {
           <span className='bg-muted h-3 overflow-hidden rounded'>
             <span
               className='bg-primary block h-full rounded'
-              style={{ width: `${(point.net_quota / max) * 100}%` }}
+              style={{ width: `${(point.consume_quota / max) * 100}%` }}
             />
           </span>
           <span className='text-right tabular-nums'>
-            {formatNumber(point.net_quota, props.locale)}
+            {formatNumber(point.consume_quota, props.locale)}
           </span>
         </li>
       ))}

@@ -32,8 +32,6 @@ import { formatNumber, formatTimestamp } from '@/lib/format'
 import type { UsageRecordItem } from '../api'
 import type { UsagePlatformRecord, UsageSelfRecord, UsageView } from '../types'
 
-const REFUND_LOG_TYPE = 6
-
 export function UsageRecordsTable(props: {
   view: UsageView
   items: UsageRecordItem[]
@@ -86,7 +84,6 @@ export function UsageRecordsTable(props: {
                 </TableCell>
                 <TableCell>{item.username}</TableCell>
                 <TableCell className='text-right tabular-nums'>
-                  {item.type === REFUND_LOG_TYPE ? '-' : ''}
                   {formatNumber(item.quota, props.locale)}
                 </TableCell>
                 <TableCell className='text-right tabular-nums'>

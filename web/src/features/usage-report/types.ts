@@ -31,14 +31,12 @@ export interface UsageMeta {
     end_timestamp: number
     tz_offset_minutes: number
   }
-  basis: 'settled_net'
+  basis: 'settled_consumption'
   unit: 'platform_quota'
 }
 
 export interface UsageSummary {
-  net_quota: number
   consume_quota: number
-  refund_quota: number
   requests: number
   prompt_tokens: number
   completion_tokens: number
@@ -46,13 +44,13 @@ export interface UsageSummary {
 
 export interface UsageTrendPoint {
   day_start: number
-  net_quota: number
+  consume_quota: number
   requests: number
 }
 
 export interface UsageModelRow {
   model_name: string
-  net_quota: number
+  consume_quota: number
   requests: number
   prompt_tokens: number
   completion_tokens: number
@@ -63,7 +61,7 @@ export type UsageRankBy = 'user' | 'organization'
 export interface UsageRankRow {
   key: number
   name: string
-  net_quota: number
+  consume_quota: number
   requests: number
 }
 

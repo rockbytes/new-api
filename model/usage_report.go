@@ -42,16 +42,12 @@ const (
 	usageRankLimit     = 50
 )
 
-// usageNetBasis is the reported consumption: settled consume rows minus refund rows. Logs
-// are written at settlement, so pre-consumed amounts and failed requests are not counted.
-const usageNetBasis = "COALESCE(SUM(CASE WHEN logs.type = ? THEN logs.quota WHEN logs.type = ? THEN -logs.quota ELSE 0 END), 0)"
-
-// usageScoped applies the window and scope to a logs query. Only consume and refund rows
-// are reported; every other log type is outside the usage basis.
+// usageScoped applies the window and scope to a logs query. Only consume rows are reported.
+// Logs are written at settlement, so pre-consumed amounts and failed requests are not counted.
 func usageScoped(scope UsageScope, window UsageWindow) func(tx *gorm.DB) *gorm.DB {
 	return func(tx *gorm.DB) *gorm.DB {
 		tx = tx.Where("logs.created_at >= ? AND logs.created_at <= ?", window.Start, window.End).
-			Where("logs.type IN ?", []int{LogTypeConsume, LogTypeRefund})
+			Where("logs.type = ?", LogTypeConsume)
 		if scope.OrganizationId > 0 {
 			tx = tx.Where("logs.billing_organization_id = ?", scope.OrganizationId)
 		}
@@ -62,11 +58,9 @@ func usageScoped(scope UsageScope, window UsageWindow) func(tx *gorm.DB) *gorm.D
 	}
 }
 
-// UsageSummary is the net consumption and request totals of one scope.
+// UsageSummary is the consumption and request totals of one scope.
 type UsageSummary struct {
-	NetQuota         int64 `json:"net_quota"`
 	ConsumeQuota     int64 `json:"consume_quota"`
-	RefundQuota      int64 `json:"refund_quota"`
 	Requests         int64 `json:"requests"`
 	PromptTokens     int64 `json:"prompt_tokens"`
 	CompletionTokens int64 `json:"completion_tokens"`
@@ -76,23 +70,20 @@ type UsageSummary struct {
 func GetUsageSummary(scope UsageScope, window UsageWindow) (UsageSummary, error) {
 	var summary UsageSummary
 	err := usageScoped(scope, window)(LOG_DB.Model(&Log{})).Select(
-		"COALESCE(SUM(CASE WHEN logs.type = ? THEN logs.quota ELSE 0 END), 0) AS consume_quota, "+
-			"COALESCE(SUM(CASE WHEN logs.type = ? THEN logs.quota ELSE 0 END), 0) AS refund_quota, "+
-			"COALESCE(SUM(CASE WHEN logs.type = ? THEN 1 ELSE 0 END), 0) AS requests, "+
-			"COALESCE(SUM(CASE WHEN logs.type = ? THEN logs.prompt_tokens ELSE 0 END), 0) AS prompt_tokens, "+
-			"COALESCE(SUM(CASE WHEN logs.type = ? THEN logs.completion_tokens ELSE 0 END), 0) AS completion_tokens",
-		LogTypeConsume, LogTypeRefund, LogTypeConsume, LogTypeConsume, LogTypeConsume,
+		"COALESCE(SUM(logs.quota), 0) AS consume_quota, " +
+			"COUNT(*) AS requests, " +
+			"COALESCE(SUM(logs.prompt_tokens), 0) AS prompt_tokens, " +
+			"COALESCE(SUM(logs.completion_tokens), 0) AS completion_tokens",
 	).Scan(&summary).Error
-	summary.NetQuota = summary.ConsumeQuota - summary.RefundQuota
 	return summary, err
 }
 
-// UsageTrendPoint is the net consumption of one local day. DayStart is the Unix time of
-// that day's local midnight.
+// UsageTrendPoint is the consumption of one local day. DayStart is the Unix time of that
+// day's local midnight.
 type UsageTrendPoint struct {
-	DayStart int64 `json:"day_start"`
-	NetQuota int64 `json:"net_quota"`
-	Requests int64 `json:"requests"`
+	DayStart     int64 `json:"day_start"`
+	ConsumeQuota int64 `json:"consume_quota"`
+	Requests     int64 `json:"requests"`
 }
 
 // GetUsageTrend returns one point per local day that has usage, oldest first.
@@ -102,10 +93,9 @@ func GetUsageTrend(scope UsageScope, window UsageWindow) ([]UsageTrendPoint, err
 	var points []UsageTrendPoint
 	err := usageScoped(scope, window)(LOG_DB.Model(&Log{})).Select(
 		bucket+" AS day_start, "+
-			"COALESCE(SUM(CASE WHEN logs.type = ? THEN logs.quota WHEN logs.type = ? THEN -logs.quota ELSE 0 END), 0) AS net_quota, "+
-			"COALESCE(SUM(CASE WHEN logs.type = ? THEN 1 ELSE 0 END), 0) AS requests",
+			"COALESCE(SUM(logs.quota), 0) AS consume_quota, "+
+			"COUNT(*) AS requests",
 		window.TzOffsetSeconds, window.TzOffsetSeconds, int64(usageSecondsPerDay),
-		LogTypeConsume, LogTypeRefund, LogTypeConsume,
 	).Group("day_start").Order("day_start").Scan(&points).Error
 	if err != nil {
 		return nil, err
@@ -116,10 +106,10 @@ func GetUsageTrend(scope UsageScope, window UsageWindow) ([]UsageTrendPoint, err
 	return points, nil
 }
 
-// UsageModelRow is the net consumption of one model.
+// UsageModelRow is the consumption of one model.
 type UsageModelRow struct {
 	ModelName        string `json:"model_name"`
-	NetQuota         int64  `json:"net_quota"`
+	ConsumeQuota     int64  `json:"consume_quota"`
 	Requests         int64  `json:"requests"`
 	PromptTokens     int64  `json:"prompt_tokens"`
 	CompletionTokens int64  `json:"completion_tokens"`
@@ -129,23 +119,22 @@ type UsageModelRow struct {
 func GetUsageModels(scope UsageScope, window UsageWindow) ([]UsageModelRow, error) {
 	var rows []UsageModelRow
 	err := usageScoped(scope, window)(LOG_DB.Model(&Log{})).Select(
-		"logs.model_name AS model_name, "+
-			usageNetBasis+" AS net_quota, "+
-			"COALESCE(SUM(CASE WHEN logs.type = ? THEN 1 ELSE 0 END), 0) AS requests, "+
-			"COALESCE(SUM(CASE WHEN logs.type = ? THEN logs.prompt_tokens ELSE 0 END), 0) AS prompt_tokens, "+
-			"COALESCE(SUM(CASE WHEN logs.type = ? THEN logs.completion_tokens ELSE 0 END), 0) AS completion_tokens",
-		LogTypeConsume, LogTypeRefund, LogTypeConsume, LogTypeConsume, LogTypeConsume,
-	).Group("logs.model_name").Order("net_quota DESC").Limit(usageRankLimit).Scan(&rows).Error
+		"logs.model_name AS model_name, " +
+			"COALESCE(SUM(logs.quota), 0) AS consume_quota, " +
+			"COUNT(*) AS requests, " +
+			"COALESCE(SUM(logs.prompt_tokens), 0) AS prompt_tokens, " +
+			"COALESCE(SUM(logs.completion_tokens), 0) AS completion_tokens",
+	).Group("logs.model_name").Order("consume_quota DESC").Limit(usageRankLimit).Scan(&rows).Error
 	return rows, err
 }
 
-// UsageRankRow is the net consumption of one user or one billing organization. Key is the
-// user id or organization id, and 0 means personal billing (not in any organization).
+// UsageRankRow is the consumption of one user or one billing organization. Key is the user
+// id or organization id, and 0 means personal billing (not in any organization).
 type UsageRankRow struct {
-	Key      int64  `json:"key" gorm:"column:rank_key"`
-	Name     string `json:"name"`
-	NetQuota int64  `json:"net_quota"`
-	Requests int64  `json:"requests"`
+	Key          int64  `json:"key" gorm:"column:rank_key"`
+	Name         string `json:"name"`
+	ConsumeQuota int64  `json:"consume_quota"`
+	Requests     int64  `json:"requests"`
 }
 
 // UsageRankBy selects what a ranking groups by.
@@ -166,16 +155,15 @@ func GetUsageRanking(scope UsageScope, window UsageWindow, by UsageRankBy) ([]Us
 	}
 	var rows []UsageRankRow
 	err := usageScoped(scope, window)(LOG_DB.Model(&Log{})).Select(
-		keyColumn+" AS rank_key, "+nameColumn+" AS name, "+
-			usageNetBasis+" AS net_quota, "+
-			"COALESCE(SUM(CASE WHEN logs.type = ? THEN 1 ELSE 0 END), 0) AS requests",
-		LogTypeConsume, LogTypeRefund, LogTypeConsume,
-	).Group(keyColumn).Order("net_quota DESC").Limit(usageRankLimit).Scan(&rows).Error
+		keyColumn + " AS rank_key, " + nameColumn + " AS name, " +
+			"COALESCE(SUM(logs.quota), 0) AS consume_quota, " +
+			"COUNT(*) AS requests",
+	).Group(keyColumn).Order("consume_quota DESC").Limit(usageRankLimit).Scan(&rows).Error
 	return rows, err
 }
 
-// GetUsageRecords returns one page of the scope's consume and refund rows, newest first,
-// with the total number of rows. Callers must whitelist the fields they return.
+// GetUsageRecords returns one page of the scope's consume rows, newest first, with the total
+// number of rows. Callers must whitelist the fields they return.
 func GetUsageRecords(scope UsageScope, window UsageWindow, page int, pageSize int) ([]Log, int64, error) {
 	base := usageScoped(scope, window)(LOG_DB.Model(&Log{}))
 	var total int64
