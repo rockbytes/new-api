@@ -38,11 +38,11 @@ interface StatCardProps {
 
 const TONE_CLASSES: Record<StatCardTone, string> = {
   'accent-1':
-    'from-overview-accent-1/80 via-overview-accent-1/45 to-overview-accent-1/5 dark:from-overview-accent-1/70 dark:via-overview-accent-1/30',
+    'bg-overview-accent-1/70',
   'accent-2':
-    'from-overview-accent-2/80 via-overview-accent-2/45 to-overview-accent-2/5 dark:from-overview-accent-2/70 dark:via-overview-accent-2/30',
+    'bg-overview-accent-2/70',
   'accent-3':
-    'from-overview-accent-3/80 via-overview-accent-3/45 to-overview-accent-3/5 dark:from-overview-accent-3/70 dark:via-overview-accent-3/30',
+    'bg-overview-accent-3/70',
 }
 
 const LINE_TONE_CLASSES: Record<StatCardTone, string> = {
@@ -176,7 +176,7 @@ function BarSparkline(props: { values?: number[]; tone: StatCardTone }) {
         <span
           key={bucket.position}
           className={cn(
-            'flex-1 rounded-t-sm bg-linear-to-t',
+            'flex-1 rounded-t-sm',
             bucket.height <= 0 && 'opacity-20',
             TONE_CLASSES[props.tone]
           )}

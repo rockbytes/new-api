@@ -195,10 +195,6 @@ function SetupGuideBackdrop(props: { compact?: boolean }) {
           {SETUP_GUIDE_CODE_PATTERN}
         </pre>
       </div>
-      <div
-        className='from-background/35 to-background/70 dark:from-background/20 dark:to-background/80 pointer-events-none absolute inset-0 bg-linear-to-b via-transparent'
-        aria-hidden='true'
-      />
     </>
   )
 }
@@ -311,15 +307,6 @@ function RequestPreview(props: {
       transition={MOTION_TRANSITION.slow}
       className='bg-background/75 relative overflow-hidden rounded-2xl border p-3 shadow-sm backdrop-blur'
     >
-      {!shouldReduceMotion && (
-        <motion.div
-          className='via-foreground/30 pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent to-transparent'
-          animate={{ x: ['-100%', '100%'] }}
-          transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
-          aria-hidden='true'
-        />
-      )}
-
       <div className='flex items-center justify-between gap-3 border-b pb-3'>
         <div className='flex min-w-0 items-center gap-2'>
           <IconBadge tone='info'>

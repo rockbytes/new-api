@@ -118,9 +118,9 @@
   --chart-3: #3F8FA8;
   --chart-4: #C08A2E;
   --chart-5: #7A8FB8;
-  --overview-accent-1: oklch(0.72 0.18 250);
-  --overview-accent-2: oklch(0.65 0.15 200);
-  --overview-accent-3: oklch(0.7 0.12 280);
+  --overview-accent-1: #0E7C66;
+  --overview-accent-2: #5B616B;
+  --overview-accent-3: #3F8FA8;
   --sidebar: #FFFFFF;
   --sidebar-foreground: #15171A;
   --sidebar-primary: #0E7C66;
@@ -206,6 +206,9 @@
   --sidebar-accent-foreground: #7EDCC4;
   --sidebar-border: #2A2F36;
   --sidebar-ring: #3CC4A6;
+  --overview-accent-1: #3CC4A6;
+  --overview-accent-2: #9AA3AE;
+  --overview-accent-3: #6FB8CC;
   --skeleton-base: oklch(0.335 0 0);
   --skeleton-highlight: oklch(0.44 0 0);
   --table-row: var(--background);
