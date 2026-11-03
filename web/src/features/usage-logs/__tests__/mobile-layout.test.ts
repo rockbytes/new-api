@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+
 import { describe, test } from 'vitest'
 
 import { TASK_MOBILE_SUMMARY_FIELDS } from '../lib/task-mobile-layout'

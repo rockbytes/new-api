@@ -21,7 +21,6 @@ import { cn } from '@/lib/utils'
 
 import {
   AUTO_GROUP_FRAME_CLASS_NAME,
-  AutoGroupFlowBorder,
   GroupRatioBadge,
 } from './auto-group-visuals'
 
@@ -97,9 +96,6 @@ export function ApiKeyGroupCombobox({
           />
         }
       >
-        {isAutoSelected && (
-          <AutoGroupFlowBorder shouldReduceMotion={shouldReduceMotion} />
-        )}
         <span className='flex min-w-0 flex-1 items-center justify-between gap-2 sm:gap-3'>
           <span className='min-w-0'>
             <span className='block truncate font-medium'>
@@ -157,11 +153,6 @@ export function ApiKeyGroupCombobox({
                         )
                     )}
                   >
-                    {isAutoOption && (
-                      <AutoGroupFlowBorder
-                        shouldReduceMotion={shouldReduceMotion}
-                      />
-                    )}
                     <Check
                       aria-hidden='true'
                       className={cn(

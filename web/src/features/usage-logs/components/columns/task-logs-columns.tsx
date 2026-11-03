@@ -1,6 +1,5 @@
-import { ViewIcon } from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
 import type { ColumnDef } from '@tanstack/react-table'
+import { Eye } from 'lucide-react'
 /* eslint-disable react-refresh/only-export-components */
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -40,12 +39,7 @@ function TaskDetailsCell(props: {
           className='text-foreground inline-flex items-center gap-1 text-xs font-medium hover:underline'
           onClick={() => setDialogOpen(true)}
         >
-          <HugeiconsIcon
-            icon={ViewIcon}
-            className='size-3'
-            strokeWidth={2}
-            aria-hidden='true'
-          />
+          <Eye className='size-3' strokeWidth={2} aria-hidden='true' />
           {t('View details')}
         </button>
         {props.log.fail_reason ? (

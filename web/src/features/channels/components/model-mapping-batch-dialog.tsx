@@ -1,5 +1,4 @@
-import { ArrowRight01Icon } from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
+import { ChevronRight } from 'lucide-react'
 import { useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -350,8 +349,7 @@ export function ModelMappingBatchDialog(props: ModelMappingBatchDialogProps) {
                     className='grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2'
                   >
                     <span className='min-w-0 wrap-anywhere'>{pair.from}</span>
-                    <HugeiconsIcon
-                      icon={ArrowRight01Icon}
+                    <ChevronRight
                       className='size-3.5 shrink-0'
                       aria-hidden='true'
                     />

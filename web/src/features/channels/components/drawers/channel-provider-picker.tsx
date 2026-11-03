@@ -16,9 +16,7 @@ import {
   CommandList,
 } from '@/components/ui/command'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { AutoGroupFlowBorder } from '@/features/keys/components/auto-group-visuals'
 import { PluginIcon } from '@/features/task-plugins/components/plugin-icon'
-import { useMediaQuery } from '@/hooks/use-media-query'
 import { resolveLocalizedText } from '@/lib/localized-text'
 
 import type { TaskPluginOption } from '../../api'
@@ -53,7 +51,6 @@ type ChannelProviderPickerProps = {
 
 export function ChannelProviderPicker(props: ChannelProviderPickerProps) {
   const { t, i18n } = useTranslation()
-  const shouldReduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const [search, setSearch] = useState('')
   const [selectedFilter, setSelectedFilter] = useState('all')
   const filter =
@@ -272,14 +269,6 @@ export function ChannelProviderPicker(props: ChannelProviderPickerProps) {
                   onSelect={() => props.onSelect(option.target)}
                   className='data-selected:border-primary/50 data-selected:bg-primary/5 min-h-24 flex-col items-stretch justify-between gap-2.5 rounded-lg border p-3 md:min-h-32 [&>svg]:hidden'
                 >
-                  {option.target.kind === 'builtin' &&
-                    option.target.type === CHANNEL_TYPE_ADVANCED_CUSTOM && (
-                      <AutoGroupFlowBorder
-                        shouldReduceMotion={
-                          shouldReduceMotion || props.disabled
-                        }
-                      />
-                    )}
                   <span className='flex min-w-0 items-start gap-2.5'>
                     <span className='shrink-0'>
                       {option.plugin ? (

@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   createMemoryHistory,
   createRootRoute,
@@ -6,7 +7,6 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { expect, test } from 'vitest'
 

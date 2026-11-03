@@ -1,13 +1,12 @@
 'use client'
 
 import {
-  CheckmarkCircle02Icon,
-  InformationCircleIcon,
-  Alert02Icon,
-  MultiplicationSignCircleIcon,
-  Loading03Icon,
-} from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
+  CircleCheck,
+  CircleX,
+  Info,
+  Loader2,
+  TriangleAlert,
+} from 'lucide-react'
 import { Toaster as Sonner, type ToasterProps } from 'sonner'
 
 import { useTheme } from '@/context/theme-provider'
@@ -20,41 +19,11 @@ const Toaster = (props: ToasterProps) => {
       theme={resolvedTheme}
       className='toaster group'
       icons={{
-        success: (
-          <HugeiconsIcon
-            icon={CheckmarkCircle02Icon}
-            strokeWidth={2}
-            className='size-4'
-          />
-        ),
-        info: (
-          <HugeiconsIcon
-            icon={InformationCircleIcon}
-            strokeWidth={2}
-            className='size-4'
-          />
-        ),
-        warning: (
-          <HugeiconsIcon
-            icon={Alert02Icon}
-            strokeWidth={2}
-            className='size-4'
-          />
-        ),
-        error: (
-          <HugeiconsIcon
-            icon={MultiplicationSignCircleIcon}
-            strokeWidth={2}
-            className='size-4'
-          />
-        ),
-        loading: (
-          <HugeiconsIcon
-            icon={Loading03Icon}
-            strokeWidth={2}
-            className='size-4 animate-spin'
-          />
-        ),
+        success: <CircleCheck strokeWidth={2} className='size-4' />,
+        info: <Info strokeWidth={2} className='size-4' />,
+        warning: <TriangleAlert strokeWidth={2} className='size-4' />,
+        error: <CircleX strokeWidth={2} className='size-4' />,
+        loading: <Loader2 strokeWidth={2} className='size-4 animate-spin' />,
       }}
       style={
         {

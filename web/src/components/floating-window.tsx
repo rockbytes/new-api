@@ -1,6 +1,4 @@
-import { ArrowExpand02Icon } from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
-import { ChevronsUpDown, GripHorizontal, X } from 'lucide-react'
+import { ChevronsUpDown, GripHorizontal, Maximize2, X } from 'lucide-react'
 import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -471,8 +469,7 @@ export function FloatingWindow(props: FloatingWindowProps) {
           onPointerCancel={handleResizeEnd}
         >
           {direction === 'se' && (
-            <HugeiconsIcon
-              icon={ArrowExpand02Icon}
+            <Maximize2
               className='pointer-events-none size-4'
               aria-hidden='true'
             />

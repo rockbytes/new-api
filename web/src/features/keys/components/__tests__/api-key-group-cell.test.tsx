@@ -57,20 +57,14 @@ describe('API key group table cell', () => {
     expect(multiplier).not.toHaveTextContent('Ratio')
     expect(container).not.toHaveTextContent('自动')
     expect(container.querySelector('[data-auto-group-frame]')).toBeNull()
-    const flow = container.querySelector('[data-auto-group-flow-border]')
-    expect(flow).toHaveClass('auto-group-flow-border-subtle')
-    expect(flow).toHaveAttribute('aria-hidden', 'true')
     expect(group.closest('[data-api-key-group-cell]')).toContainElement(
       multiplier
     )
   })
 
   test('keeps the automatic tag visible but static when reduced motion is requested', () => {
-    const { container } = render(
-      <CellHarness group='auto' ratio='Auto' shouldReduceMotion />
-    )
+    render(<CellHarness group='auto' ratio='Auto' shouldReduceMotion />)
     expect(screen.getByText('Auto')).toBeInTheDocument()
-    expect(container.querySelector('[data-auto-group-flow-border]')).toBeNull()
   })
 
   test('does not invent a multiplier while automatic ratio data is unavailable', () => {
@@ -86,9 +80,7 @@ describe('API key group table cell', () => {
   ])(
     'preserves the original %s multiplier color in the compact layout',
     (ratio, background, color, border) => {
-      const { container } = render(
-        <CellHarness group='default' ratio={ratio} />
-      )
+      render(<CellHarness group='default' ratio={ratio} />)
       const multiplier = screen.getByText(`${ratio}x`).parentElement
       expect(multiplier).toHaveClass(
         background,
@@ -99,9 +91,6 @@ describe('API key group table cell', () => {
         'h-5',
         'min-w-12'
       )
-      expect(
-        container.querySelector('[data-auto-group-flow-border]')
-      ).toBeNull()
     }
   )
 

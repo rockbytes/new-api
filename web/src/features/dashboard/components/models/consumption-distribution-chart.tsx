@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { IconBadge } from '@/components/ui/icon-badge'
-import { useThemeCustomization } from '@/context/theme-customization-provider'
 import { useTheme } from '@/context/theme-provider'
 import {
   CONSUMPTION_DISTRIBUTION_CHART_OPTIONS,
@@ -43,11 +42,7 @@ export function ConsumptionDistributionChart(
 ) {
   const { t } = useTranslation()
   const { resolvedTheme } = useTheme()
-  const { customization } = useThemeCustomization()
-  const chartRadius = useThemeRadiusPx(
-    '--radius-md',
-    `${customization.preset}:${customization.radius}`
-  )
+  const chartRadius = useThemeRadiusPx('--radius-md', resolvedTheme)
   const [chartType, setChartType] = useState<ConsumptionDistributionChartType>(
     props.defaultChartType ?? 'bar'
   )
@@ -98,7 +93,6 @@ export function ConsumptionDistributionChart(
     props.loading ? 'loading' : 'ready',
     props.data.length,
     resolvedTheme,
-    customization.preset,
   ].join('-')
 
   return (

@@ -9,26 +9,6 @@ export type GroupRatio = number | string | null | undefined
 export const AUTO_GROUP_FRAME_CLASS_NAME =
   'border-primary/40 relative overflow-visible border shadow-sm shadow-primary/10'
 
-type AutoGroupFlowBorderProps = {
-  shouldReduceMotion: boolean
-  appearance?: 'default' | 'subtle'
-}
-
-export function AutoGroupFlowBorder(props: AutoGroupFlowBorderProps) {
-  if (props.shouldReduceMotion) return null
-
-  return (
-    <span
-      aria-hidden='true'
-      data-auto-group-flow-border='true'
-      className={cn(
-        'auto-group-flow-border pointer-events-none absolute -inset-px',
-        props.appearance === 'subtle' && 'auto-group-flow-border-subtle'
-      )}
-    />
-  )
-}
-
 type AutoGroupFrameProps = {
   children: ReactNode
   className?: string
@@ -47,7 +27,6 @@ export function AutoGroupFrame(props: AutoGroupFrameProps) {
         props.className
       )}
     >
-      <AutoGroupFlowBorder shouldReduceMotion={props.shouldReduceMotion} />
       {props.children}
     </span>
   )
@@ -74,14 +53,7 @@ export function GroupRatioBadge(props: GroupRatioBadgeProps) {
         props.isAuto &&
           'overflow-visible rounded-md border-primary/30 bg-primary/10 text-primary'
       )}
-    >
-      {props.isAuto && (
-        <AutoGroupFlowBorder
-          appearance='subtle'
-          shouldReduceMotion={props.shouldReduceMotion ?? false}
-        />
-      )}
-    </GroupMultiplierBadge>
+    />
   )
 }
 

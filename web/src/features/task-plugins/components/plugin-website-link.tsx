@@ -1,5 +1,4 @@
-import { LinkSquare01Icon } from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
+import { SquareArrowOutUpRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -19,7 +18,7 @@ export function PluginWebsiteLink(props: { website?: string }) {
       className='h-auto max-w-full justify-start px-0 text-xs whitespace-normal'
       render={<a href={website} target='_blank' rel='noopener noreferrer' />}
     >
-      <HugeiconsIcon icon={LinkSquare01Icon} aria-hidden='true' />
+      <SquareArrowOutUpRight aria-hidden='true' />
       {t('Plugin website')}
     </Button>
   )

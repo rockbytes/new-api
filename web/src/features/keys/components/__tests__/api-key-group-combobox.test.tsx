@@ -89,15 +89,6 @@ describe('API key group combobox Auto effect', () => {
     expect(trigger).not.toHaveClass('bg-linear-to-r', 'overflow-hidden')
     expect(trigger).toHaveClass('overflow-visible')
 
-    const triggerFlowBorder = trigger.querySelector<HTMLElement>(
-      '[data-auto-group-flow-border]'
-    )
-    expect(triggerFlowBorder).toHaveAttribute('aria-hidden', 'true')
-    expect(triggerFlowBorder).toHaveClass(
-      'pointer-events-none',
-      'auto-group-flow-border'
-    )
-
     const triggerRatio = within(trigger)
       .getByText('Auto')
       .closest('[data-slot="badge"]')
@@ -112,9 +103,6 @@ describe('API key group combobox Auto effect', () => {
       'h-5',
       'min-w-12'
     )
-    expect(
-      triggerRatio?.querySelector('[data-auto-group-flow-border]')
-    ).toHaveClass('auto-group-flow-border-subtle')
 
     fireEvent.click(trigger)
     expect(trigger).toHaveAttribute('aria-expanded', 'true')
@@ -124,23 +112,14 @@ describe('API key group combobox Auto effect', () => {
     expect(autoOption).toHaveAttribute('aria-selected', 'true')
     expect(autoOption).not.toHaveClass('bg-linear-to-r')
     expect(autoOption).toHaveClass('overflow-visible')
-    expect(
-      autoOption.querySelector('[data-auto-group-flow-border]')
-    ).toBeInTheDocument()
     const optionRatio = within(autoOption)
       .getByText('Auto')
       .closest('[data-slot="badge"]')
     expect(optionRatio).toHaveTextContent('Auto')
     expect(optionRatio).not.toHaveTextContent('Ratio')
-    expect(
-      optionRatio?.querySelector('[data-auto-group-flow-border]')
-    ).toHaveClass('auto-group-flow-border-subtle')
 
     const defaultOption = getCommandItem('User group')
     expect(defaultOption).not.toHaveAttribute('data-auto-group-effect')
-    expect(defaultOption.querySelector('[data-auto-group-flow-border]')).toBe(
-      null
-    )
     const defaultRatio = within(defaultOption)
       .getByText('1x')
       .closest('[data-slot="badge"]')
@@ -184,22 +163,19 @@ describe('API key group combobox Auto effect', () => {
     )
     expect(trigger).toHaveAttribute('aria-expanded', 'false')
     expect(trigger).not.toHaveAttribute('data-auto-group-effect')
-    expect(trigger.querySelector('[data-auto-group-flow-border]')).toBe(null)
   })
 
-  test('preserves the static Auto treatment but omits moving layers for reduced motion', async () => {
+  test('keeps the Auto treatment static when reduced motion is requested', async () => {
     setReducedMotion(true)
     render(<Harness initialValue='auto' />)
 
     const trigger = getTrigger()
     expect(trigger).toHaveAttribute('data-auto-group-effect', 'trigger')
-    expect(trigger.querySelector('[data-auto-group-flow-border]')).toBe(null)
     expect(within(trigger).getByText('Auto')).toBeInTheDocument()
 
     fireEvent.click(trigger)
     const autoOption = getCommandItem('Global automatic routing')
     expect(autoOption).toHaveAttribute('data-auto-group-effect', 'option')
-    expect(autoOption.querySelector('[data-auto-group-flow-border]')).toBe(null)
     expect(within(autoOption).getByText('Auto')).toBeInTheDocument()
     setReducedMotion(false)
   })

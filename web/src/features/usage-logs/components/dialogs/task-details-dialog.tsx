@@ -1,5 +1,4 @@
-import { Shield01Icon, Wrench01Icon } from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
+import { Shield, Wrench } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
@@ -149,13 +148,7 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
         {props.isAdmin ? (
           <DetailSection
             label={t('Admin Only')}
-            icon={
-              <HugeiconsIcon
-                icon={Shield01Icon}
-                className='size-3.5 text-blue-500'
-                strokeWidth={2}
-              />
-            }
+            icon={<Shield className='size-3.5 text-blue-500' strokeWidth={2} />}
           >
             <DetailRow
               label={t('User')}
@@ -213,11 +206,7 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
           <DetailSection
             label={t('Root Diagnostics')}
             icon={
-              <HugeiconsIcon
-                icon={Wrench01Icon}
-                className='size-3.5 text-amber-500'
-                strokeWidth={2}
-              />
+              <Wrench className='size-3.5 text-amber-500' strokeWidth={2} />
             }
           >
             {runtime ? (

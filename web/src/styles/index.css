@@ -4,15 +4,8 @@
 @import '@fontsource-variable/public-sans';
 @import '@fontsource-variable/geist';
 @import '@fontsource-variable/geist-mono';
-/* Editorial serif (Lora) backing the `serif` font axis and the Anthropic
- * preset's default typography. See `--font-serif` in theme.css for the
- * full Latin + CJK fallback stack and `theme-presets.css` for the cascade
- * that activates it. Loaded globally so font-switching is instantaneous
- * with no FOUT once the variable is fetched. */
-@import '@fontsource-variable/lora';
 
 @import './theme.css';
-@import './theme-presets.css';
 
 @layer base {
   :root {
@@ -96,8 +89,7 @@
   body {
     @apply bg-background text-foreground has-[div[data-variant='inset']]:bg-sidebar min-h-svh w-full;
     /* Font is driven by the theme's font axis via `--font-body`
-     * (defined in theme.css, swapped by `[data-theme-font='...']` blocks
-     * in theme-presets.css). Defaults to the browser's sans-serif. */
+     * (defined in theme.css). Defaults to the browser's sans-serif. */
     font-family: var(--font-body);
   }
 
@@ -556,67 +548,18 @@
   }
 }
 
-/* ── Auto group flowing border ── */
-@property --auto-group-flow-angle {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 0deg;
-}
-
-@keyframes auto-group-flow-border-travel {
-  to {
-    --auto-group-flow-angle: 360deg;
-  }
-}
-
-/* Border-only effect: the conic gradient covers the whole layer, but the
- * two-layer mask (content-box XOR full box) keeps only a `padding`-wide
- * ring visible, so the highlight hugs the rounded perimeter. Animating
- * the gradient's start angle makes the bright segment travel around all
- * four edges and corners without touching the interior. */
-.auto-group-flow-border {
-  padding: 1.5px;
-  border-radius: inherit;
-  background: conic-gradient(
-    from var(--auto-group-flow-angle),
-    transparent 0deg,
-    transparent 240deg,
-    color-mix(in oklch, var(--primary) 45%, transparent) 300deg,
-    var(--primary) 342deg,
-    transparent 360deg
-  );
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  animation: auto-group-flow-border-travel 3.2s linear infinite;
-}
-
-.auto-group-flow-border-subtle {
-  padding: 1px;
-  background: conic-gradient(
-    from var(--auto-group-flow-angle),
-    transparent 0deg 300deg,
-    color-mix(in oklch, var(--primary) 30%, transparent) 318deg,
-    var(--primary) 348deg,
-    transparent 360deg
-  );
-  animation-duration: 3s;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .auto-group-flow-border {
-    display: none;
-  }
-}
-
 /* Table density: the table toolbar sets data-table-density on <html>.
  * Comfortable is the default; compact tightens header and cell heights. */
 :root[data-table-density='compact'] {
   --table-head-height: 2rem;
   --table-cell-padding: 0.25rem;
+}
+
+/* Content layout: `centered` clamps inset content to a readable width on large screens. */
+@media (min-width: 1280px) {
+  [data-theme-content-layout='centered'] [data-slot='sidebar-inset'] > * {
+    max-width: var(--max-content-width, 1280px);
+    margin-inline: auto;
+    width: 100%;
+  }
 }

@@ -1,10 +1,6 @@
 import { mergeProps } from '@base-ui/react/merge-props'
 import { useRender } from '@base-ui/react/use-render'
-import {
-  ArrowRight01Icon,
-  MoreHorizontalCircle01Icon,
-} from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
+import { ChevronRight, CircleEllipsis } from 'lucide-react'
 import * as React from 'react'
 
 import { cn } from '@/lib/utils'
@@ -89,7 +85,7 @@ function BreadcrumbSeparator({
       className={cn('[&>svg]:size-3.5', className)}
       {...props}
     >
-      {children ?? <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} />}
+      {children ?? <ChevronRight strokeWidth={2} />}
     </li>
   )
 }
@@ -109,7 +105,7 @@ function BreadcrumbEllipsis({
       )}
       {...props}
     >
-      <HugeiconsIcon icon={MoreHorizontalCircle01Icon} strokeWidth={2} />
+      <CircleEllipsis strokeWidth={2} />
       <span className='sr-only'>More</span>
     </span>
   )

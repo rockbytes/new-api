@@ -1,9 +1,4 @@
-import {
-  ArrowLeftIcon,
-  ArrowRightIcon,
-  ArrowDownIcon,
-} from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
+import { ArrowDown, ArrowLeft, ArrowRight } from 'lucide-react'
 import * as React from 'react'
 import {
   DayPicker,
@@ -150,8 +145,7 @@ function Calendar({
         Chevron: ({ className, orientation, ...props }) => {
           if (orientation === 'left') {
             return (
-              <HugeiconsIcon
-                icon={ArrowLeftIcon}
+              <ArrowLeft
                 strokeWidth={2}
                 className={cn('size-4', className)}
                 {...props}
@@ -161,8 +155,7 @@ function Calendar({
 
           if (orientation === 'right') {
             return (
-              <HugeiconsIcon
-                icon={ArrowRightIcon}
+              <ArrowRight
                 strokeWidth={2}
                 className={cn('size-4', className)}
                 {...props}
@@ -171,8 +164,7 @@ function Calendar({
           }
 
           return (
-            <HugeiconsIcon
-              icon={ArrowDownIcon}
+            <ArrowDown
               strokeWidth={2}
               className={cn('size-4', className)}
               {...props}

@@ -1,14 +1,13 @@
-import {
-  Alert02Icon,
-  Download01Icon,
-  File01Icon,
-  Image01Icon,
-  MusicNote01Icon,
-  RefreshIcon,
-  Video01Icon,
-} from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery } from '@tanstack/react-query'
+import {
+  Download,
+  File,
+  Image,
+  Music,
+  RefreshCw,
+  TriangleAlert,
+  Video,
+} from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -57,13 +56,13 @@ import { AudioPreviewDialog } from './dialogs/audio-preview-dialog'
 function artifactIcon(type: TaskArtifactType) {
   switch (type) {
     case 'image':
-      return Image01Icon
+      return Image
     case 'video':
-      return Video01Icon
+      return Video
     case 'audio':
-      return MusicNote01Icon
+      return Music
     case 'file':
-      return File01Icon
+      return File
   }
 }
 
@@ -101,8 +100,7 @@ function LegacyAudioPreview(props: { taskId: string }) {
         className='group flex items-center gap-1 text-left text-xs'
         onClick={() => setOpen(true)}
       >
-        <HugeiconsIcon
-          icon={MusicNote01Icon}
+        <Music
           className='text-muted-foreground size-3'
           strokeWidth={2}
           aria-hidden='true'
@@ -166,7 +164,7 @@ function MediaFailure(props: { onRetry: () => void }) {
   const { t } = useTranslation()
   return (
     <Alert variant='destructive'>
-      <HugeiconsIcon icon={Alert02Icon} strokeWidth={2} aria-hidden='true' />
+      <TriangleAlert strokeWidth={2} aria-hidden='true' />
       <AlertTitle>{t('Media preview failed. Please try again.')}</AlertTitle>
       <AlertDescription>{t('Preview unavailable')}</AlertDescription>
       <AlertAction>
@@ -176,11 +174,7 @@ function MediaFailure(props: { onRetry: () => void }) {
           size='xs'
           onClick={props.onRetry}
         >
-          <HugeiconsIcon
-            icon={RefreshIcon}
-            strokeWidth={2}
-            data-icon='inline-start'
-          />
+          <RefreshCw strokeWidth={2} data-icon='inline-start' />
           {t('Retry')}
         </Button>
       </AlertAction>
@@ -192,7 +186,7 @@ function TaskArtifactCard(props: { artifact: TaskArtifact }) {
   const { t } = useTranslation()
   const [mediaFailed, setMediaFailed] = useState(false)
   const [mediaRevision, setMediaRevision] = useState(0)
-  const icon = artifactIcon(props.artifact.type)
+  const Icon = artifactIcon(props.artifact.type)
   const isVisualArtifact =
     props.artifact.type === 'image' || props.artifact.type === 'video'
 
@@ -203,7 +197,7 @@ function TaskArtifactCard(props: { artifact: TaskArtifact }) {
         isVisualArtifact ? 'aspect-video min-h-48' : 'min-h-20'
       )}
     >
-      <HugeiconsIcon icon={icon} className='size-6' strokeWidth={1.5} />
+      <Icon className='size-6' strokeWidth={1.5} />
     </div>
   )
   if (mediaFailed) {
@@ -230,8 +224,7 @@ function TaskArtifactCard(props: { artifact: TaskArtifact }) {
     <Card size='sm'>
       <CardHeader>
         <CardTitle className='flex min-w-0 items-center gap-1.5'>
-          <HugeiconsIcon
-            icon={icon}
+          <Icon
             className='size-4 shrink-0'
             strokeWidth={2}
             aria-hidden='true'
@@ -266,11 +259,7 @@ function TaskArtifactCard(props: { artifact: TaskArtifact }) {
             />
           }
         >
-          <HugeiconsIcon
-            icon={Download01Icon}
-            strokeWidth={2}
-            data-icon='inline-start'
-          />
+          <Download strokeWidth={2} data-icon='inline-start' />
           {t('Download')}
         </Button>
       </CardFooter>
@@ -308,7 +297,7 @@ function TaskArtifacts(props: TaskArtifactsProps) {
   if (artifactsQuery.isError) {
     return (
       <Alert variant='destructive'>
-        <HugeiconsIcon icon={Alert02Icon} strokeWidth={2} aria-hidden='true' />
+        <TriangleAlert strokeWidth={2} aria-hidden='true' />
         <AlertTitle>{t('Failed to load artifacts')}</AlertTitle>
         <AlertDescription>{t('Preview unavailable')}</AlertDescription>
         <AlertAction>
@@ -322,11 +311,7 @@ function TaskArtifacts(props: TaskArtifactsProps) {
             {artifactsQuery.isFetching ? (
               <Spinner data-icon='inline-start' />
             ) : (
-              <HugeiconsIcon
-                icon={RefreshIcon}
-                strokeWidth={2}
-                data-icon='inline-start'
-              />
+              <RefreshCw strokeWidth={2} data-icon='inline-start' />
             )}
             {t('Retry')}
           </Button>
@@ -363,7 +348,7 @@ function EmptyTaskArtifacts() {
     <Empty>
       <EmptyHeader>
         <EmptyMedia variant='icon'>
-          <HugeiconsIcon icon={File01Icon} strokeWidth={2} aria-hidden='true' />
+          <File strokeWidth={2} aria-hidden='true' />
         </EmptyMedia>
         <EmptyTitle>{t('Artifacts')}</EmptyTitle>
         <EmptyDescription>{t('None')}</EmptyDescription>
@@ -428,11 +413,7 @@ export function TaskArtifactsCell(props: { log: TaskLog }) {
           size='xs'
           onClick={() => setOpen(true)}
         >
-          <HugeiconsIcon
-            icon={File01Icon}
-            strokeWidth={2}
-            data-icon='inline-start'
-          />
+          <File strokeWidth={2} data-icon='inline-start' />
           {t('Artifacts')}
         </Button>
       )}
@@ -444,8 +425,7 @@ export function TaskArtifactsCell(props: { log: TaskLog }) {
             t('Preview')
           ) : (
             <span className='flex items-center gap-2'>
-              <HugeiconsIcon
-                icon={File01Icon}
+              <File
                 className='text-muted-foreground size-4'
                 strokeWidth={2}
                 aria-hidden='true'

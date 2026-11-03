@@ -1,9 +1,4 @@
-import {
-  CrownIcon,
-  Wallet01Icon,
-  Wrench01Icon,
-} from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
+import { Crown, Wallet, Wrench } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
@@ -41,11 +36,7 @@ function ToolSurchargeMarker() {
             tabIndex={0}
             data-tool-surcharge-indicator='true'
           >
-            <HugeiconsIcon
-              icon={Wrench01Icon}
-              strokeWidth={2}
-              aria-hidden='true'
-            />
+            <Wrench strokeWidth={2} aria-hidden='true' />
             <span
               className='text-[9px] leading-none font-bold'
               aria-hidden='true'
@@ -64,6 +55,7 @@ export function LogCostDisplay(props: LogCostDisplayProps) {
   const { t } = useTranslation()
   const isSubscription = props.other?.billing_source === 'subscription'
   const showToolSurcharge = hasToolSurcharge(props.other)
+  const SourceIcon = isSubscription ? Crown : Wallet
   const quota = isSubscription
     ? (props.other?.subscription_consumed ?? props.quota)
     : props.quota
@@ -102,8 +94,7 @@ export function LogCostDisplay(props: LogCostDisplayProps) {
                     aria-label={source}
                     tabIndex={0}
                   >
-                    <HugeiconsIcon
-                      icon={isSubscription ? CrownIcon : Wallet01Icon}
+                    <SourceIcon
                       className='size-3.5'
                       strokeWidth={2}
                       aria-hidden='true'

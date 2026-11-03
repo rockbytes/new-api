@@ -1,6 +1,4 @@
-import { Add01Icon } from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
-import { ArrowRightLeft } from 'lucide-react'
+import { ArrowRightLeft, Plus } from 'lucide-react'
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -415,8 +413,7 @@ export function MultiSelect(props: MultiSelectProps) {
                 >
                   {isCreate ? (
                     <>
-                      <HugeiconsIcon
-                        icon={Add01Icon}
+                      <Plus
                         strokeWidth={2}
                         className='text-muted-foreground'
                         aria-hidden='true'

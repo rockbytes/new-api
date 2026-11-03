@@ -37,12 +37,9 @@ interface StatCardProps {
 }
 
 const TONE_CLASSES: Record<StatCardTone, string> = {
-  'accent-1':
-    'bg-overview-accent-1/70',
-  'accent-2':
-    'bg-overview-accent-2/70',
-  'accent-3':
-    'bg-overview-accent-3/70',
+  'accent-1': 'bg-overview-accent-1/70',
+  'accent-2': 'bg-overview-accent-2/70',
+  'accent-3': 'bg-overview-accent-3/70',
 }
 
 const LINE_TONE_CLASSES: Record<StatCardTone, string> = {

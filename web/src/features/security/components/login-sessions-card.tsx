@@ -1,7 +1,6 @@
-import { Logout01Icon, SmartPhone01Icon } from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
+import { LogOut, Smartphone } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -114,7 +113,7 @@ export function LoginSessionsCard() {
       <Empty>
         <EmptyHeader>
           <EmptyMedia variant='icon'>
-            <HugeiconsIcon icon={SmartPhone01Icon} strokeWidth={2} />
+            <Smartphone strokeWidth={2} />
           </EmptyMedia>
           <EmptyTitle>{t('Unable to load login sessions')}</EmptyTitle>
           <EmptyDescription>
@@ -135,7 +134,7 @@ export function LoginSessionsCard() {
       <Empty>
         <EmptyHeader>
           <EmptyMedia variant='icon'>
-            <HugeiconsIcon icon={SmartPhone01Icon} strokeWidth={2} />
+            <Smartphone strokeWidth={2} />
           </EmptyMedia>
           <EmptyTitle>{t('No active login sessions')}</EmptyTitle>
         </EmptyHeader>
@@ -170,11 +169,7 @@ export function LoginSessionsCard() {
               disabled={!hasOtherSessions || revokeOthersMutation.isPending}
               onClick={() => setConfirmOthers(true)}
             >
-              <HugeiconsIcon
-                icon={Logout01Icon}
-                data-icon='inline-start'
-                strokeWidth={2}
-              />
+              <LogOut data-icon='inline-start' strokeWidth={2} />
               {t('Sign out other sessions')}
             </Button>
           </CardAction>

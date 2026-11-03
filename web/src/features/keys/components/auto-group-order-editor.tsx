@@ -1,5 +1,4 @@
-import { ArrowRight01Icon } from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
+import { ChevronRight } from 'lucide-react'
 import { Reorder } from 'motion/react'
 import { useMemo, type ComponentProps } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -137,8 +136,7 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
           {props.globalOptions.map((option, index) => (
             <li key={option.value} className='flex min-w-0 items-center gap-1'>
               {index > 0 && (
-                <HugeiconsIcon
-                  icon={ArrowRight01Icon}
+                <ChevronRight
                   strokeWidth={2}
                   aria-hidden='true'
                   data-slot='global-auto-order-connector'

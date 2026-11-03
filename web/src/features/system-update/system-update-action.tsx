@@ -1,9 +1,4 @@
-import {
-  ArrowUp01Icon,
-  InformationCircleIcon,
-  RefreshIcon,
-} from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
+import { ChevronUp, Info, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -61,16 +56,15 @@ function AdminSystemUpdateAction(props: SystemUpdateActionProps) {
         : versionDescription
   }
 
+  const TriggerGlyph = update.shouldNotify ? ChevronUp : RefreshCw
+  const StatusGlyph = update.shouldNotify ? ChevronUp : Info
+
   let triggerContent = (
     <>
       {update.checking ? (
         <Spinner data-icon='inline-start' aria-hidden='true' />
       ) : (
-        <HugeiconsIcon
-          icon={update.shouldNotify ? ArrowUp01Icon : RefreshIcon}
-          data-icon='inline-start'
-          aria-hidden='true'
-        />
+        <TriggerGlyph data-icon='inline-start' aria-hidden='true' />
       )}
       <span className={cn(compact && 'hidden lg:inline')}>{label}</span>
     </>
@@ -78,8 +72,7 @@ function AdminSystemUpdateAction(props: SystemUpdateActionProps) {
   if (versionPresentation) {
     triggerContent = (
       <>
-        <HugeiconsIcon
-          icon={update.shouldNotify ? ArrowUp01Icon : InformationCircleIcon}
+        <StatusGlyph
           className={cn(
             '@min-[22rem]/system-brand:hidden',
             update.shouldNotify && 'text-primary'
