@@ -712,3 +712,10 @@
     display: none;
   }
 }
+
+/* Table density: the table toolbar sets data-table-density on <html>.
+ * Comfortable is the default; compact tightens header and cell heights. */
+:root[data-table-density='compact'] {
+  --table-head-height: 2rem;
+  --table-cell-padding: 0.25rem;
+}

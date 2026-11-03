@@ -3,6 +3,7 @@ import { RouterProvider, createRouter } from '@tanstack/react-router'
 import { StrictMode } from 'react'
 import ReactDOM from 'react-dom/client'
 
+import { applyStoredDataTableDensity } from '@/components/data-table/hooks/use-data-table-density'
 import { installBuildMetadata } from '@/lib/build-metadata'
 import { applyFaviconToDom } from '@/lib/dom-utils'
 import '@/lib/dayjs'
@@ -45,6 +46,8 @@ declare module '@tanstack/react-router' {
 }
 
 // Render the app
+applyStoredDataTableDensity()
+
 const rootElement = document.querySelector<HTMLElement>('#root')
 if (!rootElement) {
   throw new Error('Root element not found')

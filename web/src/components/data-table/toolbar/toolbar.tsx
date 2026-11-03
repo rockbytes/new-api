@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { useDebounce, useMediaQuery } from '@/hooks'
 import { cn } from '@/lib/utils'
 
+import { DataTableDensityToggle } from './density-toggle'
 import { DataTableFacetedFilter } from './faceted-filter'
 import { DataTableMobileFilterPanel } from './mobile-filter-panel'
 import { DataTableViewOptions } from './view-options'
@@ -300,7 +301,10 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
   ) : null
 
   const viewOptionsNode = !props.hideViewOptions ? (
-    <DataTableViewOptions table={props.table} />
+    <>
+      <DataTableDensityToggle />
+      <DataTableViewOptions table={props.table} />
+    </>
   ) : null
 
   const viewToggleNode = props.viewToggle ?? null
