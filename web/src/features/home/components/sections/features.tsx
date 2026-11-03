@@ -10,8 +10,6 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { AnimateInView } from '@/components/animate-in-view'
-
 interface FeaturesProps {
   className?: string
 }
@@ -164,7 +162,7 @@ export function Features(_props: FeaturesProps) {
   return (
     <section className='relative z-10 px-6 py-24 md:py-32'>
       <div className='mx-auto max-w-6xl'>
-        <AnimateInView className='mb-16 max-w-lg'>
+        <div className='mb-16 max-w-lg'>
           <p className='text-muted-foreground mb-3 text-xs font-medium tracking-widest uppercase'>
             {t('Core Features')}
           </p>
@@ -173,15 +171,13 @@ export function Features(_props: FeaturesProps) {
             <br />
             {t('designed for scale')}
           </h2>
-        </AnimateInView>
+        </div>
 
         {/* Bento grid */}
         <div className='border-border/40 bg-border/40 grid gap-px overflow-hidden rounded-xl border md:grid-cols-3'>
-          {features.map((f, i) => (
-            <AnimateInView
+          {features.map((f) => (
+            <div
               key={f.id}
-              delay={i * 100}
-              animation='scale-in'
               className={`bg-background group hover:bg-muted/20 p-7 transition-colors duration-300 md:p-8 ${f.span}`}
             >
               <div className='mb-3 flex items-center gap-3'>
@@ -194,17 +190,15 @@ export function Features(_props: FeaturesProps) {
                 {f.desc}
               </p>
               {f.visual}
-            </AnimateInView>
+            </div>
           ))}
         </div>
 
         {/* Additional features row */}
         <div className='mt-12 grid grid-cols-2 gap-8 md:grid-cols-4 md:gap-12'>
-          {additionalFeatures.map((f, i) => (
-            <AnimateInView
+          {additionalFeatures.map((f) => (
+            <div
               key={f.title}
-              delay={i * 100}
-              animation='fade-up'
               className='flex flex-col items-center text-center'
             >
               <div className='text-muted-foreground border-border/50 bg-muted/30 group-hover:text-foreground mb-3 flex size-12 items-center justify-center rounded-xl border transition-colors'>
@@ -214,7 +208,7 @@ export function Features(_props: FeaturesProps) {
               <p className='text-muted-foreground max-w-[200px] text-xs leading-relaxed'>
                 {f.desc}
               </p>
-            </AnimateInView>
+            </div>
           ))}
         </div>
       </div>

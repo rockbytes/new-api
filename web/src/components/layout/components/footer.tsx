@@ -54,7 +54,7 @@ function FooterLinkItem(props: { link: FooterLink }) {
 // Renders User Agreement / Privacy Policy links inline with the parent's
 // footer row when either is configured in System Settings → Site. Emits
 // fragmented siblings so the parent flex container's gap controls spacing.
-function LegalLinks(props: { leadingSeparator?: boolean }) {
+function LegalLinks(props: { leadingSeparator?: boolean; vertical?: boolean }) {
   const { t } = useTranslation()
   const { status } = useStatus()
   const items: { key: string; label: string; href: string }[] = []
@@ -79,7 +79,7 @@ function LegalLinks(props: { leadingSeparator?: boolean }) {
     <>
       {items.map((item, index) => (
         <Fragment key={item.key}>
-          {(props.leadingSeparator || index > 0) && (
+          {!props.vertical && (props.leadingSeparator || index > 0) && (
             <span aria-hidden='true' className='text-muted-foreground/30'>
               ·
             </span>
@@ -233,12 +233,9 @@ export function Footer(props: FooterProps) {
               ))}
             </div>
           )}
-        </div>
-
-        {/* Optional legal links; wraps on narrow screens. */}
-        <div className='border-border/30 mt-12 flex flex-col items-center justify-between gap-x-3 gap-y-2 border-t pt-6 sm:flex-row'>
-          <div className='text-muted-foreground/40 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs sm:justify-start'>
-            <LegalLinks leadingSeparator />
+          {/* Legal links column */}
+          <div className='text-muted-foreground flex flex-col gap-2.5 text-sm'>
+            <LegalLinks vertical />
           </div>
         </div>
       </div>

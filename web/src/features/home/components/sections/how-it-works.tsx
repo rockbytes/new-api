@@ -1,8 +1,6 @@
 import { Settings, Zap, BarChart3 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { AnimateInView } from '@/components/animate-in-view'
-
 export function HowItWorks() {
   const { t } = useTranslation()
 
@@ -34,21 +32,19 @@ export function HowItWorks() {
   return (
     <section className='border-border/40 relative z-10 border-t px-6 py-24 md:py-32'>
       <div className='mx-auto max-w-6xl'>
-        <AnimateInView className='mb-16 text-center md:mb-20'>
+        <div className='mb-16 text-center md:mb-20'>
           <p className='text-muted-foreground mb-3 text-xs font-medium tracking-widest uppercase'>
             {t('How It Works')}
           </p>
           <h2 className='text-2xl font-bold tracking-tight md:text-3xl'>
             {t('Three steps to get started')}
           </h2>
-        </AnimateInView>
+        </div>
 
         <div className='grid gap-8 md:grid-cols-3 md:gap-12'>
-          {steps.map((step, i) => (
-            <AnimateInView
+          {steps.map((step) => (
+            <div
               key={step.num}
-              delay={i * 150}
-              animation='fade-up'
               className='relative flex flex-col items-center text-center'
             >
               <div className='relative mb-6'>
@@ -63,7 +59,7 @@ export function HowItWorks() {
               <p className='text-muted-foreground max-w-[240px] text-sm leading-relaxed'>
                 {step.desc}
               </p>
-            </AnimateInView>
+            </div>
           ))}
         </div>
       </div>
