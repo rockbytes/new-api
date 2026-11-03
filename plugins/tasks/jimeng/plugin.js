@@ -8,7 +8,7 @@ export const meta = {
     zh: "火山引擎即梦视频生成（文生视频、图生视频、首尾帧）",
   },
   version: "1.1.0",
-  author: { name: "QuantumNous" },
+  author: { name: "AI Gateway" },
   channelTypes: [51],
   models: ["jimeng_vgfm_t2v_l20"],
   fetchMode: "per_task",

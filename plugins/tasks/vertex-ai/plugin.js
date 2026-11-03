@@ -9,7 +9,7 @@ export const meta = {
   },
   version: "1.1.0",
   channelTypes: [41],
-  author: { name: "QuantumNous" },
+  author: { name: "AI Gateway" },
   models: ["veo-3.0-generate-001", "veo-3.0-fast-generate-001", "veo-3.1-generate-preview", "veo-3.1-fast-generate-preview"],
   fetchMode: "per_task",
   auth: { type: "oauth2_jwt" },

@@ -78,7 +78,7 @@ export const meta = {
     zh: "xAI Grok Imagine 视频生成（文生视频、图生视频、参考生视频、视频编辑、视频延长）",
   },
   version: "1.1.0",
-  author: { name: "QuantumNous" },
+  author: { name: "AI Gateway" },
   channelTypes: [48], // xAI-type channels serve the video API with the same key
   baseUrl: "https://api.x.ai",
   // Result videos, whose headers settle the resolution of edits and extensions.

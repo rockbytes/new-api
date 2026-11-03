@@ -1,7 +1,7 @@
 {
   "name": "new-api-electron",
   "version": "1.0.0",
-  "description": "New API - AI Model Gateway Desktop Application",
+  "description": "AI Gateway - AI Model Gateway Desktop Application",
   "main": "main.js",
   "scripts": {
     "start-app": "electron .",
@@ -18,11 +18,6 @@
     "openai",
     "claude"
   ],
-  "author": "QuantumNous",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/QuantumNous/new-api"
-  },
   "devDependencies": {
     "cross-env": "^7.0.3",
     "electron": "41.10.6",
