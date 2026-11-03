@@ -16,16 +16,17 @@ export function AuthLayout({ children }: AuthLayoutProps) {
     <div className='relative grid h-svh max-w-none'>
       <Link
         to='/'
+        aria-label={systemName}
         className='absolute top-4 left-4 z-10 flex items-center gap-2 transition-opacity hover:opacity-80 sm:top-8 sm:left-8'
       >
         <div className='relative h-8 w-8'>
           {loading ? (
-            <Skeleton className='absolute inset-0 rounded-full' />
+            <Skeleton className='absolute inset-0 rounded-md' />
           ) : (
             <img
               src={logo}
               alt={t('Logo')}
-              className='h-8 w-8 rounded-full object-cover'
+              className='h-8 w-8 rounded-md object-cover'
             />
           )}
         </div>
@@ -36,7 +37,7 @@ export function AuthLayout({ children }: AuthLayoutProps) {
         )}
       </Link>
       <div className='container flex items-center pt-16 sm:pt-0'>
-        <div className='mx-auto flex w-full flex-col justify-center space-y-2 px-4 py-8 sm:w-[480px] sm:p-8'>
+        <div className='border-border bg-card mx-auto flex w-full flex-col justify-center space-y-2 rounded-lg border p-6 sm:w-[440px] sm:p-8'>
           {children}
         </div>
       </div>

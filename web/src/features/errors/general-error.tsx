@@ -63,7 +63,7 @@ export function GeneralError({
     <div className={cn('h-svh w-full', className)}>
       <div className='m-auto flex h-full w-full flex-col items-center justify-center gap-2'>
         {!minimal && status !== undefined && (
-          <h1 className='text-[7rem] leading-tight font-bold'>{status}</h1>
+          <h1 className='text-muted-foreground text-[5rem] leading-none font-semibold tabular-nums'>{status}</h1>
         )}
         <span className='font-medium'>{title}</span>
         <p className='text-muted-foreground text-center'>
