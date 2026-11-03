@@ -121,7 +121,7 @@ export function Features(_props: FeaturesProps) {
             {['API', 'SDK', 'CLI', 'Docs'].map((n) => (
               <div
                 key={n}
-                className='border-background from-muted to-muted/60 text-muted-foreground flex size-8 items-center justify-center rounded-full border-2 bg-gradient-to-br text-[9px] font-bold'
+                className='border-background bg-muted text-muted-foreground flex size-8 items-center justify-center rounded-full border-2 text-[9px] font-bold'
               >
                 {n}
               </div>
