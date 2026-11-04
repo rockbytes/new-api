@@ -35,7 +35,13 @@ const userSchema = z.object({
   status: userStatusSchema,
   role: userRoleSchema,
   organization: z
-    .object({ id: z.number(), name: z.string(), role: z.string().optional() })
+    .object({
+      id: z.number(),
+      name: z.string(),
+      role: z.string().optional(),
+      allocated_quota: z.number().optional(),
+      used_quota: z.number().optional(),
+    })
     .nullable()
     .optional(),
   created_at: z.number().optional(),

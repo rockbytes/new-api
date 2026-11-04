@@ -26,6 +26,7 @@ import {
 } from '../constants'
 import type { User } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
+import { UserOrganizationQuotaCell } from './user-organization-quota-cell'
 import { UserQuotaCell } from './user-quota-cell'
 
 export function useUsersColumns(): ColumnDef<User>[] {
@@ -167,13 +168,23 @@ export function useUsersColumns(): ColumnDef<User>[] {
       {
         id: 'quota',
         accessorKey: 'quota',
-        header: `${t('Available Balance')} (${quotaUnit})`,
+        header: `${t('Personal Balance')} (${quotaUnit})`,
         cell: ({ row }) => {
           const user = row.original
-          return <UserQuotaCell remaining={user.quota} used={user.used_quota} />
+          return (
+            <div className='grid min-w-0 gap-2'>
+              <UserQuotaCell remaining={user.quota} used={user.used_quota} />
+              {user.organization ? (
+                <UserOrganizationQuotaCell
+                  allocated={user.organization.allocated_quota ?? 0}
+                  used={user.organization.used_quota ?? 0}
+                />
+              ) : null}
+            </div>
+          )
         },
-        size: 180,
-        minSize: 160,
+        size: 200,
+        minSize: 180,
         meta: { mobileOrder: 40 },
       },
       {

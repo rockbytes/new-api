@@ -9,9 +9,14 @@ import (
 )
 
 // The user list reports each user's organization by name and filters by it. Users in a
-// deleted organization count as having no organization.
+// deleted organization count as having no organization. Each member's organization
+// allocation and usage are reported separately from the personal wallet.
 func TestUserListFiltersByOrganizationAndReportsItsName(t *testing.T) {
-	organizationId, _ := setupOrganizationQuotaTestDB(t)
+	organizationId, memberId := setupOrganizationQuotaTestDB(t)
+	_, err := GrantOrganizationQuota(organizationId, 1000, 1, "grant", "grant-1", 1)
+	require.NoError(t, err)
+	require.NoError(t, SetOrganizationMemberAllocation(organizationId, memberId, 5000, false, 2))
+	require.NoError(t, ConsumeOrganizationQuota(organizationId, memberId, "req-1", 1, 300, 3))
 
 	other := &Organization{Name: "Other Co", Status: OrganizationStatusActive, CreatedTime: 1, UpdatedTime: 1}
 	require.NoError(t, DB.Create(other).Error)
@@ -42,6 +47,8 @@ func TestUserListFiltersByOrganizationAndReportsItsName(t *testing.T) {
 	require.NotNil(t, all["quota-member"].Organization)
 	assert.Equal(t, organizationId, all["quota-member"].Organization.Id)
 	assert.Equal(t, "Quota Co", all["quota-member"].Organization.Name)
+	assert.Equal(t, int64(5000), all["quota-member"].Organization.AllocatedQuota)
+	assert.Equal(t, int64(300), all["quota-member"].Organization.UsedQuota)
 	assert.Nil(t, all["plain-user"].Organization)
 	assert.Nil(t, all["departed-user"].Organization, "a user in a deleted organization reports no organization")
 

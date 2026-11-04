@@ -123,7 +123,7 @@ it('shows balance above secondary usage text and opens quota details on click', 
     </I18nextProvider>
   )
   expect(
-    screen.getByRole('columnheader', { name: 'Available Balance ($)' })
+    screen.getByRole('columnheader', { name: 'Personal Balance ($)' })
   ).toHaveAttribute('data-sortable', 'true')
   expect(screen.getAllByRole('columnheader')).toHaveLength(1)
   const cells = screen.getAllByRole('cell')
@@ -213,7 +213,7 @@ it('shows the custom symbol only in the column header', () => {
     </I18nextProvider>
   )
   expect(
-    screen.getByRole('columnheader', { name: 'Available Balance (🐱)' })
+    screen.getByRole('columnheader', { name: 'Personal Balance (🐱)' })
   ).toBeInTheDocument()
   for (const cell of screen.getAllByRole('cell')) {
     expect(cell).not.toHaveTextContent('🐱')
@@ -304,7 +304,7 @@ it('sends balance sorting to the server and keeps invitation details on two line
     screen.getByRole('columnheader', { name: 'User Group' })
   ).toBeInTheDocument()
   await userEvent.click(
-    screen.getByRole('button', { name: 'Available Balance ($)' })
+    screen.getByRole('button', { name: 'Personal Balance ($)' })
   )
   await userEvent.click(screen.getByRole('menuitem', { name: 'Desc' }))
   await waitFor(() =>
@@ -329,7 +329,7 @@ it('shows balance above usage on mobile cards in Chinese', async () => {
   await i18n.changeLanguage('zh')
   try {
     await renderUsersList()
-    expect(screen.getByText('可用余额 ($)')).toBeInTheDocument()
+    expect(screen.getByText('个人余额 ($)')).toBeInTheDocument()
     expect(screen.getByText('已用')).toBeInTheDocument()
     expect(screen.getByText('0.0038')).toBeInTheDocument()
     expect(screen.getByText('0.0022')).toBeInTheDocument()
@@ -392,7 +392,7 @@ it('updates the header unit and converted amounts together when currency setting
     })
   )
   expect(
-    screen.getByRole('columnheader', { name: 'Available Balance (¥)' })
+    screen.getByRole('columnheader', { name: 'Personal Balance (¥)' })
   ).toBeInTheDocument()
   expect(
     within(screen.getAllByRole('cell')[0]).getByText('7')
@@ -415,7 +415,7 @@ it('labels raw quota mode as tokens without introducing a currency symbol', () =
     </I18nextProvider>
   )
   expect(
-    screen.getByRole('columnheader', { name: 'Available Balance (Tokens)' })
+    screen.getByRole('columnheader', { name: 'Personal Balance (Tokens)' })
   ).toBeInTheDocument()
   expect(
     within(screen.getAllByRole('cell')[0]).getByText('100')

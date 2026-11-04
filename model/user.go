@@ -29,6 +29,10 @@ type UserOrganization struct {
 	Id   int    `json:"id"`
 	Name string `json:"name"`
 	Role string `json:"role"`
+	// AllocatedQuota and UsedQuota describe the member's organization allocation. They are
+	// separate from the user's personal wallet balance.
+	AllocatedQuota int64 `json:"allocated_quota"`
+	UsedQuota      int64 `json:"used_quota"`
 }
 
 var userSortColumns = map[string]string{
@@ -464,9 +468,28 @@ func attachUserOrganizations(db *gorm.DB, users []*User) error {
 	if err != nil {
 		return err
 	}
+
+	var quotas []OrganizationMemberQuota
+	if err := db.Where("user_id IN ?", userIds).Find(&quotas).Error; err != nil {
+		return err
+	}
+	type membershipKey struct {
+		organizationId int
+		userId         int
+	}
+	quotaByMembership := make(map[membershipKey]OrganizationMemberQuota, len(quotas))
+	for _, quota := range quotas {
+		quotaByMembership[membershipKey{organizationId: quota.OrganizationId, userId: quota.UserId}] = quota
+	}
+
 	byUser := make(map[int]*UserOrganization, len(rows))
 	for _, row := range rows {
-		byUser[row.UserId] = &UserOrganization{Id: row.Id, Name: row.Name, Role: row.Role}
+		organization := &UserOrganization{Id: row.Id, Name: row.Name, Role: row.Role}
+		if quota, ok := quotaByMembership[membershipKey{organizationId: row.Id, userId: row.UserId}]; ok {
+			organization.AllocatedQuota = quota.AllocatedQuota
+			organization.UsedQuota = quota.UsedQuota
+		}
+		byUser[row.UserId] = organization
 	}
 	for _, user := range users {
 		user.Organization = byUser[user.Id]

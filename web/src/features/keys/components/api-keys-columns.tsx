@@ -149,6 +149,25 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
         meta: { mobileHidden: true },
       },
       {
+        id: 'payer',
+        header: t('Paid by'),
+        cell: ({ row }) => {
+          const paidByOrganization =
+            (row.original.billing_organization_id ?? 0) > 0
+          return (
+            <StatusBadge
+              label={paidByOrganization ? t('Organization') : t('Personal')}
+              variant={paidByOrganization ? 'info' : 'neutral'}
+              copyable={false}
+              className='-ml-1.5'
+            />
+          )
+        },
+        enableSorting: false,
+        size: 120,
+        meta: { mobileHidden: true },
+      },
+      {
         id: 'model_limits',
         accessorKey: 'model_limits',
         header: t('Models'),
