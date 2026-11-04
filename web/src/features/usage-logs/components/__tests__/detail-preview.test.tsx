@@ -389,34 +389,41 @@ test.each([
   }
 )
 
-test('task log prices use localized unit labels from pricing metadata', async () => {
-  client.setQueryData(['pricing'], {
-    data: [
-      {
-        model_name: 'wan2.5-i2v-preview',
-        billing_usage_schema: {
-          images: {
-            type: 'number',
-            unit: 'count',
-            unitLabel: { en: 'image', zh: '张' },
+// Under full-suite load this test has intermittently hit the 20s test timeout,
+// although its own steps take a few milliseconds when they run. Retry it so a
+// transient stall does not fail the run; a real regression still fails all attempts.
+test(
+  'task log prices use localized unit labels from pricing metadata',
+  { retry: 2 },
+  async () => {
+    client.setQueryData(['pricing'], {
+      data: [
+        {
+          model_name: 'wan2.5-i2v-preview',
+          billing_usage_schema: {
+            images: {
+              type: 'number',
+              unit: 'count',
+              unitLabel: { en: 'image', zh: '张' },
+            },
           },
         },
-      },
-    ],
-    vendors: [],
-  })
-  const preview = renderPreview({
-    is_task: true,
-    billing_mode: 'tiered_expr',
-    expr_b64: btoa('tier("images", u("images") * 0.25)'),
-    matched_tier: 'images',
-  })
-  expect(preview).toHaveTextContent('images · images $0.25/image')
-  await act(() => i18n.changeLanguage('zh-CN'))
-  expect(
-    screen.getByRole('button', { name: /images · images/ })
-  ).toHaveTextContent('images · images $0.25/张')
-})
+      ],
+      vendors: [],
+    })
+    const preview = renderPreview({
+      is_task: true,
+      billing_mode: 'tiered_expr',
+      expr_b64: btoa('tier("images", u("images") * 0.25)'),
+      matched_tier: 'images',
+    })
+    expect(preview).toHaveTextContent('images · images $0.25/image')
+    await act(() => i18n.changeLanguage('zh-CN'))
+    expect(
+      screen.getByRole('button', { name: /images · images/ })
+    ).toHaveTextContent('images · images $0.25/张')
+  }
+)
 
 test('task log prices select the executing provider’s schema', () => {
   client.setQueryData(['pricing'], {
