@@ -37,42 +37,48 @@ export function ApiKeyPayerField(props: ApiKeyPayerFieldProps) {
     <FormField
       control={props.control}
       name='billing_organization_id'
-      render={({ field }) => (
-        <FormItem>
-          <FormLabel>{t('Paid by')}</FormLabel>
-          <Select
-            value={organizationIdToPayerValue(field.value)}
-            onValueChange={(value) =>
-              field.onChange(
-                payerValueToOrganizationId(value ?? PERSONAL_PAYER_VALUE)
-              )
-            }
-          >
-            <FormControl>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-            </FormControl>
-            <SelectContent>
-              {props.options.map((option) => (
-                <SelectItem
-                  key={option.value}
-                  value={option.value}
-                  disabled={option.disabled}
-                >
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <FormDescription>
-            {t(
-              'Choose who pays for requests made with this key. Only organizations you belong to are listed.'
-            )}
-          </FormDescription>
-          <FormMessage />
-        </FormItem>
-      )}
+      render={({ field }) => {
+        const currentValue = organizationIdToPayerValue(field.value)
+        const selectedOption = props.options.find(
+          (option) => option.value === currentValue
+        )
+        return (
+          <FormItem>
+            <FormLabel>{t('Paid by')}</FormLabel>
+            <Select
+              value={currentValue}
+              onValueChange={(value) =>
+                field.onChange(
+                  payerValueToOrganizationId(value ?? PERSONAL_PAYER_VALUE)
+                )
+              }
+            >
+              <FormControl>
+                <SelectTrigger className='w-full'>
+                  <SelectValue>{selectedOption?.label}</SelectValue>
+                </SelectTrigger>
+              </FormControl>
+              <SelectContent>
+                {props.options.map((option) => (
+                  <SelectItem
+                    key={option.value}
+                    value={option.value}
+                    disabled={option.disabled}
+                  >
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FormDescription>
+              {t(
+                'Choose who pays for requests made with this key. Only organizations you belong to are listed.'
+              )}
+            </FormDescription>
+            <FormMessage />
+          </FormItem>
+        )
+      }}
     />
   )
 }
