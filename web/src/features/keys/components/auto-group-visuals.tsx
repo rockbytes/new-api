@@ -8,8 +8,6 @@ export type GroupRatio = number | string | null | undefined
 export const AUTO_GROUP_FRAME_CLASS_NAME =
   'border-primary/40 relative overflow-visible border shadow-sm shadow-primary/10'
 
-
-
 type GroupRatioBadgeProps = {
   isAuto?: boolean
   ratio: GroupRatio
@@ -34,4 +32,3 @@ export function GroupRatioBadge(props: GroupRatioBadgeProps) {
     />
   )
 }
-

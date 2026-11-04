@@ -236,4 +236,3 @@ export async function createCredential(
 ) {
   return navigator.credentials.create({ publicKey: options, signal })
 }
-

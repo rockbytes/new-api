@@ -24,4 +24,3 @@ export function getDisplayName(user?: UserProfile): string {
   if (!user) return ''
   return user.display_name || user.username
 }
-

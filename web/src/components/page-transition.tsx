@@ -2,7 +2,14 @@ import { Outlet, useRouterState } from '@tanstack/react-router'
 import { motion, useReducedMotion, type Variants } from 'motion/react'
 import type { ReactNode } from 'react'
 
-import { CARD_ITEM_VARIANTS, CARD_STAGGER_VARIANTS, MOTION_TRANSITION, MOTION_VARIANTS, STAGGER_ITEM_VARIANTS, STAGGER_VARIANTS } from '@/lib/motion'
+import {
+  CARD_ITEM_VARIANTS,
+  CARD_STAGGER_VARIANTS,
+  MOTION_TRANSITION,
+  MOTION_VARIANTS,
+  STAGGER_ITEM_VARIANTS,
+  STAGGER_VARIANTS,
+} from '@/lib/motion'
 
 interface PageTransitionProps {
   children: ReactNode
@@ -100,8 +107,6 @@ export function StaggerItem(props: StaggerItemProps) {
     </motion.div>
   )
 }
-
-
 
 export function CardStaggerContainer(props: StaggerContainerProps) {
   const shouldReduce = useReducedMotion()

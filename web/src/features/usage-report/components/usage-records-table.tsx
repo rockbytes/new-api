@@ -125,7 +125,8 @@ function payerLabel(
   record: UsageSelfRecord,
   t: (key: string) => string
 ): string {
-  if (record.billing_organization_id > 0)
+  if (record.billing_organization_id > 0) {
     return record.billing_organization_name
+  }
   return t('Personal')
 }

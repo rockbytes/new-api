@@ -89,10 +89,6 @@ export function getEndpointTypeLabels(
   }
 }
 
-
-
-
-
 /** Excluded groups */
 export const EXCLUDED_GROUPS = ['', 'auto']
 

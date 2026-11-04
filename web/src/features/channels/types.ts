@@ -14,7 +14,6 @@ const channelInfoSchema = z.object({
   multi_key_mode: z.enum(['random', 'polling']).default('random'),
 })
 
-
 export const channelSchema = z.object({
   id: z.number(),
   type: z.number(),
@@ -74,7 +73,6 @@ export interface ChannelSettings {
   http2_connection_shards?: number
   tls_insecure_skip_verify?: boolean
 }
-
 
 export interface AdvancedCustomConfig {
   advanced_routes?: AdvancedCustomRoute[]
@@ -264,7 +262,6 @@ export interface SearchChannelsParams {
   page_size?: number
 }
 
-
 export interface CopyChannelParams {
   suffix?: string
   reset_balance?: boolean
@@ -308,7 +305,6 @@ export interface TagOperationParams {
 // ============================================================================
 // Form Data Types
 // ============================================================================
-
 
 // ============================================================================
 // Add Channel Request (special structure)

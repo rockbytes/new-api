@@ -26,10 +26,7 @@ import { calculateTokenPrice } from './price'
 /**
  * Filter models by search query
  */
-function filterBySearch(
-  models: PricingModel[],
-  query: string
-): PricingModel[] {
+function filterBySearch(models: PricingModel[], query: string): PricingModel[] {
   if (!query) return models
 
   const lowerQuery = query.toLowerCase()
@@ -56,10 +53,7 @@ function filterByVendor(
 /**
  * Filter models by group
  */
-function filterByGroup(
-  models: PricingModel[],
-  group: string
-): PricingModel[] {
+function filterByGroup(models: PricingModel[], group: string): PricingModel[] {
   if (group === FILTER_ALL) return models
   return models.filter((m) => m.enable_groups?.includes(group))
 }
@@ -264,10 +258,7 @@ export function extractAllTags(models: PricingModel[]): string[] {
 /**
  * Filter models by tag
  */
-function filterByTag(
-  models: PricingModel[],
-  tag: string
-): PricingModel[] {
+function filterByTag(models: PricingModel[], tag: string): PricingModel[] {
   if (tag === FILTER_ALL) return models
 
   const tagLower = tag.toLowerCase()

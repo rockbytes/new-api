@@ -14,7 +14,12 @@ import {
 } from './lib/password-encryption'
 import { getAffiliateCode } from './lib/storage'
 import type { VerificationOperation } from './secure-verification/types'
-import type { LoginPayload, LoginResponse, RegisterPayload, ApiResponse } from './types'
+import type {
+  LoginPayload,
+  LoginResponse,
+  RegisterPayload,
+  ApiResponse,
+} from './types'
 
 // ============================================================================
 // Authentication APIs
@@ -192,7 +197,6 @@ export async function wechatLoginByCode(code: string): Promise<ApiResponse> {
   const res = await api.get('/api/oauth/wechat', { params: { code } })
   return res.data
 }
-
 
 // ----------------------------------------------------------------------------
 // Registration

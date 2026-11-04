@@ -1,7 +1,11 @@
 import { nanoid } from 'nanoid'
 
 import { MESSAGE_ROLES, MESSAGE_STATUS } from '../../constants'
-import type { Message, MessageVersion, ChatCompletionMessage } from '../../types'
+import type {
+  Message,
+  MessageVersion,
+  ChatCompletionMessage,
+} from '../../types'
 
 /**
  * Create a new message version
@@ -82,8 +86,6 @@ export function createLoadingAssistantMessage(
     status: MESSAGE_STATUS.LOADING,
   }
 }
-
-
 
 /**
  * Format message for API request

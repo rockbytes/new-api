@@ -75,7 +75,6 @@ function formatJsonError(error: unknown, jsonString: string): string {
   return message
 }
 
-
 export function getJsonError(
   value: string,
   predicate?: (parsed: unknown) => boolean

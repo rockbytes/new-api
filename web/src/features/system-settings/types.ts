@@ -3,7 +3,6 @@ export type SystemOption = {
   value: string
 }
 
-
 export type SystemOptionsResponse = {
   success: boolean
   message: string

@@ -42,4 +42,3 @@ i18n
       convertDetectedLanguage,
     },
   })
-

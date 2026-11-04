@@ -3,7 +3,25 @@
 
 import type { FileUIPart } from 'ai'
 import { nanoid } from 'nanoid'
-import { type ChangeEvent, type ChangeEventHandler, Children, type ClipboardEventHandler, type ComponentProps, createContext, type FormEvent, type FormEventHandler, type HTMLAttributes, type KeyboardEventHandler, type RefObject, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type ChangeEvent,
+  type ChangeEventHandler,
+  Children,
+  type ClipboardEventHandler,
+  type ComponentProps,
+  createContext,
+  type FormEvent,
+  type FormEventHandler,
+  type HTMLAttributes,
+  type KeyboardEventHandler,
+  type RefObject,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -50,15 +68,11 @@ const ProviderAttachmentsContext = createContext<AttachmentsContext | null>(
   null
 )
 
-
 // Optional variants (do NOT throw). Useful for dual-mode components.
 const useOptionalPromptInputController = () => useContext(PromptInputController)
 
-
 const useOptionalProviderAttachments = () =>
   useContext(ProviderAttachmentsContext)
-
-
 
 // ============================================================================
 // Component Context & Hooks
@@ -78,12 +92,6 @@ const usePromptInputAttachments = () => {
   }
   return context
 }
-
-
-
-
-
-
 
 export type PromptInputMessage = {
   text?: string
@@ -468,8 +476,6 @@ export const PromptInput = ({
   )
 }
 
-
-
 export type PromptInputTextareaProps = ComponentProps<typeof InputGroupTextarea>
 
 export const PromptInputTextarea = ({
@@ -565,8 +571,6 @@ export const PromptInputTextarea = ({
   )
 }
 
-
-
 export type PromptInputFooterProps = Omit<
   ComponentProps<typeof InputGroupAddon>,
   'align'
@@ -614,15 +618,8 @@ export const PromptInputButton = ({
   )
 }
 
-
-
-
-
-
 // Note: Actions that perform side-effects (like opening a file dialog)
 // are provided in opt-in modules (e.g., prompt-input-attachments).
-
-
 
 interface SpeechRecognition extends EventTarget {
   continuous: boolean
@@ -676,45 +673,3 @@ declare global {
     }
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

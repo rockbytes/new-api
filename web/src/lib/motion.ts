@@ -75,8 +75,6 @@ export const STAGGER_ITEM_VARIANTS: Variants = {
   animate: { opacity: 1, y: 0, transition: MOTION_TRANSITION.default },
 }
 
-
-
 export const CARD_STAGGER_VARIANTS: Variants = {
   initial: {},
   animate: { transition: { staggerChildren: 0.05 } },
@@ -91,5 +89,3 @@ export const CARD_ITEM_VARIANTS: Variants = {
     transition: MOTION_TRANSITION.default,
   },
 }
-
-

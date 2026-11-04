@@ -12,8 +12,6 @@ import { Spinner } from '@/components/ui/spinner'
 
 import type { AudioClip } from '../../types'
 
-
-
 interface AudioPreviewDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void

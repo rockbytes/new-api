@@ -950,9 +950,6 @@ export function transformFormDataToUpdatePayload(
 // Validation Helpers
 // ============================================================================
 
-
-
-
 /**
  * Parse groups string to array
  */
@@ -963,7 +960,6 @@ function parseGroups(groups: string): string[] {
     .map((g) => g.trim())
     .filter((g) => g.length > 0)
 }
-
 
 /**
  * Format groups array to string

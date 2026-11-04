@@ -11,11 +11,9 @@ import { cn } from '@/lib/utils'
 import { formatDuration } from '../../lib/format'
 import { FailReasonDialog } from '../dialogs/fail-reason-dialog'
 
-
 // ============================================================================
 // Column Definition Factories
 // ============================================================================
-
 
 /**
  * Create a duration column - pill style matching common logs timing

@@ -1,4 +1,3 @@
-
 import { createSectionRegistry } from '@/features/system-settings/utils/section-registry'
 
 /**
@@ -43,4 +42,3 @@ const dashboardRegistry = createSectionRegistry<
 
 export const DASHBOARD_SECTION_IDS = dashboardRegistry.sectionIds
 export const DASHBOARD_DEFAULT_SECTION = dashboardRegistry.defaultSection
-

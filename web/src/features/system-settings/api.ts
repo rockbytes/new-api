@@ -86,7 +86,6 @@ export async function listSystemTasks(
   return res.data
 }
 
-
 export async function getUpstreamChannels() {
   const res = await api.get<UpstreamChannelsResponse>(
     '/api/ratio_sync/channels'

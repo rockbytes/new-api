@@ -25,9 +25,6 @@ function toStartOfDay(tsSec: number): number {
   return Math.floor(d.getTime() / 1000)
 }
 
-
-
-
 /**
  * Calculate a rolling date range ending at the current moment.
  * Example: 1 day means the last 24 hours, not yesterday 00:00 to today 23:59.
@@ -83,7 +80,6 @@ export function computeTimeRange(
 
   return { start_timestamp: start, end_timestamp: end }
 }
-
 
 /**
  * Format Date object to YYYY-MM-DD HH:mm:ss

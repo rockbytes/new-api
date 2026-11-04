@@ -14,7 +14,6 @@ export function getInitialParameterEnabled(): ParameterEnabled {
   return { ...DEFAULT_PARAMETER_ENABLED, ...loadParameterEnabled() }
 }
 
-
 export function applyMessageStateUpdate(
   previousMessages: Message[],
   updater: MessageStateUpdater

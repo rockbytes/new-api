@@ -154,7 +154,6 @@ export const BILLING_PRICING_VARS: BillingVar[] = BILLING_VARS.filter(
   (v) => !v.isConditionOnly
 )
 
-
 const BILLING_VAR_KEY_TO_FIELD = Object.fromEntries(
   BILLING_PRICING_VARS.map((v) => [v.key, v.field as string])
 ) as Record<string, string>
@@ -660,7 +659,6 @@ export function createEmptyTimeCondition(): TimeCondition {
 export function createEmptyRuleGroup(): RequestRuleGroup {
   return { conditions: [createEmptyCondition()], multiplier: '' }
 }
-
 
 // ---------------------------------------------------------------------------
 // Editor: match option helpers

@@ -4,18 +4,13 @@ import { requireServerSuccess } from '@/lib/server-error-message'
 
 export {
   applyAuthBundle,
-  
-  
   clearAuthenticatedClientState,
   clearAuthentication,
-  
   getFreshAuthHeaders,
   isAuthBundle,
   refreshAuthentication,
-  
-  
 } from '@/lib/auth-session'
-export type {  RefreshOutcome } from '@/lib/auth-session'
+export type { RefreshOutcome } from '@/lib/auth-session'
 export { api }
 export type { ApiRequestConfig } from '@/lib/http-client'
 

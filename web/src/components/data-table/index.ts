@@ -17,26 +17,14 @@ export {
   DataTableRow,
   DataTableRowActionMenu,
   DataTableView,
-  
-  
-  
 } from './core/data-table-view'
 export { MobileCardList } from './layout/mobile-card-list'
 
-
-
-export {
-  DataTablePage,
-  
-} from './layout/data-table-page'
-export {
-  DataTableViewModeToggle,
-  
-} from './toolbar/view-mode-toggle'
+export { DataTablePage } from './layout/data-table-page'
+export { DataTableViewModeToggle } from './toolbar/view-mode-toggle'
 export { useDataTable } from './hooks/use-data-table'
 export {
   useDataTableViewMode,
-  
   type DataTableViewMode,
 } from './hooks/use-data-table-view-mode'
 export { useDebouncedColumnFilter } from './hooks/use-debounced-column-filter'

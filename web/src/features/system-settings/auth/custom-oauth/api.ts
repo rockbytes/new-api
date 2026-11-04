@@ -23,7 +23,6 @@ export async function getCustomOAuthProviders(): Promise<
   return res.data
 }
 
-
 export async function createCustomOAuthProvider(
   data: Omit<CustomOAuthProvider, 'id'>
 ): Promise<ApiResponse<CustomOAuthProvider>> {

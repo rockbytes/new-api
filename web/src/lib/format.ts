@@ -1,6 +1,10 @@
 import dayjs from '@/lib/dayjs'
 
-import { formatQuotaWithCurrency, getCurrencyDisplay, getCurrencyFractionDigits } from './currency'
+import {
+  formatQuotaWithCurrency,
+  getCurrencyDisplay,
+  getCurrencyFractionDigits,
+} from './currency'
 
 // ============================================================================
 // Number Formatting
@@ -26,8 +30,6 @@ export function formatCompactNumber(
     maximumFractionDigits: 1,
   }).format(value as number)
 }
-
-
 
 // ============================================================================
 // Quota Formatting (500,000 units = $1)
@@ -187,8 +189,6 @@ export function formatDateTimeStr(date: Date): string {
   return dayjs(date).format('YYYY-MM-DD HH:mm:ss')
 }
 
-
-
 /**
  * Format quota for usage logs with higher precision
  * Uses 6 decimal places to show very small costs accurately
@@ -221,9 +221,6 @@ export function formatUseTime(seconds: number): string {
   return `${minutes}m ${remainingSeconds.toFixed(0)}s`
 }
 
-
-
 // ============================================================================
 // Color Generation
 // ============================================================================
-

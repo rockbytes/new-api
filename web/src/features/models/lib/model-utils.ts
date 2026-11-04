@@ -1,12 +1,8 @@
-
-
 import type { Model } from '../types'
 
 // ============================================================================
 // Time Formatting
 // ============================================================================
-
-
 
 // ============================================================================
 // Tags Parsing
@@ -22,7 +18,6 @@ export function parseModelTags(tags: string | undefined): string[] {
     .map((tag) => tag.trim())
     .filter(Boolean)
 }
-
 
 // ============================================================================
 // Endpoints Parsing
@@ -67,18 +62,13 @@ export function formatEndpointsDisplay(
 // Name Rule Utils
 // ============================================================================
 
-
-
 // ============================================================================
 // Quota Type Utils
 // ============================================================================
 
-
 // ============================================================================
 // Model Validation
 // ============================================================================
-
-
 
 // ============================================================================
 // Model Status Utils
@@ -90,7 +80,6 @@ export function formatEndpointsDisplay(
 export function isModelEnabled(model: Model): boolean {
   return model.status === 1
 }
-
 
 // Keep table labels compact; the drawer and tooltip share the full explanation.
 export function getModelChannelState(model: Model) {

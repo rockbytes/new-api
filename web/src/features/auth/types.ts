@@ -1,4 +1,3 @@
-
 import type { LoginResult } from './secure-verification/types'
 
 // ============================================================================
@@ -12,7 +11,6 @@ export interface LoginPayload {
   passwordEncryptionEnabled?: boolean
 }
 
-
 export interface RegisterPayload {
   username: string
   password: string
@@ -21,9 +19,6 @@ export interface RegisterPayload {
   aff_code?: string
   turnstile?: string
 }
-
-
-
 
 // ============================================================================
 // API Responses
@@ -34,7 +29,6 @@ export interface LoginResponse {
   message: string
   data?: LoginResult
 }
-
 
 export interface ApiResponse<T = unknown> {
   success: boolean
@@ -152,7 +146,6 @@ export interface SystemStatus {
 // ============================================================================
 // OAuth
 // ============================================================================
-
 
 export interface CustomOAuthProviderInfo {
   id: number

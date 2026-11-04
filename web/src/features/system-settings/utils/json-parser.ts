@@ -1,4 +1,3 @@
-
 export interface SafeJsonParseOptions<T> {
   fallback?: T
   silent?: boolean
@@ -144,4 +143,3 @@ export function safeJsonParseWithValidation<T>(
 
   return parsed
 }
-

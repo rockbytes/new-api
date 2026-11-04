@@ -156,7 +156,6 @@ export function isUnconfiguredTaskUsageModel(model: PricingModel): boolean {
   )
 }
 
-
 export function getDynamicDisplayGroupRatio(
   model: PricingModel,
   selectedGroup?: string

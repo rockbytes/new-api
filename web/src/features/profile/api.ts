@@ -102,7 +102,6 @@ export function deleteUserAccount(
 // Account Binding APIs
 // ============================================================================
 
-
 /**
  * Bind email account
  */
@@ -182,8 +181,6 @@ export function bindWeChat(
     )
   )
 }
-
-
 
 // ============================================================================
 // Login Session APIs

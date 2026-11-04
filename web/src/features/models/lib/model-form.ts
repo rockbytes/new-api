@@ -45,8 +45,6 @@ export const MODEL_FORM_DEFAULT_VALUES: ModelFormValues = {
 // Vendor Form Schema
 // ============================================================================
 
-
-
 // ============================================================================
 // Form Data Transformation
 // ============================================================================
@@ -103,5 +101,3 @@ export function transformFormDataToModelPayload(
 function formatTagsArray(tags: string[]): string {
   return tags.filter(Boolean).join(',')
 }
-
-

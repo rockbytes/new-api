@@ -258,4 +258,3 @@ export const statusPresets = {
     pulse: true,
   },
 } as const
-

@@ -176,7 +176,3 @@ export function getChannelTypeConfig(type: number): ChannelTypeConfig {
     }
   )
 }
-
-
-
-

@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
 
-function resolveThemeRadiusPx(
-  cssVariable = '--radius-md'
-): number | undefined {
+function resolveThemeRadiusPx(cssVariable = '--radius-md'): number | undefined {
   if (typeof document === 'undefined') return undefined
 
   const probe = document.createElement('div')

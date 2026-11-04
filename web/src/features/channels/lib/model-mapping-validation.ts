@@ -176,7 +176,6 @@ export function validateModelMappingJson(modelMapping: string): {
   }
 }
 
-
 /**
  * Categorize models into different sets for UI display
  */

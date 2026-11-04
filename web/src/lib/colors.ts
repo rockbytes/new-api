@@ -37,8 +37,6 @@ const colorToBgClass: Record<SemanticColor, string> = {
   slate: 'bg-slate-500',
 }
 
-
-
 export function getBgColorClass(color?: string): string {
   if (!color) return colorToBgClass.blue
   return (
@@ -46,17 +44,10 @@ export function getBgColorClass(color?: string): string {
   )
 }
 
-
-
 /**
  * Announcement status types
  */
-type AnnouncementType =
-  | 'default'
-  | 'ongoing'
-  | 'success'
-  | 'warning'
-  | 'error'
+type AnnouncementType = 'default' | 'ongoing' | 'success' | 'warning' | 'error'
 
 /**
  * Announcement status color mapping

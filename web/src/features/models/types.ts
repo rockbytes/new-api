@@ -244,8 +244,6 @@ export interface PrefillGroupsResponse {
 // Form Data Types
 // ============================================================================
 
-
-
 /**
  * Vendor form schema
  */
@@ -288,9 +286,9 @@ export type PrefillGroupFormValues = z.infer<typeof prefillGroupFormSchema>
  */
 export type NameRule = 0 | 1 | 2 | 3 // exact, prefix, contains, suffix
 
- // disabled, enabled
+// disabled, enabled
 
- // usage-based, per-call
+// usage-based, per-call
 
 /**
  * Sync locale
@@ -373,4 +371,3 @@ export interface ListDeploymentsResponse {
     status_counts?: Record<string, number>
   }
 }
-

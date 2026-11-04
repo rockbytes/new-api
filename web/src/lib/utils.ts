@@ -5,8 +5,6 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-
-
 /**
  * Generates page numbers for pagination with ellipsis
  * @param currentPage - Current page number (1-based)
@@ -53,4 +51,3 @@ export function truncateText(text: string, maxLength: number): string {
   if (!text || text.length <= maxLength) return text
   return `${text.slice(0, maxLength)}...`
 }
-

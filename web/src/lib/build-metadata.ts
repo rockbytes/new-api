@@ -142,4 +142,3 @@ export function installBuildMetadata(): void {
     // console may be replaced by a noop shim.
   }
 }
-

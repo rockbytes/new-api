@@ -10,7 +10,6 @@ import {
 // Types
 // ============================================================================
 
-
 interface DialogStateHandlers {
   reset: () => void
   isOpen: boolean
@@ -28,7 +27,6 @@ export interface DialogsHandlers<T extends string> {
 // ============================================================================
 // Dialog State Management Hooks
 // ============================================================================
-
 
 /**
  * Hook for managing dialog state with custom value types

@@ -25,5 +25,3 @@ export function seededRandom(seed: number): () => number {
     return state / 0x1_0000_0000
   }
 }
-
-

@@ -26,4 +26,3 @@ export function formatShare(share: number): string {
   if (share < 0.001) return '<0.1%'
   return `${(share * 100).toFixed(share < 0.01 ? 2 : 1)}%`
 }
-

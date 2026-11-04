@@ -123,4 +123,4 @@ export type PriceType =
   | 'image'
   | 'audio_input'
   | 'audio_output'
- // 0: token-based, 1: per-request
+// 0: token-based, 1: per-request

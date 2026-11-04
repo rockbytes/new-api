@@ -57,5 +57,3 @@ export const MessageContent = ({
     {children}
   </div>
 )
-
-

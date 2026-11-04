@@ -15,7 +15,6 @@ import { hashStringToSeed, seededRandom } from './seed'
 // real API and these helpers can be deleted. The shape of the returned
 // data is designed to mirror what we expect the real endpoints to return.
 
-
 export type LatencyTimePoint = {
   timestamp: string
   group: string
@@ -29,8 +28,6 @@ export type UptimeDayPoint = {
   outage_minutes: number
 }
 
-
-
 const PROFILE_BY_NAME = (name: string) => {
   const n = name.toLowerCase()
   if (/embed|rerank/.test(n)) return 'embedding'
@@ -41,17 +38,6 @@ const PROFILE_BY_NAME = (name: string) => {
   if (/gpt-5|opus|ultra|405|70b/.test(n)) return 'large'
   return 'standard'
 }
-
-
-
-
-
-
-
-
-
-
-
 
 // ---------------------------------------------------------------------------
 // Mock supported-parameters & rate-limits & misc API metadata

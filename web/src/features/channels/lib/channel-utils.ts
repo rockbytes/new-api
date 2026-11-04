@@ -1,6 +1,11 @@
 import { formatTimestampToDate } from '@/lib/format'
 
-import { CHANNEL_TYPES, RESPONSE_TIME_CONFIG, RESPONSE_TIME_THRESHOLDS, TYPE_TO_KEY_PROMPT } from '../constants'
+import {
+  CHANNEL_TYPES,
+  RESPONSE_TIME_CONFIG,
+  RESPONSE_TIME_THRESHOLDS,
+  TYPE_TO_KEY_PROMPT,
+} from '../constants'
 import type { Channel, ChannelSettings } from '../types'
 
 // ============================================================================
@@ -103,8 +108,6 @@ export function getChannelTypeIcon(type: number): string {
 // Status Utilities
 // ============================================================================
 
-
-
 /**
  * Check if channel is enabled
  */
@@ -122,9 +125,6 @@ export function isMultiKeyChannel(channel: Channel): boolean {
 // ============================================================================
 // Key Formatting
 // ============================================================================
-
-
-
 
 // ============================================================================
 // Model & Group Parsing
@@ -166,8 +166,6 @@ export function parseGroupsList(groups: string): string[] {
   })
 }
 
-
-
 // ============================================================================
 // Settings Parsing
 // ============================================================================
@@ -188,12 +186,9 @@ export function parseChannelSettings(
   }
 }
 
-
-
 // ============================================================================
 // Balance Formatting
 // ============================================================================
-
 
 /**
  * Get balance status color
@@ -343,22 +338,13 @@ export function formatTimestamp(timestamp: number): string {
 // Quota Formatting
 // ============================================================================
 
-
 // ============================================================================
 // Priority & Weight Utilities
 // ============================================================================
 
-
-
 // ============================================================================
 // Validation Utilities
 // ============================================================================
-
-
-
-
-
-
 
 // ============================================================================
 // Tag Aggregation Utilities

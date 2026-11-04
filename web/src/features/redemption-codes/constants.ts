@@ -12,7 +12,6 @@ export const REDEMPTION_STATUS = {
   USED: 3,
 } as const
 
-
 // labelKey values are i18n keys; use t(config.labelKey) in components
 export const REDEMPTION_STATUSES: Record<
   number,

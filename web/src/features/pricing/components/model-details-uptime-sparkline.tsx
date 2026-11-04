@@ -1,4 +1,3 @@
-
 import {
   Tooltip,
   TooltipContent,
@@ -123,4 +122,3 @@ export function UptimeSparkline(props: UptimeSparklineProps) {
 // ---------------------------------------------------------------------------
 // Uptime status row — sparkline + summary text + status icon
 // ---------------------------------------------------------------------------
-

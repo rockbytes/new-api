@@ -164,7 +164,6 @@ export async function updateVendor(
   return res.data
 }
 
-
 // ============================================================================
 // Sync Operations
 // ============================================================================
@@ -373,7 +372,6 @@ export async function listDeploymentContainers(
   return res.data
 }
 
-
 /**
  * Delete deployment
  */
@@ -414,7 +412,6 @@ export async function getHardwareTypes(): Promise<{
   const res = await api.get('/api/deployments/hardware-types')
   return res.data
 }
-
 
 /**
  * Get available replicas

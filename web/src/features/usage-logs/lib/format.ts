@@ -12,8 +12,6 @@ import type { UsageLog } from '../data/schema'
 import type { LogOtherData } from '../types'
 import { buildQuotaAuditOperation } from './quota-audit-operation'
 
-
-
 const PARAM_OVERRIDE_ACTION_MAP: Record<string, string> = {
   set: 'Set',
   delete: 'Delete',
@@ -174,9 +172,7 @@ export function getReasoningEffortVariant(
 /**
  * Get time color based on duration (in seconds)
  */
-function getTimeColor(
-  seconds: number
-): 'success' | 'warning' | 'danger' {
+function getTimeColor(seconds: number): 'success' | 'warning' | 'danger' {
   if (seconds < 10) return 'success'
   if (seconds < 30) return 'warning'
   return 'danger'

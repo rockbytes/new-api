@@ -76,7 +76,6 @@ export interface UsageSelfRecord extends UsageCompanyRecord {
   billing_organization_name: string
 }
 
-
 export interface UsageQueryParams {
   view?: UsageView
   organization_id?: number

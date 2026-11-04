@@ -1,4 +1,3 @@
-
 type ChatLinkType = 'web' | 'custom-protocol' | 'fluent'
 
 export type ChatPreset = {
@@ -20,7 +19,6 @@ export type ResolveChatUrlParams = {
   apiKey?: string
   serverAddress: string
 }
-
 
 const HTTP_REGEX = /^https?:\/\//i
 
@@ -188,4 +186,3 @@ export function resolveChatUrl({
 
   return url
 }
-

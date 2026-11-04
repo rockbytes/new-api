@@ -56,4 +56,3 @@ export function buildSearchParams(
       return baseParams
   }
 }
-

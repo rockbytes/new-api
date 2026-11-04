@@ -38,10 +38,7 @@ function cloneHeaderNavDefaults(): HeaderNavModules {
   }
 }
 
-function parseHeaderNavBoolean(
-  raw: unknown,
-  fallback: boolean
-): boolean {
+function parseHeaderNavBoolean(raw: unknown, fallback: boolean): boolean {
   if (typeof raw === 'boolean') return raw
   if (typeof raw === 'number') {
     if (raw === 1) return true
@@ -138,7 +135,6 @@ function getModuleAccessFromStatus(
 ): ModuleAccess {
   return parseHeaderNavModulesFromStatus(status)[module] ?? DEFAULTS[module]
 }
-
 
 /**
  * Resolve module access for a router `beforeLoad` guard.
