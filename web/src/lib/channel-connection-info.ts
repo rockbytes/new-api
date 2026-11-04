@@ -1,4 +1,4 @@
-export const CHANNEL_CONNECTION_INFO_TYPE = 'newapi_channel_conn'
+const CHANNEL_CONNECTION_INFO_TYPE = 'newapi_channel_conn'
 
 export type ChannelConnectionInfo = {
   key: string

@@ -143,10 +143,3 @@ export function installBuildMetadata(): void {
   }
 }
 
-/**
- * Return the canonical build revision string. Useful for support bundles
- * and for asserting the metadata layer is installed.
- */
-export function getBuildRevision(): string {
-  return computeBuildRevision()
-}

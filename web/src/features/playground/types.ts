@@ -1,7 +1,7 @@
 // Message types
-export type MessageRole = 'user' | 'assistant' | 'system'
+type MessageRole = 'user' | 'assistant' | 'system'
 
-export type MessageStatus = 'loading' | 'streaming' | 'complete' | 'error'
+type MessageStatus = 'loading' | 'streaming' | 'complete' | 'error'
 
 export type PlaygroundMessageLayoutMode = 'alternating' | 'left'
 
@@ -39,7 +39,7 @@ export interface ChatCompletionMessage {
   content: string | ContentPart[]
 }
 
-export interface ContentPart {
+interface ContentPart {
   type: 'text' | 'image_url'
   text?: string
   image_url?: {

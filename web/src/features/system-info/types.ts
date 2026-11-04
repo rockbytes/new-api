@@ -1,6 +1,6 @@
 export type SystemInstanceStatus = 'online' | 'stale'
 
-export type SystemInstanceInfo = {
+type SystemInstanceInfo = {
   schema_version?: number
   node?: {
     name?: string

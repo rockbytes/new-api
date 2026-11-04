@@ -1,4 +1,3 @@
-import type { TFunction } from 'i18next'
 
 import { createSectionRegistry } from '@/features/system-settings/utils/section-registry'
 
@@ -45,14 +44,3 @@ const dashboardRegistry = createSectionRegistry<
 export const DASHBOARD_SECTION_IDS = dashboardRegistry.sectionIds
 export const DASHBOARD_DEFAULT_SECTION = dashboardRegistry.defaultSection
 
-export function getDashboardSectionNavItems(
-  t: TFunction,
-  options?: { isAdmin?: boolean }
-) {
-  const all = dashboardRegistry.getSectionNavItems(t)
-  if (options?.isAdmin) return all
-  return all.filter(
-    (_, idx) =>
-      !DASHBOARD_ADMIN_ONLY_SECTION_IDS.has(DASHBOARD_SECTIONS[idx].id)
-  )
-}

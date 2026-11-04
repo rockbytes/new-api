@@ -20,7 +20,7 @@ export interface AccessTokenItem {
   created_at: number
 }
 
-export interface LegacyAccessToken {
+interface LegacyAccessToken {
   token_hint: string
   token_ref: string
   created_at: number | null

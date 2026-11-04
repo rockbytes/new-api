@@ -102,20 +102,6 @@ export function deleteUserAccount(
 // Account Binding APIs
 // ============================================================================
 
-/**
- * Send email verification code
- */
-export async function sendEmailVerification(
-  email: string,
-  turnstileToken?: string
-): Promise<ApiResponse> {
-  const params = new URLSearchParams({ email })
-  if (turnstileToken) {
-    params.append('turnstile', turnstileToken)
-  }
-  const res = await api.get(`/api/verification?${params}`)
-  return res.data
-}
 
 /**
  * Bind email account
@@ -197,18 +183,7 @@ export function bindWeChat(
   )
 }
 
-export interface TelegramBindFlow {
-  flow_token: string
-  callback_url: string
-  expires_at: number
-}
 
-export async function startTelegramBind(): Promise<
-  ApiResponse<TelegramBindFlow>
-> {
-  const res = await api.post('/api/oauth/telegram/bind/start')
-  return res.data
-}
 
 // ============================================================================
 // Login Session APIs

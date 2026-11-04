@@ -4,7 +4,7 @@ import { z } from 'zod'
 // Subscription Plan Schema & Types
 // ============================================================================
 
-export const subscriptionPlanSchema = z.object({
+const subscriptionPlanSchema = z.object({
   id: z.number(),
   title: z.string(),
   subtitle: z.string().optional(),
@@ -38,7 +38,7 @@ export interface PlanRecord {
 // User Subscription Schema & Types
 // ============================================================================
 
-export const userSubscriptionSchema = z.object({
+const userSubscriptionSchema = z.object({
   id: z.number(),
   user_id: z.number(),
   plan_id: z.number(),
@@ -51,7 +51,7 @@ export const userSubscriptionSchema = z.object({
   next_reset_time: z.number().optional(),
 })
 
-export type UserSubscription = z.infer<typeof userSubscriptionSchema>
+type UserSubscription = z.infer<typeof userSubscriptionSchema>
 
 export interface UserSubscriptionRecord {
   subscription: UserSubscription

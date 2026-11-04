@@ -1,4 +1,4 @@
-export const TOKEN_VARIABLES = [
+const TOKEN_VARIABLES = [
   'p',
   'c',
   'len',

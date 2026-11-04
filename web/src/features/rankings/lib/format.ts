@@ -27,13 +27,3 @@ export function formatShare(share: number): string {
   return `${(share * 100).toFixed(share < 0.01 ? 2 : 1)}%`
 }
 
-/** Format a release date like `Oct 12, 2025`. */
-export function formatReleaseDate(iso: string): string {
-  const ts = Date.parse(iso)
-  if (!Number.isFinite(ts)) return iso
-  return new Date(ts).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
-}

@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type PricingCurrencyPreference = 'USD' | 'site'
+type PricingCurrencyPreference = 'USD' | 'site'
 
 type PricingPreferences = {
   currency: PricingCurrencyPreference

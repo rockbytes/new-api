@@ -22,7 +22,7 @@ import type {
   GetTaskLogsParams,
 } from '../types'
 
-export { buildQueryParams } from './query-params'
+
 
 // ============================================================================
 // Type Checkers & Utilities
@@ -107,7 +107,7 @@ function buildTimeRangeParams(
  * Build base parameters with time range (for drawing and task logs)
  * @param useMilliseconds - Whether to use millisecond timestamps (true for drawing logs, false for task logs)
  */
-export function buildBaseParams(config: {
+function buildBaseParams(config: {
   page: number
   pageSize: number
   searchParams: Record<string, unknown>

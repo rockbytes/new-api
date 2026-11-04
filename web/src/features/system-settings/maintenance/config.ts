@@ -1,4 +1,4 @@
-export type HeaderNavAccessConfig = {
+type HeaderNavAccessConfig = {
   enabled: boolean
   requireAuth: boolean
 }
@@ -13,7 +13,7 @@ export type HeaderNavModulesConfig = {
   [key: string]: boolean | HeaderNavAccessConfig
 }
 
-export type SidebarSectionConfig = {
+type SidebarSectionConfig = {
   enabled: boolean
   [key: string]: boolean
 }

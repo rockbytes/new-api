@@ -259,4 +259,3 @@ export const statusPresets = {
   },
 } as const
 
-export type StatusPreset = keyof typeof statusPresets

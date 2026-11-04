@@ -76,7 +76,7 @@ export function SettingsSwitchItem({
   )
 }
 
-export function SettingsSwitchRow({
+function SettingsSwitchRow({
   className,
   ...props
 }: SettingsSwitchRowProps) {

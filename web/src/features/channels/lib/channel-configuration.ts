@@ -87,7 +87,7 @@ const CONFIGURATION_BLOCKS = {
   }
 >
 
-export type ChannelConfigurationBlock = keyof typeof CONFIGURATION_BLOCKS
+type ChannelConfigurationBlock = keyof typeof CONFIGURATION_BLOCKS
 
 export function getChannelConfigurationSection(
   field: string

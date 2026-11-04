@@ -4,7 +4,7 @@ import { z } from 'zod'
 // Channel Schema & Types
 // ============================================================================
 
-export const channelInfoSchema = z.object({
+const channelInfoSchema = z.object({
   is_multi_key: z.boolean().default(false),
   multi_key_size: z.number().default(0),
   multi_key_status_list: z.record(z.string(), z.number()).optional(),
@@ -14,7 +14,6 @@ export const channelInfoSchema = z.object({
   multi_key_mode: z.enum(['random', 'polling']).default('random'),
 })
 
-export type ChannelInfo = z.infer<typeof channelInfoSchema>
 
 export const channelSchema = z.object({
   id: z.number(),
@@ -76,29 +75,6 @@ export interface ChannelSettings {
   tls_insecure_skip_verify?: boolean
 }
 
-export interface ChannelOtherSettings {
-  azure_responses_version?: string
-  vertex_key_type?: 'json' | 'api_key'
-  vertex_project_id?: string
-  openrouter_enterprise?: boolean
-  aws_key_type?: 'ak_sk' | 'api_key'
-  aws_api_type?: 'invoke_model' | 'mantle'
-  allow_service_tier?: boolean
-  disable_store?: boolean
-  allow_safety_identifier?: boolean
-  allow_include_obfuscation?: boolean
-  allow_inference_geo?: boolean
-  allow_speed?: boolean
-  claude_beta_query?: boolean
-  ollama_openai_chat?: boolean
-  disable_task_polling_sleep?: boolean
-  upstream_model_update_check_enabled?: boolean
-  upstream_model_update_auto_sync_enabled?: boolean
-  upstream_model_update_ignored_models?: string[]
-  upstream_model_update_last_check_time?: number
-  upstream_model_update_last_detected_models?: string[]
-  advanced_custom?: AdvancedCustomConfig
-}
 
 export interface AdvancedCustomConfig {
   advanced_routes?: AdvancedCustomRoute[]
@@ -260,7 +236,7 @@ export type ChannelSortBy =
   | 'response_time'
   | 'test_time'
 
-export type ChannelSortOrder = 'asc' | 'desc'
+type ChannelSortOrder = 'asc' | 'desc'
 
 export interface GetChannelsParams {
   p?: number
@@ -288,9 +264,6 @@ export interface SearchChannelsParams {
   page_size?: number
 }
 
-export interface ChannelTestParams {
-  test_model?: string
-}
 
 export interface CopyChannelParams {
   suffix?: string
@@ -336,33 +309,6 @@ export interface TagOperationParams {
 // Form Data Types
 // ============================================================================
 
-export interface ChannelFormData {
-  name: string
-  type: number
-  base_url: string
-  key: string
-  openai_organization?: string
-  models: string
-  group: string
-  model_mapping?: string
-  priority?: number
-  weight?: number
-  test_model?: string
-  auto_ban?: number
-  status: number
-  status_code_mapping?: string
-  tag?: string
-  remark?: string
-  setting?: string
-  param_override?: string
-  header_override?: string
-  settings?: string
-  other?: string
-  // Multi-key specific
-  multi_key_mode?: 'single' | 'batch' | 'multi_to_single'
-  multi_key_type?: 'random' | 'polling'
-  batch_add_set_key_prefix_2_name?: boolean
-}
 
 // ============================================================================
 // Add Channel Request (special structure)

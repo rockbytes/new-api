@@ -8,8 +8,6 @@ export const INTERFACE_LANGUAGE_OPTIONS = [
   { code: 'zhTW', label: '繁體中文' },
 ] as const
 
-export type InterfaceLanguageCode =
-  (typeof INTERFACE_LANGUAGE_OPTIONS)[number]['code']
 
 export function normalizeInterfaceLanguage(value?: string | null): string {
   if (!value) return 'en'

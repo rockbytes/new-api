@@ -25,7 +25,7 @@ import {
   type LegacyBillingDetails,
 } from './pricing'
 
-export type ModelPricingDescription = {
+type ModelPricingDescription = {
   billing_details?: LegacyBillingDetails
   effective: PricingValues
   cache_write_mode?: CacheWriteMode

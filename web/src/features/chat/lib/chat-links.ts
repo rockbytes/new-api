@@ -1,6 +1,5 @@
-import { API_KEY_STATUS } from '@/features/keys/constants'
 
-export type ChatLinkType = 'web' | 'custom-protocol' | 'fluent'
+type ChatLinkType = 'web' | 'custom-protocol' | 'fluent'
 
 export type ChatPreset = {
   id: string
@@ -22,10 +21,6 @@ export type ResolveChatUrlParams = {
   serverAddress: string
 }
 
-export type ActiveApiKey = {
-  key: string
-  status: number
-}
 
 const HTTP_REGEX = /^https?:\/\//i
 
@@ -56,7 +51,7 @@ function toBase64(value: string) {
   return ''
 }
 
-export function detectChatLinkType(url: string): ChatLinkType {
+function detectChatLinkType(url: string): ChatLinkType {
   if (HTTP_REGEX.test(url)) {
     return 'web'
   }
@@ -194,9 +189,3 @@ export function resolveChatUrl({
   return url
 }
 
-export function getFirstActiveKey(
-  keys: ActiveApiKey[] | undefined
-): ActiveApiKey | undefined {
-  if (!Array.isArray(keys)) return undefined
-  return keys.find((item) => item.status === API_KEY_STATUS.ENABLED)
-}

@@ -15,13 +15,11 @@ export const DEFAULT_ENDPOINT = '/api/pricing'
 
 export const OFFICIAL_CHANNEL_ID = -100
 export const OFFICIAL_CHANNEL_NAME = '官方倍率预设'
-export const OFFICIAL_CHANNEL_BASE_URL = 'https://basellm.github.io'
 export const OFFICIAL_CHANNEL_ENDPOINT =
   '/llm-metadata/api/newapi/ratio_config-v1-base.json'
 
 export const MODELS_DEV_PRESET_ID = -101
 export const MODELS_DEV_PRESET_NAME = 'models.dev 价格预设'
-export const MODELS_DEV_PRESET_BASE_URL = 'https://models.dev'
 export const MODELS_DEV_PRESET_ENDPOINT = 'https://models.dev/api.json'
 
 export const OPENROUTER_ENDPOINT = 'openrouter'
@@ -40,17 +38,6 @@ export const ENDPOINT_OPTIONS = [
 // (e.g. `Model ratio`, `Audio completion ratio`). Do NOT switch to Title Case
 // here without updating the i18n catalog; otherwise we end up with two keys per
 // ratio type that only differ in capitalization.
-export const RATIO_TYPE_OPTIONS = [
-  { label: 'Model ratio', value: 'model_ratio' },
-  { label: 'Completion ratio', value: 'completion_ratio' },
-  { label: 'Cache ratio', value: 'cache_ratio' },
-  { label: 'Create cache ratio', value: 'create_cache_ratio' },
-  { label: 'Image ratio', value: 'image_ratio' },
-  { label: 'Audio ratio', value: 'audio_ratio' },
-  { label: 'Audio completion ratio', value: 'audio_completion_ratio' },
-  { label: 'Fixed price', value: 'model_price' },
-  { label: 'Expression billing', value: 'billing_expr' },
-] as const
 
 export const CHANNEL_STATUS_CONFIG = {
   1: { label: 'Enabled', variant: 'success' as const },

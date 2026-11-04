@@ -44,7 +44,7 @@ export function collectInvalidStatusCodeEntries(
   return invalid
 }
 
-export function collectDisallowedStatusCodeRedirects(
+function collectDisallowedStatusCodeRedirects(
   statusCodeMappingStr: string
 ): string[] {
   if (!statusCodeMappingStr?.trim()) return []

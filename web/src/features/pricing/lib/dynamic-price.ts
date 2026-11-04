@@ -137,7 +137,7 @@ export function hasTaskUsageSchema(model: PricingModel): boolean {
   return Object.keys(model.billing_usage_schema ?? {}).length > 0
 }
 
-export function isTaskUsagePricingModel(model: PricingModel): boolean {
+function isTaskUsagePricingModel(model: PricingModel): boolean {
   return model.billing_mode === 'tiered_expr' && hasTaskUsageSchema(model)
 }
 
@@ -156,12 +156,6 @@ export function isUnconfiguredTaskUsageModel(model: PricingModel): boolean {
   )
 }
 
-export function getTaskPricingUnit(
-  model: PricingModel
-): BillingUsageUnit | null {
-  const primaryField = getTaskNumberFields(model.billing_usage_schema)[0]
-  return primaryField?.[1].unit ?? null
-}
 
 export function getDynamicDisplayGroupRatio(
   model: PricingModel,
@@ -180,7 +174,7 @@ function applyRechargeRate(
   return (price * priceRate) / usdExchangeRate
 }
 
-export function formatDynamicUnitPrice(
+function formatDynamicUnitPrice(
   valuePerMillionTokens: number,
   options: DynamicPriceOptions
 ): string {
@@ -246,7 +240,7 @@ export function getDynamicPricingTiers(
   return parseTiersFromExpr(billingExpr)
 }
 
-export function hasDynamicRequestRules(model: PricingModel): boolean {
+function hasDynamicRequestRules(model: PricingModel): boolean {
   if (model.billing_plugin_variants?.length) {
     return model.billing_plugin_variants.some((variant) =>
       hasDynamicRequestRules(withPluginPricing(model, variant))

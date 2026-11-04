@@ -7,7 +7,7 @@ import { z } from 'zod'
 /**
  * Bound channel information
  */
-export interface BoundChannel {
+interface BoundChannel {
   name: string
   type: number
 }
@@ -157,7 +157,7 @@ export type MetadataSyncField =
   | 'endpoints'
   | 'name_rule'
   | 'status'
-export type MetadataSyncValues = {
+type MetadataSyncValues = {
   description: string
   icon: string
   tags: string
@@ -185,7 +185,7 @@ export type MetadataSyncCandidate = {
   upstream?: MetadataSyncValues
   vendor_to_create?: string
 }
-export type MetadataSyncSource = {
+type MetadataSyncSource = {
   locale: SyncLocale
   models_url: string
   vendors_url: string
@@ -206,7 +206,7 @@ export type MetadataSyncRequest = {
   source_version: string
   selections: MetadataSyncSelection[]
 }
-export type MetadataSyncResult = {
+type MetadataSyncResult = {
   created_models: string[]
   updated_models: MetadataSyncSelection[]
   created_vendors: string[]
@@ -244,23 +244,7 @@ export interface PrefillGroupsResponse {
 // Form Data Types
 // ============================================================================
 
-/**
- * Model form schema
- */
-export const modelFormSchema = z.object({
-  id: z.number().optional(),
-  model_name: z.string().min(1, 'Model name is required'),
-  description: z.string().default(''),
-  icon: z.string().default(''),
-  tags: z.array(z.string()).default([]),
-  vendor_id: z.number().optional(),
-  endpoints: z.string().default(''),
-  name_rule: z.number().min(0).max(3).default(0),
-  status: z.boolean().default(true),
-  sync_official: z.boolean().default(true),
-})
 
-export type ModelFormValues = z.infer<typeof modelFormSchema>
 
 /**
  * Vendor form schema
@@ -304,15 +288,9 @@ export type PrefillGroupFormValues = z.infer<typeof prefillGroupFormSchema>
  */
 export type NameRule = 0 | 1 | 2 | 3 // exact, prefix, contains, suffix
 
-/**
- * Model status type
- */
-export type ModelStatus = 0 | 1 // disabled, enabled
+ // disabled, enabled
 
-/**
- * Quota type
- */
-export type QuotaType = 0 | 1 // usage-based, per-call
+ // usage-based, per-call
 
 /**
  * Sync locale
@@ -396,19 +374,3 @@ export interface ListDeploymentsResponse {
   }
 }
 
-/**
- * Deployment logs response
- */
-export interface DeploymentLogsResponse {
-  success: boolean
-  message?: string
-  data?: {
-    logs?: Array<{
-      timestamp?: string
-      level?: string
-      message?: string
-      source?: string
-    }>
-    cursor?: string
-  }
-}

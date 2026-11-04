@@ -12,7 +12,7 @@ import { Spinner } from '@/components/ui/spinner'
 
 import type { AudioClip } from '../../types'
 
-export type { AudioClip }
+
 
 interface AudioPreviewDialogProps {
   open: boolean

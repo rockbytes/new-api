@@ -182,7 +182,7 @@ export type AdvancedCustomConverterDefaults = {
   auth?: AdvancedCustomRouteAuth
 }
 
-export const ADVANCED_CUSTOM_MODEL_REGEX_PREFIX = 're:'
+const ADVANCED_CUSTOM_MODEL_REGEX_PREFIX = 're:'
 
 export type AdvancedCustomModelRuleKind = 'exact' | 'regex'
 
@@ -300,7 +300,7 @@ export const ADVANCED_CUSTOM_TEMPLATE_OPTIONS: AdvancedCustomTemplateOption[] =
     },
   ]
 
-export function cloneAdvancedCustomConfig(
+function cloneAdvancedCustomConfig(
   config: AdvancedCustomConfig
 ): AdvancedCustomConfig {
   return structuredClone(config)
@@ -481,7 +481,7 @@ function getAdvancedCustomNativeAuth(
   return bearerHeaderAuth()
 }
 
-export function getAdvancedCustomIncomingPathOptions(
+function getAdvancedCustomIncomingPathOptions(
   converter: AdvancedCustomConverter
 ): AdvancedCustomIncomingPathOption[] {
   return ADVANCED_CUSTOM_INCOMING_PATH_OPTIONS.filter((option) =>

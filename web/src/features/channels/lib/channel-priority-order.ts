@@ -6,7 +6,7 @@ export type PriorityDrop = {
   target_id: number
   position: PriorityPosition
 }
-export type PriorityChange = {
+type PriorityChange = {
   id: number
   previous: number | null
   priority: number | null

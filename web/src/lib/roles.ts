@@ -7,7 +7,7 @@ export const ROLE = {
   SUPER_ADMIN: 100,
 } as const
 
-export type RoleValue = (typeof ROLE)[keyof typeof ROLE]
+type RoleValue = (typeof ROLE)[keyof typeof ROLE]
 
 const DEFAULT_ROLE = ROLE.GUEST
 
@@ -18,7 +18,7 @@ const ROLE_LABEL_KEYS: Record<RoleValue, string> = {
   [ROLE.GUEST]: 'Guest',
 }
 
-export function getRoleLabelKey(role?: number): string {
+function getRoleLabelKey(role?: number): string {
   return ROLE_LABEL_KEYS[role as RoleValue] ?? ROLE_LABEL_KEYS[DEFAULT_ROLE]
 }
 

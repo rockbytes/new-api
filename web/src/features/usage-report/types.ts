@@ -1,6 +1,6 @@
 export type UsageView = 'platform' | 'organization' | 'self'
 
-export interface UsageScopeInfo {
+interface UsageScopeInfo {
   view: UsageView
   organization: { id: number; name: string } | null
   user_id: number
@@ -76,12 +76,6 @@ export interface UsageSelfRecord extends UsageCompanyRecord {
   billing_organization_name: string
 }
 
-export interface UsageRecordPage<TItem> {
-  total: number
-  page: number
-  page_size: number
-  items: TItem[]
-}
 
 export interface UsageQueryParams {
   view?: UsageView
@@ -94,7 +88,7 @@ export interface UsageQueryParams {
   page_size?: number
 }
 
-export type UsageExportKind = 'records' | 'summary' | 'workbook'
+type UsageExportKind = 'records' | 'summary' | 'workbook'
 
 export type UsageExportFormat = 'csv' | 'xlsx'
 

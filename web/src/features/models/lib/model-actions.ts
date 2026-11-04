@@ -14,7 +14,7 @@ import { invalidateVendorData } from '../vendor-api'
 /**
  * Enable a model
  */
-export async function handleEnableModel(
+async function handleEnableModel(
   id: number,
   queryClient?: QueryClient,
   onSuccess?: () => void
@@ -39,7 +39,7 @@ export async function handleEnableModel(
 /**
  * Disable a model
  */
-export async function handleDisableModel(
+async function handleDisableModel(
   id: number,
   queryClient?: QueryClient,
   onSuccess?: () => void

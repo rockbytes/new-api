@@ -29,7 +29,7 @@ import {
 } from './store'
 
 export const SYSTEM_UPDATE_INTERVAL = 60 * 60 * 1000
-export const SYSTEM_UPDATE_QUERY_KEY = ['system-update'] as const
+const SYSTEM_UPDATE_QUERY_KEY = ['system-update'] as const
 
 export function getUpdateErrorMessage(
   code: UpdateCheckErrorCode,
@@ -47,7 +47,7 @@ export function getUpdateErrorMessage(
   }
 }
 
-export const systemUpdateQueryOptions = queryOptions({
+const systemUpdateQueryOptions = queryOptions({
   queryKey: SYSTEM_UPDATE_QUERY_KEY,
   queryFn: async ({ signal, client }): Promise<SystemUpdateSnapshot> => {
     // Refresh the running server version too, so an open tab notices upgrades.

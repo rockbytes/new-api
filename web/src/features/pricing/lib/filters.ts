@@ -26,7 +26,7 @@ import { calculateTokenPrice } from './price'
 /**
  * Filter models by search query
  */
-export function filterBySearch(
+function filterBySearch(
   models: PricingModel[],
   query: string
 ): PricingModel[] {
@@ -45,7 +45,7 @@ export function filterBySearch(
 /**
  * Filter models by vendor
  */
-export function filterByVendor(
+function filterByVendor(
   models: PricingModel[],
   vendor: string
 ): PricingModel[] {
@@ -56,7 +56,7 @@ export function filterByVendor(
 /**
  * Filter models by group
  */
-export function filterByGroup(
+function filterByGroup(
   models: PricingModel[],
   group: string
 ): PricingModel[] {
@@ -111,7 +111,7 @@ export function filterByQuotaType(
 /**
  * Filter models by endpoint type
  */
-export function filterByEndpointType(
+function filterByEndpointType(
   models: PricingModel[],
   endpointType: string
 ): PricingModel[] {
@@ -264,7 +264,7 @@ export function extractAllTags(models: PricingModel[]): string[] {
 /**
  * Filter models by tag
  */
-export function filterByTag(
+function filterByTag(
   models: PricingModel[],
   tag: string
 ): PricingModel[] {

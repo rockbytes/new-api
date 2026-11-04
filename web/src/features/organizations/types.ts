@@ -1,8 +1,8 @@
 export type OrganizationStatus = 'active' | 'suspended'
 
-export type OrganizationMemberRole = 'admin' | 'member'
+type OrganizationMemberRole = 'admin' | 'member'
 
-export type OrganizationMemberStatus = 'active' | 'disabled'
+type OrganizationMemberStatus = 'active' | 'disabled'
 
 export interface Organization {
   id: number

@@ -5,7 +5,7 @@ import { permissionMatrixToScopes } from '@/lib/admin-permissions'
 // The server rejects expiry times earlier than one hour from now.
 const MIN_LIFETIME_MS = 60 * 60 * 1000
 
-export const ACCESS_TOKEN_EXPIRY_DAYS = {
+const ACCESS_TOKEN_EXPIRY_DAYS = {
   '30d': 30,
   '90d': 90,
   '180d': 180,

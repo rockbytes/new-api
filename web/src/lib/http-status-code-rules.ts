@@ -1,4 +1,4 @@
-export type StatusCodeRange = {
+type StatusCodeRange = {
   start: number
   end: number
 }

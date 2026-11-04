@@ -1,4 +1,3 @@
-export * from './channel-advanced-section'
 export * from './channel-api-access-section'
 export * from './channel-auth-section'
 export * from './channel-basic-section'

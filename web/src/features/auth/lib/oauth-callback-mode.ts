@@ -35,7 +35,7 @@ export interface OAuthSessionStorageOwner {
 }
 
 /** Minimal shape of `window.opener`. */
-export interface OAuthModeOpener {
+interface OAuthModeOpener {
   closed: boolean
 }
 

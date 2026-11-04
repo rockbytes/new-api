@@ -1,6 +1,6 @@
 import type { TFunction } from 'i18next'
 
-import type { NameRule, ModelStatus, SyncSource } from './types'
+import type { NameRule } from './types'
 
 // ============================================================================
 // Pagination
@@ -52,34 +52,12 @@ export function getNameRuleConfig(
 // Model Status
 // ============================================================================
 
-export function getModelStatusOptions(t: TFunction) {
-  return [
-    { label: t('All Status'), value: 'all' },
-    { label: t('Shown'), value: 'enabled' },
-    { label: t('Not shown'), value: 'disabled' },
-  ] as const
-}
 
-export function getModelStatusConfig(
-  t: TFunction
-): Record<ModelStatus, { label: string; variant: 'success' | 'neutral' }> {
-  return {
-    1: { label: t('Shown'), variant: 'success' },
-    0: { label: t('Not shown'), variant: 'neutral' },
-  }
-}
 
 // ============================================================================
 // Sync Status Options
 // ============================================================================
 
-export function getSyncStatusOptions(t: TFunction) {
-  return [
-    { label: t('All Sync Status'), value: 'all' },
-    { label: t('Official Sync'), value: 'yes' },
-    { label: t('No Sync'), value: 'no' },
-  ] as const
-}
 
 // ============================================================================
 // Deployment Status
@@ -125,14 +103,6 @@ export function getDeploymentStatusConfig(t: TFunction): Record<
 // Quota Type
 // ============================================================================
 
-export function getQuotaTypeConfig(
-  t: TFunction
-): Record<number, { label: string; color: string }> {
-  return {
-    0: { label: t('Usage-based'), color: 'violet' },
-    1: { label: t('Per-call'), color: 'teal' },
-  }
-}
 
 // ============================================================================
 // Endpoint Templates
@@ -163,13 +133,3 @@ export function getSyncLocaleOptions(t: TFunction) {
   ] as const
 }
 
-export function getSyncSourceOptions(t: TFunction) {
-  return [
-    {
-      label: t('Official Repository'),
-      value: 'official' as SyncSource,
-      description: t('Sync from the public upstream metadata repository.'),
-      disabled: false,
-    },
-  ] as const
-}

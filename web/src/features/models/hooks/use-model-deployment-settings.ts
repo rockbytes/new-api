@@ -28,7 +28,7 @@ function setCachedConnection(ok: boolean) {
   connectionCache = { ok, timestamp: Date.now() }
 }
 
-export function clearConnectionCache() {
+function clearConnectionCache() {
   connectionCache = null
 }
 

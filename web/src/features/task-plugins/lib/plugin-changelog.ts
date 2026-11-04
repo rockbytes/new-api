@@ -10,7 +10,7 @@ import {
   resolvePluginSourceUrl,
 } from './marketplace'
 
-export const CHANGELOG_CATEGORIES = [
+const CHANGELOG_CATEGORIES = [
   'Added',
   'Changed',
   'Deprecated',
@@ -19,7 +19,7 @@ export const CHANGELOG_CATEGORIES = [
   'Security',
   'Migration',
 ] as const
-export type ChangelogCategory = (typeof CHANGELOG_CATEGORIES)[number]
+type ChangelogCategory = (typeof CHANGELOG_CATEGORIES)[number]
 export type PluginChangelog = {
   plugin: string
   version: string

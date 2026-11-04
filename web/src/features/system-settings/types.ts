@@ -3,7 +3,6 @@ export type SystemOption = {
   value: string
 }
 
-export type SystemOptionKey = string
 
 export type SystemOptionsResponse = {
   success: boolean
@@ -80,19 +79,19 @@ export type SystemTask<
   updated_at: number
 }
 
-export type LogCleanupTaskPayload = {
+type LogCleanupTaskPayload = {
   target_timestamp: number
   batch_size: number
 }
 
-export type LogCleanupTaskState = {
+type LogCleanupTaskState = {
   total: number
   processed: number
   progress: number
   remaining: number
 }
 
-export type LogCleanupTaskResult = {
+type LogCleanupTaskResult = {
   deleted_count: number
 }
 
@@ -406,7 +405,7 @@ export type UpstreamChannel = {
   type?: number
 }
 
-export type RatioType =
+type RatioType =
   | 'model_ratio'
   | 'completion_ratio'
   | 'cache_ratio'
@@ -418,7 +417,7 @@ export type RatioType =
   | 'billing_mode'
   | 'billing_expr'
 
-export type RatioDifference = {
+type RatioDifference = {
   current: number | string | null
   upstreams: Record<string, number | string | 'same'>
   confidence: Record<string, boolean>
@@ -454,7 +453,7 @@ export type FetchUpstreamRatiosRequest = {
   timeout: number
 }
 
-export type TestResult = {
+type TestResult = {
   name: string
   status: 'success' | 'error'
   error?: string

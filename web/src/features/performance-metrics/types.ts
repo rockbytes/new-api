@@ -1,4 +1,4 @@
-export type PerformanceSummary = {
+type PerformanceSummary = {
   avg_latency_ms: number
   success_rate: number
   avg_tps: number

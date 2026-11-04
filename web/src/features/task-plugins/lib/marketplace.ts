@@ -8,10 +8,10 @@ import type {
 import { pluginProtocolClaimsSchema } from './plugin-meta-preview'
 import { getPluginWebsite } from './plugin-website'
 
-export const SUPPORTED_INDEX_VERSION = 1
+const SUPPORTED_INDEX_VERSION = 1
 
 /** The gateway only runs task plugins today; other kinds are filtered out. */
-export const SUPPORTED_PLUGIN_KIND = 'task'
+const SUPPORTED_PLUGIN_KIND = 'task'
 
 /**
  * Resolves a version's `path` against the index URL it was declared in, so the

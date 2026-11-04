@@ -6,7 +6,7 @@
 
 export type RankingPeriod = 'today' | 'week' | 'month' | 'year'
 
-export type RankingCategoryId =
+type RankingCategoryId =
   | 'all'
   | 'programming'
   | 'roleplay'
@@ -64,7 +64,7 @@ export type RankingMover = {
  * One sample of a model's token usage at a given timestamp.
  * Flat shape ready to feed VChart's stacked-bar spec.
  */
-export type ModelHistoryPoint = {
+type ModelHistoryPoint = {
   ts: string
   /** Pre-formatted x-axis label (e.g. "May 5", "12:00"). */
   label: string
@@ -89,7 +89,7 @@ export type ModelHistorySeries = {
  * normalised within the bucket (sums to 1.0 across all vendors at the same
  * `ts`); `tokens` is preserved for tooltip use.
  */
-export type VendorSharePoint = {
+type VendorSharePoint = {
   ts: string
   label: string
   vendor: string

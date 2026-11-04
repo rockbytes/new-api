@@ -9,9 +9,9 @@ import {
 } from './billing-expr'
 import { evaluateBillingExpression } from './billing-expression/runtime'
 
-export const TASK_TOKEN_PRICE_SCALE = 1_000_000
+const TASK_TOKEN_PRICE_SCALE = 1_000_000
 
-export type TaskVisualCondition = {
+type TaskVisualCondition = {
   field: string
   value: string
 }
@@ -286,7 +286,7 @@ export function evaluateTaskUsageExamples(
   return rows
 }
 
-export function normalizeTaskVisualConfig(
+function normalizeTaskVisualConfig(
   config: TaskVisualConfig | null | undefined,
   schema: BillingUsageSchema
 ): TaskVisualConfig {

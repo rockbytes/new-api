@@ -3,7 +3,7 @@ import type {
   BillingUsageExample,
 } from '@/features/pricing/types'
 
-export type TaskPluginProtocolClaim =
+type TaskPluginProtocolClaim =
   | string
   | {
       name: string
