@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -364,7 +365,16 @@ func AddToken(c *gin.Context) {
 		AutoGroups:         token.AutoGroups,
 	}
 	cleanToken.AllowUserQuotaQuery = request.AllowUserQuotaQuery == nil || *request.AllowUserQuotaQuery
-	err = cleanToken.Insert()
+	if token.BillingOrganizationId != nil && *token.BillingOrganizationId <= 0 {
+		common.ApiErrorT(c, "Invalid organization id")
+		return
+	}
+	err = cleanToken.InsertWithBillingOrganization(token.BillingOrganizationId)
+	if errors.Is(err, model.ErrTokenBillingOrganizationNotMember) {
+		common.ApiErrorStatus(c, http.StatusForbidden, common.NewMessage("Only an active member of the organization can bind a key to it"),
+			gin.H{"code": "TOKEN_BILLING_ORGANIZATION_FORBIDDEN"})
+		return
+	}
 	if err != nil {
 		common.ApiError(c, err)
 		return

@@ -264,3 +264,48 @@ func TestSuspendingOrganizationDisablesItsPaidKeysOnly(t *testing.T) {
 	require.NoError(t, db.First(&storedPaid, paid.Id).Error)
 	assert.Equal(t, common.TokenStatusDisabled, storedPaid.Status, "resuming the organization does not re-enable its keys")
 }
+
+func TestCreatingKeyPaidByOrganizationRequiresActiveMembership(t *testing.T) {
+	activeOrgId, suspendedOrgId, db := setupTokenBillingTest(t)
+	keyNamed := func(name string) *Token {
+		return &Token{UserId: 10, Key: "sk-create-" + name, Name: name, Status: common.TokenStatusEnabled,
+			CreatedTime: 1, AccessedTime: 1, ExpiredTime: -1, UnlimitedQuota: true, AllowUserQuotaQuery: true}
+	}
+	countNamed := func(name string) int64 {
+		var count int64
+		require.NoError(t, db.Model(&Token{}).Where("name = ?", name).Count(&count).Error)
+		return count
+	}
+
+	paid := keyNamed("paid")
+	require.NoError(t, paid.InsertWithBillingOrganization(&activeOrgId))
+	var storedPaid Token
+	require.NoError(t, db.First(&storedPaid, paid.Id).Error)
+	require.NotNil(t, storedPaid.BillingOrganizationId)
+	assert.Equal(t, activeOrgId, *storedPaid.BillingOrganizationId)
+	assert.False(t, storedPaid.AllowUserQuotaQuery, "a key created for an organization must not expose the owner's quota")
+
+	personal := keyNamed("personal")
+	require.NoError(t, personal.InsertWithBillingOrganization(nil))
+	var storedPersonal Token
+	require.NoError(t, db.First(&storedPersonal, personal.Id).Error)
+	assert.Nil(t, storedPersonal.BillingOrganizationId, "omitting the organization creates a personally paid key")
+
+	suspended := &Token{UserId: 12, Key: "sk-create-suspended", Name: "suspended", Status: common.TokenStatusEnabled,
+		CreatedTime: 1, AccessedTime: 1, ExpiredTime: -1, UnlimitedQuota: true}
+	assert.ErrorIs(t, suspended.InsertWithBillingOrganization(&suspendedOrgId), ErrTokenBillingOrganizationNotMember,
+		"a member of a suspended organization cannot create a company-paid key")
+	assert.Zero(t, countNamed("suspended"), "a rejected creation leaves no key behind")
+
+	disabled := &Token{UserId: 11, Key: "sk-create-disabled", Name: "disabled", Status: common.TokenStatusEnabled,
+		CreatedTime: 1, AccessedTime: 1, ExpiredTime: -1, UnlimitedQuota: true}
+	assert.ErrorIs(t, disabled.InsertWithBillingOrganization(&activeOrgId), ErrTokenBillingOrganizationNotMember,
+		"a disabled member cannot create a company-paid key")
+	assert.Zero(t, countNamed("disabled"))
+
+	outsider := &Token{UserId: 99, Key: "sk-create-outsider", Name: "outsider", Status: common.TokenStatusEnabled,
+		CreatedTime: 1, AccessedTime: 1, ExpiredTime: -1, UnlimitedQuota: true}
+	assert.ErrorIs(t, outsider.InsertWithBillingOrganization(&activeOrgId), ErrTokenBillingOrganizationNotMember,
+		"a user outside the organization cannot create a company-paid key")
+	assert.Zero(t, countNamed("outsider"))
+}

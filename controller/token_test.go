@@ -1015,3 +1015,36 @@ func verifyAPITokenAudit(t *testing.T) {
 		assert.EqualValues(t, 1, count)
 	})
 }
+
+func TestAddTokenPaidByOrganizationRequiresActiveMembership(t *testing.T) {
+	configureTokenAutoGroupsTest(t, "5", `["default","vip"]`)
+	user := setupTokenAutoGroupsControllerTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Organization{}, &model.OrganizationMembership{}))
+	organization := &model.Organization{Name: "Controller Co", Status: model.OrganizationStatusActive, CreatedTime: 1, UpdatedTime: 1}
+	require.NoError(t, model.DB.Create(organization).Error)
+
+	outsiderRequest := baseAutoTokenRequest("payer-outsider")
+	outsiderRequest["group"] = "default"
+	outsiderRequest["billing_organization_id"] = organization.Id
+	ctx, recorder := newTokenAutoGroupsAuthenticatedContext(t, http.MethodPost, "/api/token/", outsiderRequest, user.Id)
+	AddToken(ctx)
+	assert.Equal(t, http.StatusForbidden, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "TOKEN_BILLING_ORGANIZATION_FORBIDDEN")
+	var rejected int64
+	require.NoError(t, model.DB.Model(&model.Token{}).Where("name = ?", "payer-outsider").Count(&rejected).Error)
+	assert.Zero(t, rejected, "a rejected request creates no key")
+
+	require.NoError(t, model.DB.Create(&model.OrganizationMembership{OrganizationId: organization.Id, UserId: user.Id,
+		Role: model.OrganizationRoleMember, Status: model.OrganizationMembershipActive, CreatedTime: 1, UpdatedTime: 1}).Error)
+	memberRequest := baseAutoTokenRequest("payer-member")
+	memberRequest["group"] = "default"
+	memberRequest["billing_organization_id"] = organization.Id
+	ctx, recorder = newTokenAutoGroupsAuthenticatedContext(t, http.MethodPost, "/api/token/", memberRequest, user.Id)
+	AddToken(ctx)
+	require.True(t, decodeAPIResponse(t, recorder).Success)
+	var created model.Token
+	require.NoError(t, model.DB.Where("name = ?", "payer-member").First(&created).Error)
+	require.NotNil(t, created.BillingOrganizationId)
+	assert.Equal(t, organization.Id, *created.BillingOrganizationId)
+	assert.False(t, created.AllowUserQuotaQuery)
+}

@@ -68,6 +68,42 @@ func BindTokenBillingOrganization(tokenId int, userId int, organizationId *int) 
 	return token, nil
 }
 
+// InsertWithBillingOrganization creates a Key owned by token.UserId. When organizationId is
+// set, the Key is paid by that organization under the same rules as binding: the owner must
+// be an active member of an active organization, and the Key does not expose quota queries.
+// The check and the insert share one transaction that holds the organization lock, so a
+// concurrent membership removal or suspension cannot leave a company-paid Key behind.
+func (token *Token) InsertWithBillingOrganization(organizationId *int) error {
+	if organizationId == nil {
+		return token.Insert()
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		organization, err := lockOrganization(tx, *organizationId)
+		if errors.Is(err, ErrOrganizationNotFound) {
+			return ErrTokenBillingOrganizationNotMember
+		}
+		if err != nil {
+			return err
+		}
+		if organization.Status != OrganizationStatusActive {
+			return ErrTokenBillingOrganizationNotMember
+		}
+		membership, err := getOrganizationMemberTx(tx, *organizationId, token.UserId)
+		if errors.Is(err, ErrOrganizationMembershipMissing) {
+			return ErrTokenBillingOrganizationNotMember
+		}
+		if err != nil {
+			return err
+		}
+		if membership.Status != OrganizationMembershipActive {
+			return ErrTokenBillingOrganizationNotMember
+		}
+		token.BillingOrganizationId = organizationId
+		token.AllowUserQuotaQuery = false
+		return tx.Create(token).Error
+	})
+}
+
 // BillingOrganizationIdValue returns the organization that pays for requests made with
 // this Key, or zero when the owner pays from their own wallet or subscription.
 func (token *Token) BillingOrganizationIdValue() int {

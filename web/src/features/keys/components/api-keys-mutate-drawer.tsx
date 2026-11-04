@@ -6,6 +6,7 @@ import { useForm, type SubmitErrorHandler } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DateTimePicker } from '@/components/datetime-picker'
 import {
   SideDrawerSection,
@@ -44,6 +45,7 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { getOrganizationSelf } from '@/features/organization-admin/api'
 import { RelatedPolicyLink } from '@/features/system-settings/request-policies/related-policy-link'
 import { useStatus } from '@/hooks/use-status'
 import { getUserModels, getUserGroups } from '@/lib/api'
@@ -60,6 +62,7 @@ import {
   updateApiKey,
   getApiKey,
   getTokenAutoGroups,
+  updateApiKeyBillingOrganization,
 } from '../api'
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
@@ -69,11 +72,13 @@ import {
   transformFormDataToPayload,
   transformApiKeyToFormDefaults,
 } from '../lib'
+import { getPayerOptions } from '../lib/billing-organization'
 import type { ApiKey } from '../types'
 import {
   ApiKeyGroupCombobox,
   type ApiKeyGroupOption,
 } from './api-key-group-combobox'
+import { ApiKeyPayerField } from './api-key-payer-field'
 import { useApiKeys } from './api-keys-provider'
 import { AutoGroupOrderEditor } from './auto-group-order-editor'
 
@@ -95,6 +100,8 @@ export function ApiKeysMutateDrawer({
   const { status, loading: statusLoading } = useStatus()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [pendingPayerSubmit, setPendingPayerSubmit] =
+    useState<ApiKeyFormValues | null>(null)
   const [initializedTarget, setInitializedTarget] = useState<string | null>(
     null
   )
@@ -119,6 +126,23 @@ export function ApiKeysMutateDrawer({
     enabled: open,
     staleTime: 0,
   })
+
+  // The organization the user belongs to, if any. A non-member gets no error toast; the
+  // payer field is then hidden and personal billing stays the only choice.
+  const { data: membershipData } = useQuery({
+    queryKey: ['keys', 'organization-membership'],
+    queryFn: getOrganizationSelf,
+    enabled: open,
+    retry: false,
+    meta: { errorToast: false },
+  })
+  const payerOptions = getPayerOptions({
+    personalLabel: t('Personal'),
+    unavailableLabel: t('Unavailable organization'),
+    membershipOrganization: membershipData?.organization ?? null,
+    currentOrganizationId: currentRow?.billing_organization_id ?? null,
+  })
+  const showPayerField = payerOptions.length > 1
 
   const {
     data: apiKeyData,
@@ -269,7 +293,12 @@ export function ApiKeysMutateDrawer({
     }
   }, [groups, form, selectedGroup])
 
-  const onSubmit = async (data: ApiKeyFormValues) => {
+  const isPayerChanged = (data: ApiKeyFormValues) =>
+    isUpdate &&
+    (data.billing_organization_id ?? null) !==
+      (currentRow?.billing_organization_id ?? null)
+
+  const saveApiKey = async (data: ApiKeyFormValues) => {
     setIsSubmitting(true)
     try {
       const basePayload = transformFormDataToPayload(data)
@@ -279,13 +308,24 @@ export function ApiKeysMutateDrawer({
           ...basePayload,
           id: currentRow.id,
         })
-        if (result.success) {
-          toast.success(t(SUCCESS_MESSAGES.API_KEY_UPDATED))
-          onOpenChange(false)
-          triggerRefresh()
-        } else {
+        if (!result.success) {
           handleServerError(result, t(ERROR_MESSAGES.UPDATE_FAILED))
+          return
         }
+        if (isPayerChanged(data)) {
+          const payerResult = await updateApiKeyBillingOrganization(
+            currentRow.id,
+            data.billing_organization_id ?? null
+          )
+          if (!payerResult.success) {
+            handleServerError(payerResult, t('Failed to update the payer'))
+            triggerRefresh()
+            return
+          }
+        }
+        toast.success(t(SUCCESS_MESSAGES.API_KEY_UPDATED))
+        onOpenChange(false)
+        triggerRefresh()
       } else {
         // Create mode - handle batch creation
         const count = data.tokenCount || 1
@@ -294,6 +334,7 @@ export function ApiKeysMutateDrawer({
         for (let i = 0; i < count; i++) {
           const result = await createApiKey({
             ...basePayload,
+            billing_organization_id: data.billing_organization_id,
             name:
               i === 0 && data.name
                 ? data.name
@@ -321,6 +362,23 @@ export function ApiKeysMutateDrawer({
       handleServerError(error, t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const onSubmit = async (data: ApiKeyFormValues) => {
+    // Changing the payer alters who pays for later requests, so confirm it first.
+    if (isPayerChanged(data)) {
+      setPendingPayerSubmit(data)
+      return
+    }
+    await saveApiKey(data)
+  }
+
+  const confirmPayerChange = () => {
+    const data = pendingPayerSubmit
+    setPendingPayerSubmit(null)
+    if (data) {
+      void saveApiKey(data)
     }
   }
 
@@ -492,6 +550,13 @@ export function ApiKeysMutateDrawer({
                       </FormControl>
                     </FormItem>
                   )}
+                />
+              )}
+
+              {showPayerField && (
+                <ApiKeyPayerField
+                  control={form.control}
+                  options={payerOptions}
                 />
               )}
 
@@ -776,6 +841,19 @@ export function ApiKeysMutateDrawer({
           </Button>
         </SheetFooter>
       </SheetContent>
+      <ConfirmDialog
+        open={pendingPayerSubmit !== null}
+        onOpenChange={(next) => {
+          if (!next) setPendingPayerSubmit(null)
+        }}
+        title={t('Change the paying organization?')}
+        desc={t(
+          'Changing the payer only affects later requests. Usage already recorded keeps the payer it was recorded under.'
+        )}
+        confirmText={t('Change payer')}
+        handleConfirm={confirmPayerChange}
+        isLoading={isSubmitting}
+      />
     </Sheet>
   )
 }

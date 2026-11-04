@@ -80,6 +80,8 @@ export interface ApiKeyFormData {
   group: string
   auto_groups: string[]
   cross_group_retry: boolean
+  // Only sent when creating a Key. Omit it to keep the Key's current payer.
+  billing_organization_id?: number | null
 }
 
 export interface TokenAutoGroupsConfig {

@@ -59,6 +59,17 @@ export async function createApiKey(
   return res.data
 }
 
+// Change which organization pays for a Key. Null returns the Key to personal billing.
+export async function updateApiKeyBillingOrganization(
+  id: number,
+  organizationId: number | null
+): Promise<ApiResponse<ApiKey>> {
+  const res = await api.put(`/api/token/${id}/billing-organization`, {
+    organization_id: organizationId,
+  })
+  return res.data
+}
+
 // Update an existing API key
 export async function updateApiKey(
   data: ApiKeyFormData & { id: number }
