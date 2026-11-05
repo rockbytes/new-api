@@ -352,6 +352,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		// 避免为已放弃的请求继续消费上游 token。
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
 	}
+	info.HopTrace.MarkStreamEnd(time.Now(), info.StreamStatus)
 
 	cleanup()
 	// All stream goroutines have joined. Done from a successfully delivered

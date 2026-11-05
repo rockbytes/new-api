@@ -180,6 +180,19 @@ func appendStreamStatus(relayInfo *relaycommon.RelayInfo, other *model.LogOther)
 		streamInfo["errors"] = messages
 	}
 	other.SetPublic("stream_status", streamInfo)
+	if status == "error" {
+		if source, stage, ok := ss.ErrorAttribution(); ok {
+			other.SetAdmin("error_source", string(source))
+			other.SetAdmin("error_stage", string(stage))
+			hop := relayInfo.HopTrace.Snapshot()
+			faultSide, faultReason := hop.Verdict(string(source))
+			other.SetAdmin("fault_side", faultSide)
+			other.SetAdmin("fault_reason", faultReason)
+			if events := hop.Map(); len(events) > 0 {
+				other.SetAdmin("hop_trace", events)
+			}
+		}
+	}
 }
 
 func appendBillingInfo(relayInfo *relaycommon.RelayInfo, other *model.LogOther) {

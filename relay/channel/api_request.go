@@ -488,6 +488,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	common2.SetContextKey(c, appconstant.ContextKeyUpstreamRequestOrigin, req.URL.Scheme+"://"+req.URL.Host)
 	resp, err := relayClient.Do(req)
 	if err != nil {
+		info.HopTrace.MarkUpstreamDoError(time.Now(), err)
 		logger.LogError(c, common2.LogText("do request failed: %s", err.Error()))
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 	}
@@ -504,6 +505,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 			resp.Proto)
 	}
 
+	info.HopTrace.MarkUpstreamHeaders(req.URL.Host, resp.StatusCode)
 	if upID := resp.Header.Get(common2.RequestIdKey); upID != "" {
 		c.Set(common2.UpstreamRequestIdKey, upID)
 	}

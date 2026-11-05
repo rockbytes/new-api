@@ -47,6 +47,7 @@ func Distribute() func(c *gin.Context) {
 		service.AppendTaskPluginIdentityFilter(c, c.GetString("expected_task_plugin_key"))
 		modelRequest, shouldSelectChannel, err := getModelRequest(c)
 		if err != nil {
+			service.RecordGatewayErrorLog(c, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, invalidRequestStatus(err)))
 			abortWithOpenAiMessage(c, invalidRequestStatus(err), i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
 		}
@@ -126,6 +127,7 @@ func Distribute() func(c *gin.Context) {
 				} else if selectErr.MessageID != "" {
 					message = i18n.T(c, selectErr.MessageID, selectErr.Params)
 				}
+				service.RecordGatewayErrorLog(c, types.NewErrorWithStatusCode(errors.New(message), selectErr.Code, selectErr.StatusCode))
 				abortWithOpenAiMessage(c, selectErr.StatusCode, message, selectErr.Code)
 				return
 			}

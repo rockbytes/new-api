@@ -180,3 +180,44 @@ func TestStreamStatus_Summary_NilSafe(t *testing.T) {
 	var s *StreamStatus
 	assert.Equal(t, "StreamStatus<nil>", s.Summary())
 }
+
+func TestStreamStatus_ErrorAttributionFollowsHowTheStreamEnded(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		prepare func(s *StreamStatus)
+		source  string
+		stage   string
+		ok      bool
+	}{
+		{"caller disconnected", func(s *StreamStatus) { s.SetEndReason(StreamEndReasonClientGone, nil) }, "client", "stream", true},
+		{"upstream went silent", func(s *StreamStatus) { s.SetEndReason(StreamEndReasonTimeout, nil) }, "network", "stream", true},
+		{"upstream connection broke", func(s *StreamStatus) { s.SetEndReason(StreamEndReasonScannerErr, nil) }, "network", "stream", true},
+		{"our handler panicked", func(s *StreamStatus) { s.SetEndReason(StreamEndReasonPanic, nil) }, "gateway", "stream", true},
+		{"upstream sent an error event before finishing", func(s *StreamStatus) {
+			s.RecordError("upstream error event")
+			s.SetEndReason(StreamEndReasonDone, nil)
+		}, "upstream", "stream", true},
+		{"upstream ended without completing the response", func(s *StreamStatus) {
+			s.MarkIncomplete("missing completion event")
+			s.SetEndReason(StreamEndReasonEOF, nil)
+		}, "upstream", "stream", true},
+		{"clean completion has no attribution", func(s *StreamStatus) { s.SetEndReason(StreamEndReasonDone, nil) }, "", "", false},
+		{"nil status has no attribution", nil, "", "", false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			var status *StreamStatus
+			if test.prepare != nil {
+				status = NewStreamStatus()
+				test.prepare(status)
+			}
+			source, stage, ok := status.ErrorAttribution()
+			assert.Equal(t, test.ok, ok)
+			assert.Equal(t, test.source, string(source))
+			assert.Equal(t, test.stage, string(stage))
+		})
+	}
+}

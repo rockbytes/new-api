@@ -764,6 +764,55 @@ export function DetailsDialog(props: DetailsDialogProps) {
           )}
         </div>
 
+        {/* Error attribution (admin only): where an error came from and where it happened */}
+        {props.isAdmin &&
+          (other?.admin_info?.error_source ||
+            other?.admin_info?.error_stage) && (
+            <DetailSection label={t('Error Attribution')}>
+              <div className='min-w-0 space-y-1'>
+                {other?.admin_info?.error_source && (
+                  <DetailRow
+                    label={t('Error source')}
+                    value={other.admin_info.error_source}
+                    mono
+                  />
+                )}
+                {other?.admin_info?.error_stage && (
+                  <DetailRow
+                    label={t('Error stage')}
+                    value={other.admin_info.error_stage}
+                    mono
+                  />
+                )}
+              </div>
+            </DetailSection>
+          )}
+
+        {/* Link attribution (admin only): which link failed, why, and the recorded timeline */}
+        {props.isAdmin && other?.admin_info?.fault_side && (
+          <DetailSection label={t('Link Attribution')}>
+            <div className='min-w-0 space-y-1'>
+              <DetailRow
+                label={t('Fault side')}
+                value={other.admin_info.fault_side}
+                mono
+              />
+              {other.admin_info.fault_reason && (
+                <DetailRow
+                  label={t('Fault reason')}
+                  value={other.admin_info.fault_reason}
+                  mono
+                />
+              )}
+              {Object.entries(other.admin_info.hop_trace ?? {}).map(
+                ([key, value]) => (
+                  <DetailRow key={key} label={key} value={String(value)} mono />
+                )
+              )}
+            </div>
+          </DetailSection>
+        )}
+
         {/* Request conversion (admin only, not for refund) */}
         {showConversion && (
           <DetailSection label={t('Request Conversion')}>

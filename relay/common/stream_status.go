@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
 type StreamEndReason string
@@ -213,6 +215,32 @@ func (s *StreamStatus) IsNormalEnd() bool {
 	return s.EndReason == StreamEndReasonDone ||
 		s.EndReason == StreamEndReasonEOF ||
 		s.EndReason == StreamEndReasonHandlerStop
+}
+
+// ErrorAttribution returns the source and stage of a stream that did not finish cleanly.
+// ok is false when the stream ended normally and recorded no errors.
+func (s *StreamStatus) ErrorAttribution() (source types.ErrorSource, stage types.ErrorStage, ok bool) {
+	if s == nil {
+		return "", "", false
+	}
+	switch s.EndReason {
+	case StreamEndReasonClientGone, StreamEndReasonPingFail:
+		// The caller went away, or a keep-alive could no longer be written to the caller.
+		return types.ErrorSourceClient, types.ErrorStageStream, true
+	case StreamEndReasonTimeout, StreamEndReasonScannerErr:
+		// The upstream stopped sending or the connection broke; ownership is not decided.
+		return types.ErrorSourceNetwork, types.ErrorStageStream, true
+	case StreamEndReasonPanic:
+		return types.ErrorSourceGateway, types.ErrorStageStream, true
+	}
+	if s.HasErrors() || s.ResponseFailed() || s.ResponseOutcome() == string(ResponseOutcomeIncomplete) {
+		// The upstream sent error events, or ended before completing the response.
+		return types.ErrorSourceUpstream, types.ErrorStageStream, true
+	}
+	if !s.IsNormalEnd() {
+		return types.ErrorSourceGateway, types.ErrorStageStream, true
+	}
+	return "", "", false
 }
 
 func (s *StreamStatus) Summary() string {

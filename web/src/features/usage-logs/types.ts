@@ -98,6 +98,14 @@ interface ToolSurchargeItem {
 
 export interface LogOtherData {
   admin_info?: {
+    // Error logs only: who the error belongs to and where it happened.
+    error_source?: string
+    error_stage?: string
+    // Which link failed (client_link, upstream_link, upstream_service, client_request, gateway, unknown),
+    // why, and the link timeline recorded for the attempt.
+    fault_side?: string
+    fault_reason?: string
+    hop_trace?: Record<string, string | number>
     request_policy?: PolicyEvent[]
     is_multi_key?: boolean
     multi_key_index?: number

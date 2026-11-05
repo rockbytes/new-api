@@ -100,6 +100,10 @@ type NewAPIError struct {
 	errorCode      ErrorCode
 	StatusCode     int
 	Metadata       json.RawMessage
+	// source and stage record where the error came from; see error_attribution.go.
+	// Zero values are inferred from errorType, errorCode and StatusCode.
+	source ErrorSource
+	stage  ErrorStage
 }
 
 // Unwrap enables errors.Is / errors.As to work with NewAPIError by exposing the underlying error.
@@ -108,6 +112,31 @@ func (e *NewAPIError) Unwrap() error {
 		return nil
 	}
 	return e.Err
+}
+
+// GetErrorSource returns the party responsible for the error. An explicitly set source wins;
+// otherwise it is inferred.
+func (e *NewAPIError) GetErrorSource() ErrorSource {
+	if e == nil {
+		return ""
+	}
+	if e.source != "" {
+		return e.source
+	}
+	source, _ := inferErrorAttribution(e.errorType, e.errorCode, e.StatusCode)
+	return source
+}
+
+// GetErrorStage returns the processing stage where the error happened.
+func (e *NewAPIError) GetErrorStage() ErrorStage {
+	if e == nil {
+		return ""
+	}
+	if e.stage != "" {
+		return e.stage
+	}
+	_, stage := inferErrorAttribution(e.errorType, e.errorCode, e.StatusCode)
+	return stage
 }
 
 func (e *NewAPIError) GetErrorCode() ErrorCode {
@@ -396,6 +425,15 @@ func ErrOptionWithSkipRetry() NewAPIErrorOptions {
 func ErrOptionWithNoRecordErrorLog() NewAPIErrorOptions {
 	return func(e *NewAPIError) {
 		e.recordErrorLog = kitutil.GetPointer(false)
+	}
+}
+
+// ErrOptionWithErrorAttribution marks where an error came from when the inferred value
+// would be wrong, for example an upstream connection failure.
+func ErrOptionWithErrorAttribution(source ErrorSource, stage ErrorStage) NewAPIErrorOptions {
+	return func(e *NewAPIError) {
+		e.source = source
+		e.stage = stage
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -83,6 +84,8 @@ func TestProcessChannelErrorUsesSnapshotWithoutLeakingChannelMetadata(t *testing
 	adminInfo, ok := storedOther["admin_info"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, []any{"101"}, adminInfo["use_channel"])
+	assert.Equal(t, string(types.ErrorSourceUpstream), adminInfo["error_source"], "an upstream status error is attributed to the upstream")
+	assert.Equal(t, string(types.ErrorStageUpstreamResponse), adminInfo["error_stage"])
 
 	logs, total, err := model.GetUserLogs(7, model.LogFilter{Type: model.LogTypeError}, 0, 10)
 	require.NoError(t, err)
@@ -96,4 +99,27 @@ func TestProcessChannelErrorUsesSnapshotWithoutLeakingChannelMetadata(t *testing
 	for _, key := range []string{"channel_id", "channel_name", "channel_type"} {
 		assert.NotContains(t, userOther, key)
 	}
+
+	quotaErr := types.NewErrorWithStatusCode(errors.New("user quota is not enough"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden)
+	processChannelError(ctx, channelSnapshot, quotaErr, nil)
+	var quotaLog model.Log
+	require.NoError(t, database.Where("type = ?", model.LogTypeError).Order("id DESC").First(&quotaLog).Error)
+	quotaOther, err := common.StrToMap(quotaLog.Other)
+	require.NoError(t, err)
+	quotaAdminInfo, ok := quotaOther["admin_info"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, string(types.ErrorSourceGateway), quotaAdminInfo["error_source"], "a quota shortfall is our decision, not the upstream's")
+	assert.Equal(t, string(types.ErrorStageBilling), quotaAdminInfo["error_stage"])
+
+	noRouteErr := types.NewErrorWithStatusCode(errors.New("no available channel for model"), types.ErrorCodeModelNotFound, http.StatusServiceUnavailable)
+	service.RecordGatewayErrorLog(ctx, noRouteErr)
+	var noRouteLog model.Log
+	require.NoError(t, database.Where("type = ?", model.LogTypeError).Order("id DESC").First(&noRouteLog).Error)
+	assert.Zero(t, noRouteLog.ChannelId, "a request that never reached a channel is logged without a channel")
+	noRouteOther, err := common.StrToMap(noRouteLog.Other)
+	require.NoError(t, err)
+	noRouteAdminInfo, ok := noRouteOther["admin_info"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, string(types.ErrorSourceGateway), noRouteAdminInfo["error_source"])
+	assert.Equal(t, string(types.ErrorStageRouting), noRouteAdminInfo["error_stage"])
 }

@@ -195,6 +195,9 @@ type RelayInfo struct {
 	FinalRequestRelayFormat types.RelayFormat
 
 	StreamStatus *StreamStatus
+	// HopTrace records the events on the user-to-gateway and gateway-to-upstream links for the
+	// current attempt. It is nil before the first attempt.
+	HopTrace *HopTrace
 	// VendorToolUsage reads the upstream's own billed tool counts from a raw
 	// response body (non-stream) or the raw terminal stream frame. The channel
 	// adaptor's Init sets it for upstreams whose usage extension names a billed

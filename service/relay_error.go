@@ -73,27 +73,52 @@ func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		})
 	}
 
-	if constant.ErrorLogEnabled && types.IsRecordErrorLog(err) {
-		userId := c.GetInt("id")
-		tokenName := c.GetString("token_name")
-		modelName := c.GetString("original_model")
-		tokenId := c.GetInt("token_id")
-		userGroup := c.GetString("group")
-		other := model.NewLogOther()
-		if c.Request != nil && c.Request.URL != nil {
-			other.SetPublic("request_path", c.Request.URL.Path)
-		}
-		other.SetPublic("error_type", err.GetErrorType())
-		other.SetPublic("error_code", err.GetErrorCode())
-		other.SetPublic("status_code", err.StatusCode)
-		AppendRelayLogAdminInfo(c, relayInfo, other)
-		AppendResponseModelLogInfo(relayInfo, other)
-		AppendTaskPluginContextAuditInfo(c, other)
-		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
-		if startTime.IsZero() {
-			startTime = time.Now()
-		}
-		useTimeSeconds := int(time.Since(startTime).Seconds())
-		model.RecordErrorLog(c, userId, channelError.ChannelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(upstreamURLs...), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+	recordRelayErrorLog(c, channelError.ChannelId, err, relayInfo)
+}
+
+// RecordGatewayErrorLog records an error that happened before any channel was chosen, such as an
+// invalid request body or a model with no available route. The log has no channel.
+func RecordGatewayErrorLog(c *gin.Context, err *types.NewAPIError) {
+	recordRelayErrorLog(c, 0, err, nil)
+}
+
+func recordRelayErrorLog(c *gin.Context, channelId int, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo) {
+	if err == nil || !constant.ErrorLogEnabled || !types.IsRecordErrorLog(err) {
+		return
 	}
+	upstreamURLs := common.UpstreamAddresses(c)
+	userId := c.GetInt("id")
+	tokenName := c.GetString("token_name")
+	modelName := c.GetString("original_model")
+	tokenId := c.GetInt("token_id")
+	userGroup := c.GetString("group")
+	other := model.NewLogOther()
+	if c.Request != nil && c.Request.URL != nil {
+		other.SetPublic("request_path", c.Request.URL.Path)
+	}
+	other.SetPublic("error_type", err.GetErrorType())
+	other.SetPublic("error_code", err.GetErrorCode())
+	other.SetPublic("status_code", err.StatusCode)
+	other.SetAdmin("error_source", string(err.GetErrorSource()))
+	other.SetAdmin("error_stage", string(err.GetErrorStage()))
+	var trace *relaycommon.HopTrace
+	if relayInfo != nil {
+		trace = relayInfo.HopTrace
+	}
+	hop := trace.Snapshot()
+	faultSide, faultReason := hop.Verdict(string(err.GetErrorSource()))
+	other.SetAdmin("fault_side", faultSide)
+	other.SetAdmin("fault_reason", faultReason)
+	if events := hop.Map(); len(events) > 0 {
+		other.SetAdmin("hop_trace", events)
+	}
+	AppendRelayLogAdminInfo(c, relayInfo, other)
+	AppendResponseModelLogInfo(relayInfo, other)
+	AppendTaskPluginContextAuditInfo(c, other)
+	startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
+	if startTime.IsZero() {
+		startTime = time.Now()
+	}
+	useTimeSeconds := int(time.Since(startTime).Seconds())
+	model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(upstreamURLs...), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
 }

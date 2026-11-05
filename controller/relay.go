@@ -128,6 +128,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		} else {
 			newAPIError = types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithStatusCode(http.StatusBadRequest), types.ErrOptionWithSkipRetry())
 		}
+		service.RecordGatewayErrorLog(c, newAPIError)
 		return
 	}
 
@@ -158,6 +159,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	if newAPIError = relay.PrepareRequestBilling(c, relayInfo); newAPIError != nil {
+		service.RecordGatewayErrorLog(c, newAPIError)
 		return
 	}
 	defer func() {
@@ -179,15 +181,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		relayInfo.PerformanceBusinessRejection = false
 		relayInfo.PerformanceOutputTokens = 0
 		relayInfo.RetryIndex = retryParam.GetRetry()
+		relayInfo.HopTrace = relaycommon.NewHopTrace()
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
 			logger.LogError(c, channelErr.Error())
 			newAPIError = channelErr
+			service.RecordGatewayErrorLog(c, newAPIError)
 			break
 		}
 		service.AppendUsedChannel(c, channel.Id)
 		if billingErr := service.PrepareTieredBillingForSelectedGroup(c, relayInfo); billingErr != nil {
 			newAPIError = billingErr
+			service.RecordGatewayErrorLog(c, newAPIError)
 			break
 		}
 
