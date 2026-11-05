@@ -307,29 +307,17 @@ describe('pricing controls', () => {
     expect(props.onSortChange).toHaveBeenCalledWith('input-price-low')
   })
 
-  it('opens mobile filters from the left, selects a group, and restores focus on close', async () => {
+  it('opens mobile filters from the left without group options and restores focus on close', async () => {
     const props = toolbarProps()
     const user = userEvent.setup()
-    const { rerender } = render(<PricingToolbar {...props} />)
+    render(<PricingToolbar {...props} />)
     await user.click(screen.getByRole('button', { name: 'Filter' }))
     const dialog = await screen.findByRole('dialog', { name: 'Filter' })
     expect(dialog).toHaveAttribute('data-side', 'left')
-    expect(within(dialog).getByRole('button', { name: 'Reset' })).toBeDisabled()
-    await user.click(within(dialog).getByRole('button', { name: /premium/ }))
-    expect(props.onGroupChange).toHaveBeenCalledWith('premium')
-    rerender(
-      <PricingToolbar
-        {...props}
-        groupFilter='premium'
-        hasActiveFilters
-        activeFilterCount={1}
-      />
-    )
+    expect(within(dialog).queryByText('Groups')).not.toBeInTheDocument()
     expect(
-      within(dialog).getByRole('button', { name: /premium/ })
-    ).toHaveAttribute('aria-pressed', 'true')
-    await user.click(within(dialog).getByRole('button', { name: 'Reset' }))
-    expect(props.onClearFilters).toHaveBeenCalledOnce()
+      within(dialog).queryByRole('button', { name: /premium/ })
+    ).not.toBeInTheDocument()
     await user.keyboard('{Escape}')
     expect(await screen.findByRole('button', { name: /Filter/ })).toHaveFocus()
   })
