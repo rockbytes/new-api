@@ -26,7 +26,10 @@ import {
   UsageModelsTable,
   UsageRankingTable,
 } from './components/usage-breakdown-tables'
-import { UsageExportPanel } from './components/usage-export-panel'
+import {
+  UsageExportPanel,
+  type UsageExportScopeLabels,
+} from './components/usage-export-panel'
 import { UsageRecordsTable } from './components/usage-records-table'
 import { UsageSummaryCards } from './components/usage-summary-cards'
 import { UsageTrendBars } from './components/usage-trend-bars'
@@ -153,6 +156,27 @@ export function UsageReport() {
           id: member.user_id,
           name: member.username,
         }))
+
+  // The scope as the confirmation names it. An organization admin's report is already scoped to
+  // their organization, so the name comes from the response rather than the selector.
+  const scopeOrganizationName = summaryQuery.data?.meta.scope.organization?.name
+  let exportOrganization = t('All organizations')
+  if (view === 'self') {
+    exportOrganization = t('Personal')
+  } else if (organizationId > 0 || view === 'organization') {
+    exportOrganization = scopeOrganizationName ?? String(organizationId)
+  }
+  const selectedMemberName = memberOptions.find(
+    (member) => member.id === memberId
+  )?.name
+  const exportScope: UsageExportScopeLabels = {
+    organization: exportOrganization,
+    member:
+      memberId > 0
+        ? (selectedMemberName ?? String(memberId))
+        : t('All members'),
+    model: modelName || t('All models'),
+  }
 
   const rankBy: UsageRankBy | '' = rankingsQuery.data?.rank_by ?? ''
   const rankingName = (row: UsageRankRow): string => {
@@ -352,7 +376,7 @@ export function UsageReport() {
               <CardTitle>{t('Export usage')}</CardTitle>
             </CardHeader>
             <CardContent>
-              <UsageExportPanel params={params} />
+              <UsageExportPanel params={params} scope={exportScope} />
             </CardContent>
           </Card>
         </div>

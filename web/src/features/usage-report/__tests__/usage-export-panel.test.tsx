@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { toast } from 'sonner'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -37,6 +37,24 @@ const scope: UsageQueryParams = {
   tz_offset_minutes: -480,
 }
 
+const scopeLabels = {
+  organization: 'Acme Labs',
+  member: 'alice',
+  model: 'All models',
+}
+
+const recordsRequest = {
+  view: 'platform',
+  organization_id: 3,
+  user_id: 9,
+  start_timestamp: scope.start_timestamp,
+  end_timestamp: scope.end_timestamp,
+  tz_offset_minutes: -480,
+  format: 'csv',
+  kind: 'records',
+  with_bom: true,
+}
+
 function job(overrides: Partial<UsageExportJob>): UsageExportJob {
   return {
     job_id: 'job-ready',
@@ -68,8 +86,16 @@ function renderPanel() {
   })
   return render(
     <QueryClientProvider client={client}>
-      <UsageExportPanel params={scope} />
+      <UsageExportPanel params={scope} scope={scopeLabels} />
     </QueryClientProvider>
+  )
+}
+
+// Choosing an export opens its confirmation; the export starts only after the user confirms.
+async function startExport(label: string) {
+  await userEvent.click(await screen.findByRole('button', { name: label }))
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Start export' })
   )
 }
 
@@ -95,29 +121,56 @@ describe('UsageExportPanel', () => {
     expect(screen.getAllByRole('button', { name: 'Download' })).toHaveLength(1)
   })
 
-  it('queues a large records CSV export for the scope and window on screen', async () => {
+  it('shows the scope, rows, and delivery before a queued export starts', async () => {
     mockedList.mockResolvedValue([])
     mockedEstimate.mockResolvedValue({ delivery: 'queued', row_count: 9000 })
-    mockedCreate.mockResolvedValue(job({ status: 'queued' }))
 
     renderPanel()
     await userEvent.click(
       await screen.findByRole('button', { name: 'Usage records (CSV)' })
     )
 
-    const request = {
-      view: 'platform',
-      organization_id: 3,
-      user_id: 9,
-      start_timestamp: scope.start_timestamp,
-      end_timestamp: scope.end_timestamp,
-      tz_offset_minutes: -480,
-      format: 'csv',
-      kind: 'records',
-      with_bom: true,
-    }
-    await waitFor(() => expect(mockedCreate).toHaveBeenCalledWith(request))
-    expect(mockedEstimate).toHaveBeenCalledWith(request)
+    const dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByText('Acme Labs')).toBeInTheDocument()
+    expect(within(dialog).getByText('alice')).toBeInTheDocument()
+    expect(within(dialog).getByText('9,000')).toBeInTheDocument()
+    expect(
+      within(dialog).getByText(
+        'Added to the export list. The file is kept for 24 hours.'
+      )
+    ).toBeInTheDocument()
+    expect(mockedCreate).not.toHaveBeenCalled()
+  })
+
+  it('does not start an export when the confirmation is cancelled', async () => {
+    mockedList.mockResolvedValue([])
+    mockedEstimate.mockResolvedValue({ delivery: 'direct', row_count: 12 })
+
+    renderPanel()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Usage records (CSV)' })
+    )
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+
+    await waitFor(() =>
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    )
+    expect(mockedDirect).not.toHaveBeenCalled()
+    expect(mockedCreate).not.toHaveBeenCalled()
+  })
+
+  it('queues a large records CSV export for the scope and window on screen', async () => {
+    mockedList.mockResolvedValue([])
+    mockedEstimate.mockResolvedValue({ delivery: 'queued', row_count: 9000 })
+    mockedCreate.mockResolvedValue(job({ status: 'queued' }))
+
+    renderPanel()
+    await startExport('Usage records (CSV)')
+
+    await waitFor(() =>
+      expect(mockedCreate).toHaveBeenCalledWith(recordsRequest)
+    )
+    expect(mockedEstimate).toHaveBeenCalledWith(recordsRequest)
     expect(mockedDirect).not.toHaveBeenCalled()
   })
 
@@ -144,9 +197,7 @@ describe('UsageExportPanel', () => {
     })
 
     renderPanel()
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Usage records (CSV)' })
-    )
+    await startExport('Usage records (CSV)')
 
     await waitFor(() => expect(savedNames).toEqual(['usage-records-now.csv']))
     expect(mockedCreate).not.toHaveBeenCalled()
@@ -166,9 +217,7 @@ describe('UsageExportPanel', () => {
     const errorToast = vi.spyOn(toast, 'error')
 
     renderPanel()
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Usage records (CSV)' })
-    )
+    await startExport('Usage records (CSV)')
 
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
@@ -241,9 +290,7 @@ describe('UsageExportPanel', () => {
     )
 
     renderPanel()
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Usage records (CSV)' })
-    )
+    await startExport('Usage records (CSV)')
 
     expect(await screen.findByText('Generating')).toBeInTheDocument()
     expect(
@@ -265,9 +312,7 @@ describe('UsageExportPanel', () => {
     const errorToast = vi.spyOn(toast, 'error')
 
     renderPanel()
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Usage workbook (XLSX)' })
-    )
+    await startExport('Usage workbook (XLSX)')
 
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(

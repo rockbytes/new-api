@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -23,6 +25,7 @@ import {
   downloadUsageExportDirect,
   getUsageExportEstimate,
   getUsageExports,
+  type UsageExportEstimate,
 } from '../api'
 import {
   USAGE_EXPORT_OPTIONS,
@@ -34,16 +37,39 @@ import {
   hasActiveUsageExports,
   saveUsageExportFile,
 } from '../lib/export'
-import type { UsageExportJob, UsageQueryParams } from '../types'
+import type {
+  UsageExportJob,
+  UsageExportRequest,
+  UsageQueryParams,
+} from '../types'
 
 const EXPORTS_QUERY_KEY = ['usage-report', 'exports']
 const POLL_INTERVAL_MS = 3000
 const HTTP_GONE = 410
 
-export function UsageExportPanel(props: { params: UsageQueryParams }) {
+// Names the scope in the confirmation, so the user sees who and what the export covers.
+export interface UsageExportScopeLabels {
+  organization: string
+  member: string
+  model: string
+}
+
+// An export the user has checked in the dialog: the request sent to the server and how the server
+// said it would be delivered.
+interface PendingUsageExport {
+  option: UsageExportOption
+  request: UsageExportRequest
+  estimate: UsageExportEstimate
+}
+
+export function UsageExportPanel(props: {
+  params: UsageQueryParams
+  scope: UsageExportScopeLabels
+}) {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const queryClient = useQueryClient()
+  const [pending, setPending] = useState<PendingUsageExport | null>(null)
 
   const exportsQuery = useQuery({
     queryKey: EXPORTS_QUERY_KEY,
@@ -66,27 +92,42 @@ export function UsageExportPanel(props: { params: UsageQueryParams }) {
     return option ? t(option.labelKey) : ''
   }
 
-  // The server decides how the export is delivered. A small one streams straight to the file
-  // the browser saves. A large one becomes a job that stays in the list for a day.
-  const exportMutation = useMutation({
+  // Step one: ask the server how the export would be delivered. Nothing is generated yet.
+  const estimateMutation = useMutation({
     mutationFn: async (option: UsageExportOption) => {
       const request = buildUsageExportRequest(props.params, option)
       const estimate = await getUsageExportEstimate(request)
-      if (estimate.delivery === 'queued') {
-        await createUsageExport(request)
+      return { option, request, estimate }
+    },
+    onSuccess: (next) => {
+      setPending(next)
+    },
+    onError: (error) => {
+      handleServerError(error, t('The export could not be started'))
+    },
+  })
+
+  // Step two: the user confirmed. A small export streams to the file the browser saves, and a
+  // large one becomes a job that stays in the list.
+  const exportMutation = useMutation({
+    mutationFn: async (next: PendingUsageExport) => {
+      if (next.estimate.delivery === 'queued') {
+        await createUsageExport(next.request)
         return 'queued' as const
       }
-      const file = await downloadUsageExportDirect(request)
+      const file = await downloadUsageExportDirect(next.request)
       saveUsageExportFile(file.blob, file.fileName)
       return 'direct' as const
     },
     onSuccess: async (delivery) => {
+      setPending(null)
       if (delivery === 'queued') {
         toast.success(t('Export queued. Download it from the list when ready.'))
       }
       await queryClient.invalidateQueries({ queryKey: EXPORTS_QUERY_KEY })
     },
     onError: (error) => {
+      setPending(null)
       handleServerError(error, t('The export could not be started'))
     },
   })
@@ -110,6 +151,14 @@ export function UsageExportPanel(props: { params: UsageQueryParams }) {
     },
   })
 
+  const dateRange = (request: UsageExportRequest): string =>
+    `${formatTimestamp(request.start_timestamp)} – ${formatTimestamp(request.end_timestamp)}`
+
+  const deliveryText = (estimate: UsageExportEstimate): string =>
+    estimate.delivery === 'queued'
+      ? t('Added to the export list. The file is kept for 24 hours.')
+      : t('Download now. The file is not kept on the server.')
+
   return (
     <div className='flex flex-col gap-4'>
       <div className='flex flex-wrap gap-2'>
@@ -119,13 +168,47 @@ export function UsageExportPanel(props: { params: UsageQueryParams }) {
             type='button'
             size='sm'
             variant='outline'
-            disabled={exportMutation.isPending}
-            onClick={() => exportMutation.mutate(option)}
+            disabled={estimateMutation.isPending || exportMutation.isPending}
+            onClick={() => estimateMutation.mutate(option)}
           >
             {t(option.labelKey)}
           </Button>
         ))}
       </div>
+      {pending && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setPending(null)
+          }}
+          title={t('Confirm export')}
+          desc={t('Check the scope before starting this export.')}
+          confirmText={t('Start export')}
+          isLoading={exportMutation.isPending}
+          handleConfirm={() => exportMutation.mutate(pending)}
+        >
+          <dl className='grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm'>
+            <dt className='text-muted-foreground'>{t('Export')}</dt>
+            <dd>{t(pending.option.labelKey)}</dd>
+            <dt className='text-muted-foreground'>{t('Time range')}</dt>
+            <dd className='tabular-nums'>{dateRange(pending.request)}</dd>
+            <dt className='text-muted-foreground'>{t('Organization')}</dt>
+            <dd>{props.scope.organization}</dd>
+            <dt className='text-muted-foreground'>{t('Member')}</dt>
+            <dd>{props.scope.member}</dd>
+            <dt className='text-muted-foreground'>{t('Model')}</dt>
+            <dd>{props.scope.model}</dd>
+            <dt className='text-muted-foreground'>{t('Rows')}</dt>
+            <dd className='tabular-nums'>
+              {pending.option.key === 'summary'
+                ? '-'
+                : formatNumber(pending.estimate.row_count, locale)}
+            </dd>
+            <dt className='text-muted-foreground'>{t('Delivery')}</dt>
+            <dd>{deliveryText(pending.estimate)}</dd>
+          </dl>
+        </ConfirmDialog>
+      )}
       {jobs.length === 0 ? (
         <p className='text-muted-foreground text-sm'>{t('No exports yet')}</p>
       ) : (
