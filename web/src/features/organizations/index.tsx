@@ -40,9 +40,9 @@ export function Organizations() {
       header: t('Status'),
       cell: (row) =>
         row.status === 'active' ? (
-          <StatusBadge {...statusPresets.active} />
+          <StatusBadge {...statusPresets.active} label={t('Active')} />
         ) : (
-          <StatusBadge {...statusPresets.suspended} />
+          <StatusBadge {...statusPresets.suspended} label={t('Suspended')} />
         ),
     },
     {
