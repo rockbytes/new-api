@@ -5,6 +5,8 @@ import { formatQuotaWithCurrency, getCurrencyDisplay } from '@/lib/currency'
 import { cn } from '@/lib/utils'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
+import { QuotaRow } from './quota-row'
+
 type UserOrganizationQuotaCellProps = {
   allocated: number
   used: number
@@ -42,26 +44,16 @@ export function UserOrganizationQuotaCell(
         { label: t('Total Used'), value: formattedUsed },
       ]}
     >
-      <span className='grid min-w-0 grid-cols-1 gap-y-1 text-sm tabular-nums'>
-        <span className='text-muted-foreground text-xs font-normal'>
-          {t('Organization allocation')}
-        </span>
-        <span
-          className={cn(
-            remaining < 0 && 'text-destructive',
-            remaining === 0 && 'text-muted-foreground'
-          )}
-        >
-          {formattedRemaining}
-        </span>
-        <span
-          data-table-text='secondary'
-          className='text-muted-foreground flex items-baseline gap-1 text-xs font-normal'
-        >
-          <span>{t('Allocated quota')}</span>
-          <span>{formattedAllocated}</span>
-        </span>
-      </span>
+      <QuotaRow
+        label={t('Organization')}
+        value={formattedRemaining}
+        valueClassName={cn(
+          remaining < 0 && 'text-destructive',
+          remaining === 0 && 'text-muted-foreground'
+        )}
+        secondaryLabel={t('Allocated quota')}
+        secondaryValue={formattedAllocated}
+      />
     </QuotaDetailsPopover>
   )
 }

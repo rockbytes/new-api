@@ -6,6 +6,8 @@ import { formatQuotaWithCurrency, getCurrencyDisplay } from '@/lib/currency'
 import { cn } from '@/lib/utils'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
+import { QuotaRow } from './quota-row'
+
 type UserQuotaCellProps = {
   remaining: number
   used: number
@@ -39,29 +41,27 @@ export function UserQuotaCell(props: UserQuotaCellProps) {
       ]}
     >
       {hasQuota ? (
-        <span className='grid min-w-0 grid-cols-1 gap-y-1 text-sm tabular-nums'>
-          <span
-            className={cn(
-              props.remaining < 0 && 'text-destructive',
-              props.remaining === 0 && 'text-muted-foreground'
-            )}
-          >
-            {formattedRemaining}
-          </span>
-          <span
-            data-table-text='secondary'
-            className='text-muted-foreground flex items-baseline gap-1 text-xs font-normal'
-          >
-            <span>{t('Used amount')}</span>
-            <span>{formattedUsed}</span>
-          </span>
-        </span>
+        <QuotaRow
+          label={t('Personal')}
+          value={formattedRemaining}
+          valueClassName={cn(
+            props.remaining < 0 && 'text-destructive',
+            props.remaining === 0 && 'text-muted-foreground'
+          )}
+          secondaryLabel={t('Used amount')}
+          secondaryValue={formattedUsed}
+        />
       ) : (
-        <StatusBadge
-          label={t('No Quota')}
-          variant='neutral'
-          copyable={false}
-          className='-ml-1.5 font-normal'
+        <QuotaRow
+          label={t('Personal')}
+          badge={
+            <StatusBadge
+              label={t('No Quota')}
+              variant='neutral'
+              copyable={false}
+              className='font-normal'
+            />
+          }
         />
       )}
     </QuotaDetailsPopover>

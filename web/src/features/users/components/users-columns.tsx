@@ -175,10 +175,12 @@ export function useUsersColumns(): ColumnDef<User>[] {
             <div className='grid min-w-0 gap-2'>
               <UserQuotaCell remaining={user.quota} used={user.used_quota} />
               {user.organization ? (
-                <UserOrganizationQuotaCell
-                  allocated={user.organization.allocated_quota ?? 0}
-                  used={user.organization.used_quota ?? 0}
-                />
+                <div className='border-border/60 border-t pt-2'>
+                  <UserOrganizationQuotaCell
+                    allocated={user.organization.allocated_quota ?? 0}
+                    used={user.organization.used_quota ?? 0}
+                  />
+                </div>
               ) : null}
             </div>
           )

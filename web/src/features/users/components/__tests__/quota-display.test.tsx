@@ -133,7 +133,6 @@ it('shows balance above secondary usage text and opens quota details on click', 
     within(cells[0]).queryByText('Available Balance')
   ).not.toBeInTheDocument()
   expect(within(cells[0]).getByText('0.0022')).toBeInTheDocument()
-  expect(screen.getByText('0.0038').parentElement).toHaveClass('grid-cols-1')
   expect(screen.getByText('Used amount').parentElement).toHaveAttribute(
     'data-table-text',
     'secondary'
@@ -166,7 +165,9 @@ it.each([0, 500000])(
       </I18nextProvider>
     )
     if (used === 0) {
-      expect(screen.getAllByRole('cell')[0]).toHaveTextContent(/^No Quota$/)
+      expect(screen.getAllByRole('cell')[0]).toHaveTextContent(
+        /^PersonalNo Quota$/
+      )
       expect(screen.queryByText('Used amount')).not.toBeInTheDocument()
       await userEvent.click(screen.getByRole('button', { name: 'No Quota' }))
       const detail = await screen.findByRole('dialog', { name: 'Quota ($)' })
