@@ -154,7 +154,7 @@ func TestImageModelBuiltinPricesAndOverrides(t *testing.T) {
 }
 
 // DeepSeek prices are peak/off-peak expressions in USD per 1M tokens; peak is
-// twice off-peak. The same usage settles to the same quota from a Chat,
+// about twice off-peak. The same usage settles to the same quota from a Chat,
 // Responses or Anthropic response, and the Search/Fetch routing names cost
 // $0.75 per 1,000 requests with no token price. Which tier runs depends on the clock; both are pinned here.
 func TestDeepSeekBuiltinBilling(t *testing.T) {
@@ -184,12 +184,14 @@ func TestDeepSeekBuiltinBilling(t *testing.T) {
 		return result
 	}
 	for model, want := range map[string]map[string]int{
-		// flash: 1000*0.15 + 2000*0.003 + 500*0.6 = $0.000456 off-peak.
-		"deepseek-flash":               {"off_peak": 228, "peak": 456},
-		"deepseek-v4-flash":            {"off_peak": 228, "peak": 456},
-		"deepseek-v4-flash-vision-exp": {"off_peak": 228, "peak": 456},
-		// pro: 1000*0.66 + 2000*0.022 + 500*1.98 = $0.001694 off-peak.
-		"deepseek-v4-pro": {"off_peak": 847, "peak": 1694},
+		// flash peak: 1000*0.2899 + 2000*0.0058 + 500*1.16 = 881.5 -> $0.0008815.
+		// flash off-peak: 1000*0.1449 + 2000*0.0029 + 500*0.5797 = 440.55 -> $0.00044055.
+		"deepseek-flash":               {"off_peak": 220, "peak": 441},
+		"deepseek-v4-flash":            {"off_peak": 220, "peak": 441},
+		"deepseek-v4-flash-vision-exp": {"off_peak": 220, "peak": 441},
+		// pro peak: 1000*1.3 + 2000*0.0435 + 500*3.91 = 3342 -> $0.003342.
+		// pro off-peak: 1000*0.6522 + 2000*0.0217 + 500*1.96 = 1675.6 -> $0.0016756.
+		"deepseek-v4-pro": {"off_peak": 838, "peak": 1671},
 	} {
 		t.Run(model, func(t *testing.T) {
 			assert.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingMode(model))

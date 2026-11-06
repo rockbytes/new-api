@@ -7,7 +7,10 @@ import "github.com/QuantumNous/new-api/constant"
 // off-peak are not known in advance and bill at peak here.
 const deepSeekPeak = `weekday("Asia/Shanghai") >= 1 && weekday("Asia/Shanghai") <= 5 && ((hour("Asia/Shanghai") >= 9 && hour("Asia/Shanghai") < 12) || (hour("Asia/Shanghai") >= 14 && hour("Asia/Shanghai") < 18))`
 
-const deepSeekFlashExpr = deepSeekPeak + ` ? tier("peak", p * 0.3 + cr * 0.006 + c * 1.2) : tier("off_peak", p * 0.15 + cr * 0.003 + c * 0.6)`
+// deepSeekFlashExpr prices DeepSeek-V4.1-Flash, the standard Flash model:
+// peak 高峰 and off-peak 空闲 USD per 1M tokens for uncached input, cache hit
+// input and output.
+const deepSeekFlashExpr = deepSeekPeak + ` ? tier("peak", p * 0.2899 + cr * 0.0058 + c * 1.16) : tier("off_peak", p * 0.1449 + cr * 0.0029 + c * 0.5797)`
 
 // Built-in token prices use actual USD per million tokens. Keep new model
 // defaults here instead of splitting them across the legacy ratio tables.
@@ -37,14 +40,14 @@ var builtinBillingExpr = map[string]string{
 	// through the default web_search tool price ($10 per 1K calls).
 	"gpt-6-luna": `tier("base", p * 0.1 + c * 0.5 + cr * 0.01 + cc * 0.125)`,
 	"gpt-6-sol":  `tier("base", p * 2 + c * 10 + cr * 0.2 + cc * 2.5)`,
-	// https://api-docs.deepseek.com/quick_start/pricing (2026-10-17). Off-peak
-	// is half the peak price. deepseek-v4-flash and deepseek-v4-flash-vision-exp
-	// run on V4.1 Flash and bill at the Flash price. Images bill as input
-	// tokens, and there is no cache-write price.
+	// DeepSeek standard V4.1 Flash and V4 Pro peak/off-peak prices (USD per 1M
+	// tokens), from the standard price list. deepseek-v4-flash and
+	// deepseek-v4-flash-vision-exp run on V4.1 Flash and bill at the Flash
+	// price. Images bill as input tokens, and there is no cache-write price.
 	"deepseek-flash":               deepSeekFlashExpr,
 	"deepseek-v4-flash":            deepSeekFlashExpr,
 	"deepseek-v4-flash-vision-exp": deepSeekFlashExpr,
-	"deepseek-v4-pro":              deepSeekPeak + ` ? tier("peak", p * 1.32 + cr * 0.044 + c * 3.96) : tier("off_peak", p * 0.66 + cr * 0.022 + c * 1.98)`,
+	"deepseek-v4-pro":              deepSeekPeak + ` ? tier("peak", p * 1.3 + cr * 0.0435 + c * 3.91) : tier("off_peak", p * 0.6522 + cr * 0.0217 + c * 1.96)`,
 	// The Search and Fetch API routing names: $0.75 per 1,000 successful
 	// requests each, the same pricing page. The calls carry no tokens.
 	constant.DeepSeekSearchModel: `tier("request", fixed(0.00075))`,
