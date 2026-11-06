@@ -11,6 +11,7 @@ import { LanguagePreferencesCard } from './components/language-preferences-card'
 import { ProfileHeader } from './components/profile-header'
 import { ProfileSettingsCard } from './components/profile-settings-card'
 import { SidebarModulesCard } from './components/sidebar-modules-card'
+import { PROFILE_SETTINGS_CARD_VISIBLE } from './constants'
 import { useProfile } from './hooks'
 
 export function Profile() {
@@ -24,6 +25,9 @@ export function Profile() {
   )
   const turnstileSiteKey = status?.turnstile_site_key || ''
   const canConfigureSidebar = permissions?.sidebar_settings !== false
+  // The side column only exists when one of its cards can render; otherwise the
+  // main column spans the page so it lines up with the header card.
+  const hasSidePanel = checkinEnabled || canConfigureSidebar
   // Older cached status payloads lack these fields; the site default is on.
   const quotaRemindEnabled = status?.quota_remind_enabled !== false
   const quotaRemindThreshold = status?.quota_remind_threshold ?? 0
@@ -37,31 +41,41 @@ export function Profile() {
           </CardStaggerItem>
 
           <CardStaggerItem>
-            <div className='grid gap-4 sm:gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.46fr)] xl:items-start'>
+            <div
+              className={
+                hasSidePanel
+                  ? 'grid gap-4 sm:gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.46fr)] xl:items-start'
+                  : 'flex flex-col gap-4 sm:gap-6'
+              }
+            >
               <div className='space-y-4 sm:space-y-6'>
-                <ProfileSettingsCard
-                  profile={profile}
-                  loading={loading}
-                  onProfileUpdate={refreshProfile}
-                  quotaRemindEnabled={quotaRemindEnabled}
-                  quotaRemindThreshold={quotaRemindThreshold}
-                />
+                {PROFILE_SETTINGS_CARD_VISIBLE && (
+                  <ProfileSettingsCard
+                    profile={profile}
+                    loading={loading}
+                    onProfileUpdate={refreshProfile}
+                    quotaRemindEnabled={quotaRemindEnabled}
+                    quotaRemindThreshold={quotaRemindThreshold}
+                  />
+                )}
                 <LanguagePreferencesCard
                   profile={profile}
                   onProfileUpdate={refreshProfile}
                 />
               </div>
 
-              <div className='space-y-4 sm:space-y-6 xl:sticky xl:top-6'>
-                {checkinEnabled && (
-                  <CheckinCalendarCard
-                    checkinEnabled={checkinEnabled}
-                    turnstileEnabled={turnstileEnabled}
-                    turnstileSiteKey={turnstileSiteKey}
-                  />
-                )}
-                {canConfigureSidebar && <SidebarModulesCard />}
-              </div>
+              {hasSidePanel && (
+                <div className='space-y-4 sm:space-y-6 xl:sticky xl:top-6'>
+                  {checkinEnabled && (
+                    <CheckinCalendarCard
+                      checkinEnabled={checkinEnabled}
+                      turnstileEnabled={turnstileEnabled}
+                      turnstileSiteKey={turnstileSiteKey}
+                    />
+                  )}
+                  {canConfigureSidebar && <SidebarModulesCard />}
+                </div>
+              )}
             </div>
           </CardStaggerItem>
         </CardStaggerContainer>
