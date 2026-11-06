@@ -66,15 +66,15 @@ describe('UsageRecordsTable payer column', () => {
 })
 
 describe('UsageRecordsTable amounts', () => {
-  it('shows a consume row without a sign', () => {
+  it('shows a consume row without a sign and its consumed amount as currency', () => {
     renderRecords({
       view: 'self',
       items: [record({ type: CONSUME, quota: 40 })],
     })
 
     const row = screen.getByRole('row', { name: /gpt-4o-mini/ })
-    expect(row).not.toHaveTextContent('-40')
-    expect(row).toHaveTextContent('40')
+    expect(row).not.toHaveTextContent('-$')
+    expect(row).toHaveTextContent('$0.00008')
   })
 })
 

@@ -48,6 +48,14 @@ describe('buildUsageExportRequest', () => {
     expect(request).not.toHaveProperty('kind')
     expect(request).not.toHaveProperty('with_bom')
   })
+
+  it('carries the selected model so the file matches the report on screen', () => {
+    const request = buildUsageExportRequest(
+      { ...scope, model_name: 'gpt-4o' },
+      optionFor('records')
+    )
+    expect(request.model_name).toBe('gpt-4o')
+  })
 })
 
 describe('hasActiveUsageExports', () => {

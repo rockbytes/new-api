@@ -27,6 +27,7 @@ type UsageExportJob struct {
 	View            string `json:"view" gorm:"type:varchar(32)"`
 	OrganizationId  int    `json:"organization_id"`
 	TargetUserId    int    `json:"target_user_id"`
+	ModelName       string `json:"model_name" gorm:"type:varchar(255);not null;default:''"`
 	StartTimestamp  int64  `json:"start_timestamp" gorm:"type:bigint"`
 	EndTimestamp    int64  `json:"end_timestamp" gorm:"type:bigint"`
 	TzOffsetMinutes int    `json:"tz_offset_minutes"`

@@ -7,10 +7,12 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/xuri/excelize/v2"
@@ -76,6 +78,7 @@ type UsageExportRequest struct {
 	View            UsageView
 	OrganizationId  int
 	UserId          int
+	ModelName       string
 	StartTimestamp  int64
 	EndTimestamp    int64
 	TzOffsetMinutes int
@@ -103,6 +106,7 @@ func CreateUsageExport(c *gin.Context, callerId int, callerRole int, request Usa
 	if err != nil {
 		return nil, err
 	}
+	resolved.Scope.ModelName = request.ModelName
 	window := usageExportWindow(request.StartTimestamp, request.EndTimestamp, request.TzOffsetMinutes)
 	active, err := model.CountActiveUsageExportJobs(callerId)
 	if err != nil {
@@ -129,6 +133,7 @@ func CreateUsageExport(c *gin.Context, callerId int, callerRole int, request Usa
 		View:            string(resolved.View),
 		OrganizationId:  resolved.Scope.OrganizationId,
 		TargetUserId:    resolved.Scope.UserId,
+		ModelName:       resolved.Scope.ModelName,
 		StartTimestamp:  request.StartTimestamp,
 		EndTimestamp:    request.EndTimestamp,
 		TzOffsetMinutes: request.TzOffsetMinutes,
@@ -234,6 +239,7 @@ func generateUsageExport(job *model.UsageExportJob) (int64, string, string, erro
 	if err != nil {
 		return 0, "", "", err
 	}
+	resolved.Scope.ModelName = job.ModelName
 	window := usageExportWindow(job.StartTimestamp, job.EndTimestamp, job.TzOffsetMinutes)
 	key := job.JobId + "." + job.Format
 	fileName := fmt.Sprintf("usage-%s-%s.%s", job.Kind, job.JobId, job.Format)
@@ -265,7 +271,10 @@ func generateUsageExport(job *model.UsageExportJob) (int64, string, string, erro
 func writeUsageExport(w io.Writer, job *model.UsageExportJob, resolved ResolvedUsageScope, window model.UsageWindow) (int64, error) {
 	names := newUsageOrganizationNames()
 	if job.Format == UsageExportFormatXLSX {
-		out := newUsageWorkbookWriter(w)
+		out, err := newUsageWorkbookWriter(w)
+		if err != nil {
+			return 0, err
+		}
 		rows, err := writeUsageTables(out, job, resolved, window, names)
 		if err != nil {
 			return rows, err
@@ -299,6 +308,44 @@ type usageCell struct {
 	text     string
 	number   int64
 	isNumber bool
+	amount   float64
+	isAmount bool
+}
+
+// usageAmountDigits is the number of decimal places written for a monetary amount. Small
+// consumptions are fractions of a cent, so fewer places would show them as zero.
+const usageAmountDigits = 6
+
+func usageAmountCell(amount float64) usageCell {
+	return usageCell{text: strconv.FormatFloat(amount, 'f', usageAmountDigits, 64), amount: amount, isAmount: true}
+}
+
+// usageCurrency is the currency export amounts are written in. It follows the quota display
+// setting that the report page uses. TOKENS keeps the quota units as token counts.
+type usageCurrency struct {
+	code   string
+	rate   float64 // currency units per USD
+	tokens bool
+}
+
+func usageExportCurrency() usageCurrency {
+	display := operation_setting.GetQuotaDisplayType()
+	if display == operation_setting.QuotaDisplayTypeTokens {
+		return usageCurrency{code: display, tokens: true}
+	}
+	code := display
+	if display == operation_setting.QuotaDisplayTypeCustom {
+		code = operation_setting.GetCurrencySymbol()
+	}
+	return usageCurrency{code: code, rate: operation_setting.GetUsdToCurrencyRate(operation_setting.USDExchangeRate)}
+}
+
+// usageMoneyCell writes a quota value as an amount in the export currency.
+func usageMoneyCell(currency usageCurrency, quota int64) usageCell {
+	if currency.tokens {
+		return usageNumberCell(quota)
+	}
+	return usageAmountCell(float64(quota) / common.QuotaPerUnit * currency.rate)
 }
 
 func usageHeader(names ...string) []usageCell {
@@ -329,12 +376,15 @@ func usageCellTexts(cells []usageCell) []string {
 	return texts
 }
 
-func usageWorkbookValues(cells []usageCell) []any {
+func (w *usageWorkbookWriter) workbookValues(cells []usageCell) []any {
 	values := make([]any, len(cells))
 	for i, cell := range cells {
-		if cell.isNumber {
+		switch {
+		case cell.isAmount:
+			values[i] = excelize.Cell{StyleID: w.amountStyle, Value: cell.amount}
+		case cell.isNumber:
 			values[i] = cell.number
-		} else {
+		default:
 			values[i] = cell.text
 		}
 	}
@@ -385,15 +435,23 @@ func (w *usageCSVWriter) Close() error {
 // usageWorkbookWriter writes one sheet per table through excelize's stream writer, so a sheet's
 // rows are not held in memory as cells. The file is assembled and written at Close.
 type usageWorkbookWriter struct {
-	out    io.Writer
-	file   *excelize.File
-	stream *excelize.StreamWriter
-	sheets int
-	row    int
+	out         io.Writer
+	file        *excelize.File
+	stream      *excelize.StreamWriter
+	amountStyle int
+	sheets      int
+	row         int
 }
 
-func newUsageWorkbookWriter(out io.Writer) *usageWorkbookWriter {
-	return &usageWorkbookWriter{out: out, file: excelize.NewFile()}
+func newUsageWorkbookWriter(out io.Writer) (*usageWorkbookWriter, error) {
+	file := excelize.NewFile()
+	// The amount format shows the same digits as the CSV, so both formats read alike.
+	format := "0." + strings.Repeat("0", usageAmountDigits)
+	amountStyle, err := file.NewStyle(&excelize.Style{CustomNumFmt: &format})
+	if err != nil {
+		return nil, err
+	}
+	return &usageWorkbookWriter{out: out, file: file, amountStyle: amountStyle}, nil
 }
 
 func (w *usageWorkbookWriter) StartTable(_ string, title string, header []usageCell) error {
@@ -423,7 +481,7 @@ func (w *usageWorkbookWriter) WriteRow(cells []usageCell) error {
 	if err != nil {
 		return err
 	}
-	return w.stream.SetRow(reference, usageWorkbookValues(cells))
+	return w.stream.SetRow(reference, w.workbookValues(cells))
 }
 
 func (w *usageWorkbookWriter) closeSheet() error {
@@ -448,16 +506,17 @@ func (w *usageWorkbookWriter) Close() error {
 // writeUsageTables writes the tables for the job's kind. It returns the row count the job
 // reports: detail rows for records and workbook exports, summary rows for summary exports.
 func writeUsageTables(out usageSheetWriter, job *model.UsageExportJob, resolved ResolvedUsageScope, window model.UsageWindow, names *usageOrganizationNames) (int64, error) {
+	currency := usageExportCurrency()
 	switch job.Kind {
 	case UsageExportKindRecords:
-		return writeUsageRecordTable(out, job, resolved, window, names)
+		return writeUsageRecordTable(out, job, resolved, window, names, currency)
 	case UsageExportKindSummary:
-		return writeUsageSummaryTables(out, resolved, window, names)
+		return writeUsageSummaryTables(out, resolved, window, names, currency)
 	case UsageExportKindWorkbook:
-		if _, err := writeUsageSummaryTables(out, resolved, window, names); err != nil {
+		if _, err := writeUsageSummaryTables(out, resolved, window, names, currency); err != nil {
 			return 0, err
 		}
-		return writeUsageRecordTable(out, job, resolved, window, names)
+		return writeUsageRecordTable(out, job, resolved, window, names, currency)
 	default:
 		return 0, ErrUsageExportKind
 	}
@@ -467,7 +526,7 @@ func writeUsageTables(out usageSheetWriter, job *model.UsageExportJob, resolved 
 // the report endpoints return to the same audience.
 func usageRecordColumns(view UsageView) []string {
 	columns := []string{"id", "created_at", "type", "username", "token_name", "model_name",
-		"quota_platform_units", "prompt_tokens", "completion_tokens", "use_time", "is_stream", "request_id"}
+		"consumed_amount", "currency", "quota_platform_units", "prompt_tokens", "completion_tokens", "use_time", "is_stream", "request_id"}
 	switch view {
 	case UsageViewPlatform:
 		return append(columns, "user_id", "token_id", "group", "channel_id", "ip", "billing_organization_id")
@@ -478,7 +537,7 @@ func usageRecordColumns(view UsageView) []string {
 	}
 }
 
-func writeUsageRecordTable(out usageSheetWriter, job *model.UsageExportJob, resolved ResolvedUsageScope, window model.UsageWindow, names *usageOrganizationNames) (int64, error) {
+func writeUsageRecordTable(out usageSheetWriter, job *model.UsageExportJob, resolved ResolvedUsageScope, window model.UsageWindow, names *usageOrganizationNames, currency usageCurrency) (int64, error) {
 	if err := out.StartTable("records", "用量明细", usageHeader(usageRecordColumns(resolved.View)...)); err != nil {
 		return 0, err
 	}
@@ -489,12 +548,12 @@ func writeUsageRecordTable(out usageSheetWriter, job *model.UsageExportJob, reso
 		if rows > limit {
 			return ErrUsageExportTooLarge
 		}
-		return out.WriteRow(usageRecordCells(resolved.View, log, job.TzOffsetMinutes, names))
+		return out.WriteRow(usageRecordCells(resolved.View, log, job.TzOffsetMinutes, names, currency))
 	})
 	return rows, err
 }
 
-func usageRecordCells(view UsageView, log model.Log, tzOffsetMinutes int, names *usageOrganizationNames) []usageCell {
+func usageRecordCells(view UsageView, log model.Log, tzOffsetMinutes int, names *usageOrganizationNames, currency usageCurrency) []usageCell {
 	cells := []usageCell{
 		usageNumberCell(int64(log.Id)),
 		usageTextCell(usageExportTime(log.CreatedAt, tzOffsetMinutes)),
@@ -502,6 +561,8 @@ func usageRecordCells(view UsageView, log model.Log, tzOffsetMinutes int, names 
 		usageTextCell(log.Username),
 		usageTextCell(log.TokenName),
 		usageTextCell(log.ModelName),
+		usageMoneyCell(currency, int64(log.Quota)),
+		usageTextCell(currency.code),
 		usageNumberCell(int64(log.Quota)),
 		usageNumberCell(int64(log.PromptTokens)),
 		usageNumberCell(int64(log.CompletionTokens)),
@@ -524,16 +585,16 @@ func usageRecordCells(view UsageView, log model.Log, tzOffsetMinutes int, names 
 
 // writeUsageSummaryTables writes the summary, model and ranking tables. The ranking table is
 // written only when the view ranks something; a self view has no ranking.
-func writeUsageSummaryTables(out usageSheetWriter, resolved ResolvedUsageScope, window model.UsageWindow, names *usageOrganizationNames) (int64, error) {
+func writeUsageSummaryTables(out usageSheetWriter, resolved ResolvedUsageScope, window model.UsageWindow, names *usageOrganizationNames, currency usageCurrency) (int64, error) {
 	var rows int64
 	summary, err := model.GetUsageSummary(resolved.Scope, window)
 	if err != nil {
 		return 0, err
 	}
-	if err := out.StartTable("summary", "汇总", usageHeader("消费", "requests", "prompt_tokens", "completion_tokens")); err != nil {
+	if err := out.StartTable("summary", "汇总", usageHeader("消费金额", "currency", "requests", "prompt_tokens", "completion_tokens")); err != nil {
 		return 0, err
 	}
-	if err := out.WriteRow([]usageCell{usageNumberCell(summary.ConsumeQuota), usageNumberCell(summary.Requests),
+	if err := out.WriteRow([]usageCell{usageMoneyCell(currency, summary.ConsumeQuota), usageTextCell(currency.code), usageNumberCell(summary.Requests),
 		usageNumberCell(summary.PromptTokens), usageNumberCell(summary.CompletionTokens)}); err != nil {
 		return 0, err
 	}
@@ -543,12 +604,12 @@ func writeUsageSummaryTables(out usageSheetWriter, resolved ResolvedUsageScope, 
 	if err != nil {
 		return 0, err
 	}
-	if err := out.StartTable("models", "按模型", usageHeader("model_name", "消费", "requests", "prompt_tokens", "completion_tokens")); err != nil {
+	if err := out.StartTable("models", "按模型", usageHeader("model_name", "消费金额", "currency", "requests", "prompt_tokens", "completion_tokens")); err != nil {
 		return 0, err
 	}
 	for _, row := range models {
 		rows++
-		if err := out.WriteRow([]usageCell{usageTextCell(row.ModelName), usageNumberCell(row.ConsumeQuota),
+		if err := out.WriteRow([]usageCell{usageTextCell(row.ModelName), usageMoneyCell(currency, row.ConsumeQuota), usageTextCell(currency.code),
 			usageNumberCell(row.Requests), usageNumberCell(row.PromptTokens), usageNumberCell(row.CompletionTokens)}); err != nil {
 			return 0, err
 		}
@@ -566,7 +627,7 @@ func writeUsageSummaryTables(out usageSheetWriter, resolved ResolvedUsageScope, 
 	if by == model.UsageRankByOrganization {
 		title = "按组织"
 	}
-	if err := out.StartTable("rankings", title, usageHeader("key", "name", "消费", "requests")); err != nil {
+	if err := out.StartTable("rankings", title, usageHeader("key", "name", "消费金额", "currency", "requests")); err != nil {
 		return 0, err
 	}
 	for _, row := range ranking {
@@ -576,7 +637,7 @@ func writeUsageSummaryTables(out usageSheetWriter, resolved ResolvedUsageScope, 
 			name = usageTextCell(names.nameOf(int(row.Key)))
 		}
 		if err := out.WriteRow([]usageCell{usageNumberCell(row.Key), name,
-			usageNumberCell(row.ConsumeQuota), usageNumberCell(row.Requests)}); err != nil {
+			usageMoneyCell(currency, row.ConsumeQuota), usageTextCell(currency.code), usageNumberCell(row.Requests)}); err != nil {
 			return 0, err
 		}
 	}

@@ -8,7 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { formatNumber } from '@/lib/format'
+import { formatLogQuota, formatNumber } from '@/lib/format'
 
 import type { UsageModelRow, UsageRankRow } from '../types'
 
@@ -43,7 +43,7 @@ export function UsageModelsTable(props: {
               {row.model_name}
             </TableCell>
             <TableCell className='text-right tabular-nums'>
-              {formatNumber(row.consume_quota, props.locale)}
+              {formatLogQuota(row.consume_quota)}
             </TableCell>
             <TableCell className='text-right tabular-nums'>
               {formatNumber(row.requests, props.locale)}
@@ -86,7 +86,7 @@ export function UsageRankingTable(props: {
           <TableRow key={row.key}>
             <TableCell>{props.nameFor(row)}</TableCell>
             <TableCell className='text-right tabular-nums'>
-              {formatNumber(row.consume_quota, props.locale)}
+              {formatLogQuota(row.consume_quota)}
             </TableCell>
             <TableCell className='text-right tabular-nums'>
               {formatNumber(row.requests, props.locale)}

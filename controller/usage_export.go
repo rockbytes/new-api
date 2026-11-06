@@ -17,6 +17,7 @@ type usageExportCreateRequest struct {
 	View            string `json:"view"`
 	OrganizationId  int    `json:"organization_id"`
 	UserId          int    `json:"user_id"`
+	ModelName       string `json:"model_name"`
 	StartTimestamp  int64  `json:"start_timestamp"`
 	EndTimestamp    int64  `json:"end_timestamp"`
 	TzOffsetMinutes int    `json:"tz_offset_minutes"`
@@ -38,6 +39,7 @@ func usageExportResponse(job *model.UsageExportJob, now int64) gin.H {
 		"view":              job.View,
 		"organization_id":   job.OrganizationId,
 		"target_user_id":    job.TargetUserId,
+		"model_name":        job.ModelName,
 		"start_timestamp":   job.StartTimestamp,
 		"end_timestamp":     job.EndTimestamp,
 		"tz_offset_minutes": job.TzOffsetMinutes,
@@ -81,11 +83,17 @@ func CreateUsageExport(c *gin.Context) {
 		writeUsageError(c, http.StatusBadRequest, "USAGE_INVALID_REQUEST", "Invalid tz_offset_minutes")
 		return
 	}
+	modelName, validModel := usageModelName(request.ModelName)
+	if !validModel {
+		writeUsageError(c, http.StatusBadRequest, "USAGE_INVALID_REQUEST", "Invalid model_name")
+		return
+	}
 
 	job, err := service.CreateUsageExport(c, c.GetInt("id"), c.GetInt("role"), service.UsageExportRequest{
 		View:            service.UsageView(request.View),
 		OrganizationId:  request.OrganizationId,
 		UserId:          request.UserId,
+		ModelName:       modelName,
 		StartTimestamp:  request.StartTimestamp,
 		EndTimestamp:    request.EndTimestamp,
 		TzOffsetMinutes: request.TzOffsetMinutes,

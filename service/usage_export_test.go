@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -318,4 +319,54 @@ func TestUsageExportLimitsActiveJobsPerUser(t *testing.T) {
 	job, err := CreateUsageExport(nil, usageExportOrgAAdmin, common.RoleCommonUser, request)
 	require.NoError(t, err, "the limit is per user")
 	assert.Equal(t, model.UsageExportStatusSucceeded, job.Status)
+}
+
+// Export amounts follow the site's quota display setting, as the report page does. Each setting
+// writes the platform's consumption in its own currency: 164 quota units are 100+40+15+9, and
+// the refund row is not consumption.
+func TestUsageExportAmountsFollowTheQuotaDisplaySetting(t *testing.T) {
+	setupUsageExportServiceTest(t)
+	general := operation_setting.GetGeneralSetting()
+	previousDisplay, previousRate := general.QuotaDisplayType, operation_setting.USDExchangeRate
+	t.Cleanup(func() {
+		general.QuotaDisplayType = previousDisplay
+		operation_setting.USDExchangeRate = previousRate
+	})
+	operation_setting.USDExchangeRate = 7
+
+	cases := []struct {
+		display  string
+		amount   string
+		currency string
+	}{
+		{operation_setting.QuotaDisplayTypeUSD, "0.000328", "USD"},
+		{operation_setting.QuotaDisplayTypeCNY, "0.002296", "CNY"},
+		{operation_setting.QuotaDisplayTypeTokens, "164", "TOKENS"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.display, func(t *testing.T) {
+			general.QuotaDisplayType = tc.display
+			summary := usageExportCreate(t, usageExportRoot, common.RoleRootUser, UsageExportRequest{
+				View: UsageViewPlatform, Format: UsageExportFormatCSV, Kind: UsageExportKindSummary})
+			var totals []string
+			for _, row := range usageExportCSVRows(t, usageExportReadFile(t, summary)) {
+				if len(row) > 0 && row[0] == "summary" {
+					totals = row[1:]
+				}
+			}
+			require.Len(t, totals, 5)
+			assert.Equal(t, []string{tc.amount, tc.currency}, totals[:2])
+		})
+	}
+
+	records := usageExportCreate(t, usageExportRoot, common.RoleRootUser, UsageExportRequest{
+		View: UsageViewPlatform, Format: UsageExportFormatCSV, Kind: UsageExportKindRecords})
+	header := usageExportCSVRows(t, usageExportReadFile(t, records))[0]
+	seen := map[string]bool{}
+	for _, name := range header {
+		assert.False(t, seen[name], "column %s is written once", name)
+		seen[name] = true
+	}
+	assert.Contains(t, header, "consumed_amount")
+	assert.Contains(t, header, "currency")
 }

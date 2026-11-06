@@ -15,6 +15,7 @@ import { CompactDateTimeRangePicker } from '@/features/usage-logs/components/com
 import { toIntlLocale } from '@/i18n/languages'
 
 import {
+  getUsageModelOptions,
   getUsageModels,
   getUsageRankings,
   getUsageRecords,
@@ -66,6 +67,7 @@ export function UsageReport() {
   } | null>(null)
   const [organizationId, setOrganizationId] = useState(0)
   const [memberId, setMemberId] = useState(0)
+  const [modelName, setModelName] = useState('')
   const [page, setPage] = useState(1)
 
   // The window is fixed per range choice, so every query of one view shares the same bounds.
@@ -84,11 +86,17 @@ export function UsageReport() {
       tzOffsetMinutes
     )
   }, [rangeDays, customRange])
-  const params: UsageQueryParams = {
+  // The scope and window shared by every query. The model choices are listed for this scope
+  // without the model filter, so they do not shrink when one model is selected.
+  const scopeParams: UsageQueryParams = {
     ...window,
     view: organizationId > 0 ? 'platform' : undefined,
     organization_id: organizationId || undefined,
     user_id: memberId || undefined,
+  }
+  const params: UsageQueryParams = {
+    ...scopeParams,
+    model_name: modelName || undefined,
   }
   const summaryQuery = useQuery({
     queryKey: ['usage-report', 'summary', params],
@@ -105,6 +113,10 @@ export function UsageReport() {
   const rankingsQuery = useQuery({
     queryKey: ['usage-report', 'rankings', params],
     queryFn: () => getUsageRankings(params),
+  })
+  const modelOptionsQuery = useQuery({
+    queryKey: ['usage-report', 'model-options', scopeParams],
+    queryFn: () => getUsageModelOptions(scopeParams),
   })
   const recordsParams = { ...params, page, page_size: PAGE_SIZE }
   const recordsQuery = useQuery({
@@ -209,6 +221,24 @@ export function UsageReport() {
                   }}
                 />
               )}
+              <Combobox
+                options={[
+                  { value: '', label: t('All models') },
+                  ...(modelOptionsQuery.data?.models ?? []).map((name) => ({
+                    value: name,
+                    label: name,
+                  })),
+                ]}
+                value={modelName}
+                onValueChange={(value) => {
+                  setModelName(value ?? '')
+                  setPage(1)
+                }}
+                placeholder={t('Model')}
+                searchPlaceholder={t('Search models')}
+                emptyText={t('No matching results')}
+                className='w-full sm:w-64'
+              />
               <div
                 className='flex flex-wrap items-center gap-2 sm:ml-auto'
                 role='group'

@@ -149,6 +149,43 @@ func TestUsageRecordsPageNewestFirstWithinScope(t *testing.T) {
 	assert.Equal(t, "r8", second[1].RequestId)
 }
 
+func TestUsageModelFilterNarrowsReportsAndKeepsModelChoicesComplete(t *testing.T) {
+	setupUsageReportTest(t)
+	window := usageReportWindow(0)
+	filtered := UsageScope{OrganizationId: 1, ModelName: "m1"}
+
+	// m1 in organization 1: 100+30+5. The m2 rows and the other organizations are excluded.
+	summary, err := GetUsageSummary(filtered, window)
+	require.NoError(t, err)
+	assert.Equal(t, int64(135), summary.ConsumeQuota)
+	assert.Equal(t, int64(3), summary.Requests)
+
+	records, total, err := GetUsageRecords(filtered, window, 1, 10)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), total)
+	for _, record := range records {
+		assert.Equal(t, "m1", record.ModelName)
+	}
+
+	models, err := GetUsageModels(filtered, window)
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+	assert.Equal(t, "m1", models[0].ModelName)
+
+	// The choices list every model in the scope and window, whichever model is selected.
+	names, err := GetUsageModelNames(filtered, window)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"m1", "m2"}, names)
+
+	platformNames, err := GetUsageModelNames(UsageScope{}, window)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"m1", "m2", "m3"}, platformNames)
+
+	unknown, err := GetUsageSummary(UsageScope{ModelName: "missing"}, window)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), unknown.Requests)
+}
+
 // openUsageReportLogDatabase opens the fixture database. With TEST_CLICKHOUSE_LOG_DSN set, the
 // fixtures run on a ClickHouse log database, created and dropped by the test. Use a disposable
 // loopback instance. Without it, the same fixtures run on the SQL test engines.

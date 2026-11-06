@@ -224,3 +224,19 @@ func TestUsageExportListShowsOnlyTheCallersJobs(t *testing.T) {
 	items, _ = usageData(usageExportBody(t, other))["items"].([]any)
 	assert.Empty(t, items)
 }
+
+// An export keeps the model filter it was created with, so the file matches the report on screen.
+func TestUsageExportCarriesTheModelFilter(t *testing.T) {
+	engine := setupUsageExportEndpoints(t)
+	job := usageExportCreate(t, engine, usageRootUser, common.RoleRootUser, map[string]any{
+		"view": "platform", "model_name": "m2", "kind": "records", "format": "csv",
+	})
+	require.Equal(t, "succeeded", job["status"])
+	assert.Equal(t, "m2", job["model_name"])
+	assert.Equal(t, float64(1), job["row_count"], "only the m2 request of the fixture")
+
+	download := usageExportCall(t, engine, usageRootUser, common.RoleRootUser, http.MethodGet, "/api/usage/exports/"+job["job_id"].(string)+"/download", nil)
+	require.Equal(t, http.StatusOK, download.Code, download.Body.String())
+	assert.Contains(t, download.Body.String(), "a-member-personal")
+	assert.NotContains(t, download.Body.String(), "a-admin", "m1 rows are excluded")
+}

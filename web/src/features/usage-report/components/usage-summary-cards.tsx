@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { formatNumber } from '@/lib/format'
+import { formatLogQuota, formatNumber } from '@/lib/format'
 
 import type { UsageSummary } from '../types'
 
@@ -39,7 +39,9 @@ export function UsageSummaryCards(props: {
           </CardHeader>
           <CardContent>
             <p className='text-xl font-semibold tabular-nums'>
-              {formatNumber(card.value, props.locale)}
+              {card.key === 'consumed'
+                ? formatLogQuota(card.value)
+                : formatNumber(card.value, props.locale)}
             </p>
           </CardContent>
         </Card>

@@ -6,8 +6,9 @@ import "gorm.io/gorm"
 // Zero means the report does not restrict that field. The caller resolves the scope from
 // the authenticated identity; request parameters never widen it on their own.
 type UsageScope struct {
-	OrganizationId int // billing organization snapshot; 0 means every payer
-	UserId         int // user who made the request; 0 means every user
+	OrganizationId int    // billing organization snapshot; 0 means every payer
+	UserId         int    // user who made the request; 0 means every user
+	ModelName      string // model the report is narrowed to; "" means every model
 }
 
 // UsageWindow is the time range of a report. TzOffsetSeconds shifts day boundaries to the
@@ -35,8 +36,21 @@ func usageScoped(scope UsageScope, window UsageWindow) func(tx *gorm.DB) *gorm.D
 		if scope.UserId > 0 {
 			tx = tx.Where("logs.user_id = ?", scope.UserId)
 		}
+		if scope.ModelName != "" {
+			tx = tx.Where("logs.model_name = ?", scope.ModelName)
+		}
 		return tx
 	}
+}
+
+// GetUsageModelNames returns every model with consume rows in the scope's window, ordered by
+// name. The model filter is ignored, so the choices do not shrink when one model is selected.
+func GetUsageModelNames(scope UsageScope, window UsageWindow) ([]string, error) {
+	scope.ModelName = ""
+	var names []string
+	err := usageScoped(scope, window)(LOG_DB.Model(&Log{})).
+		Distinct("logs.model_name").Order("logs.model_name").Pluck("logs.model_name", &names).Error
+	return names, err
 }
 
 // UsageSummary is the consumption and request totals of one scope.

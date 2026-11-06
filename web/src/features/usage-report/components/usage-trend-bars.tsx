@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 
-import { formatNumber, formatTimestampToDate } from '@/lib/format'
+import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
 
 import type { UsageTrendPoint } from '../types'
 
@@ -35,7 +35,7 @@ export function UsageTrendBars(props: {
             />
           </span>
           <span className='text-right tabular-nums'>
-            {formatNumber(point.consume_quota, props.locale)}
+            {formatLogQuota(point.consume_quota)}
           </span>
         </li>
       ))}

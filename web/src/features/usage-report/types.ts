@@ -80,6 +80,7 @@ export interface UsageQueryParams {
   view?: UsageView
   organization_id?: number
   user_id?: number
+  model_name?: string
   start_timestamp: number
   end_timestamp: number
   tz_offset_minutes: number
@@ -104,6 +105,7 @@ export interface UsageExportRequest {
   view?: UsageView
   organization_id?: number
   user_id?: number
+  model_name?: string
   start_timestamp: number
   end_timestamp: number
   tz_offset_minutes: number

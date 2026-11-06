@@ -362,6 +362,7 @@ func SetApiRouter(router *gin.Engine) {
 		usageReportRoute.GET("/summary", controller.GetUsageSummary)
 		usageReportRoute.GET("/trend", controller.GetUsageTrend)
 		usageReportRoute.GET("/models", controller.GetUsageModels)
+		usageReportRoute.GET("/model-options", controller.GetUsageModelOptions)
 		usageReportRoute.GET("/rankings", controller.GetUsageRankings)
 		usageReportRoute.GET("/records", controller.GetUsageRecords)
 		usageReportRoute.POST("/exports", controller.CreateUsageExport)

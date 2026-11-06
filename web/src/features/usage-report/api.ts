@@ -52,6 +52,12 @@ export interface UsageRecordsResponse {
   items: UsageRecordItem[]
 }
 
+// The models a report can be filtered by. The list ignores the model filter itself.
+export interface UsageModelOptionsResponse {
+  meta: UsageMeta
+  models: string[]
+}
+
 async function getUsage<T>(path: string, params: UsageQueryParams): Promise<T> {
   const res = await api.get(`/api/usage/${path}`, { params })
   return requireServerSuccess(res.data).data
@@ -75,6 +81,10 @@ export function getUsageRankings(params: UsageQueryParams) {
 
 export function getUsageRecords(params: UsageQueryParams) {
   return getUsage<UsageRecordsResponse>('records', params)
+}
+
+export function getUsageModelOptions(params: UsageQueryParams) {
+  return getUsage<UsageModelOptionsResponse>('model-options', params)
 }
 
 // Exports are generated on the server. A small export is ready in the create response; a large

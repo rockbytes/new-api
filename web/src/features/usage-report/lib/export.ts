@@ -15,6 +15,7 @@ export function buildUsageExportRequest(
     view: params.view,
     organization_id: params.organization_id,
     user_id: params.user_id,
+    model_name: params.model_name,
     start_timestamp: params.start_timestamp,
     end_timestamp: params.end_timestamp,
     tz_offset_minutes: params.tz_offset_minutes,

@@ -9,7 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { formatNumber, formatTimestamp } from '@/lib/format'
+import { formatLogQuota, formatNumber, formatTimestamp } from '@/lib/format'
 
 import type { UsageRecordItem } from '../api'
 import type { UsagePlatformRecord, UsageSelfRecord, UsageView } from '../types'
@@ -36,7 +36,7 @@ export function UsageRecordsTable(props: {
               <TableHead>{t('Time')}</TableHead>
               <TableHead>{t('Model')}</TableHead>
               <TableHead>{t('Member')}</TableHead>
-              <TableHead className='text-right'>{t('Quota')}</TableHead>
+              <TableHead className='text-right'>{t('Consumed')}</TableHead>
               <TableHead className='text-right'>{t('Prompt tokens')}</TableHead>
               <TableHead className='text-right'>
                 {t('Completion tokens')}
@@ -66,7 +66,7 @@ export function UsageRecordsTable(props: {
                 </TableCell>
                 <TableCell>{item.username}</TableCell>
                 <TableCell className='text-right tabular-nums'>
-                  {formatNumber(item.quota, props.locale)}
+                  {formatLogQuota(item.quota)}
                 </TableCell>
                 <TableCell className='text-right tabular-nums'>
                   {formatNumber(item.prompt_tokens, props.locale)}

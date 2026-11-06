@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,6 +78,7 @@ func setupUsageReportEndpoints(t *testing.T) *gin.Engine {
 	group.GET("/models", GetUsageModels)
 	group.GET("/rankings", GetUsageRankings)
 	group.GET("/records", GetUsageRecords)
+	group.GET("/model-options", GetUsageModelOptions)
 	return engine
 }
 
@@ -246,4 +248,31 @@ func TestUsageHistoryKeepsDepartedMemberUsage(t *testing.T) {
 		requestIds = append(requestIds, item["request_id"].(string))
 	}
 	assert.Contains(t, requestIds, "a-member")
+}
+
+// The model filter narrows each caller's own scope. It never reaches another organization, and
+// the choices list the models the caller can see in the window.
+func TestUsageModelFilterFollowsTheCallersScope(t *testing.T) {
+	engine := setupUsageReportEndpoints(t)
+
+	_, platform := usageCall(t, engine, usageRootUser, common.RoleRootUser, "/api/usage/summary?model_name=m1")
+	assert.Equal(t, float64(219), usageData(platform)["summary"].(map[string]any)["consume_quota"], "m1 across all payers: 100+40+70+9")
+
+	// Organization A paid for m1 only, so its m2 usage is zero.
+	_, organization := usageCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, "/api/usage/summary?model_name=m2")
+	assert.Equal(t, float64(0), usageData(organization)["summary"].(map[string]any)["requests"])
+
+	// The member's personal m2 usage is in their own scope.
+	_, member := usageCall(t, engine, usageOrgAMember, common.RoleCommonUser, "/api/usage/summary?model_name=m2")
+	assert.Equal(t, float64(15), usageData(member)["summary"].(map[string]any)["consume_quota"])
+
+	_, rootOptions := usageCall(t, engine, usageRootUser, common.RoleRootUser, "/api/usage/model-options?model_name=m1")
+	assert.Equal(t, []any{"m1", "m2"}, usageData(rootOptions)["models"], "choices ignore the selected model")
+
+	_, organizationOptions := usageCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, "/api/usage/model-options")
+	assert.Equal(t, []any{"m1"}, usageData(organizationOptions)["models"], "organization A paid only for m1")
+
+	tooLong := strings.Repeat("m", 256)
+	code, _ := usageCall(t, engine, usageRootUser, common.RoleRootUser, "/api/usage/summary?model_name="+tooLong)
+	assert.Equal(t, http.StatusBadRequest, code)
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -18,6 +19,7 @@ const (
 	usageMaxTzOffsetMinutes   = 14 * 60
 	usageDefaultPageSize      = 20
 	usageMaxPageSize          = 100
+	usageMaxModelNameLength   = 255
 	usageBasis                = "settled_consumption"
 	usageUnit                 = "platform_quota"
 )
@@ -120,7 +122,19 @@ func parseUsageRequest(c *gin.Context) (usageRequest, bool) {
 		writeUsageScopeError(c, err)
 		return request, false
 	}
+	modelName, validModel := usageModelName(c.Query("model_name"))
+	if !validModel {
+		writeUsageError(c, http.StatusBadRequest, "USAGE_INVALID_REQUEST", "Invalid model_name")
+		return request, false
+	}
+	request.resolved.Scope.ModelName = modelName
 	return request, true
+}
+
+// usageModelName trims the requested model filter. An empty value means every model.
+func usageModelName(raw string) (string, bool) {
+	name := strings.TrimSpace(raw)
+	return name, len(name) <= usageMaxModelNameLength
 }
 
 func writeUsageScopeError(c *gin.Context, err error) {
@@ -262,6 +276,26 @@ func GetUsageModels(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{"meta": usageMeta(request, names), "models": rows})
+}
+
+// GetUsageModelOptions returns the models the report can be filtered by: every model with usage
+// in the caller's scope and window.
+func GetUsageModelOptions(c *gin.Context) {
+	request, ok := parseUsageRequest(c)
+	if !ok {
+		return
+	}
+	names, err := model.GetUsageModelNames(request.resolved.Scope, request.window)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	organizations, err := usageOrganizationNames(usageOrganizationIds(request))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"meta": usageMeta(request, organizations), "models": names})
 }
 
 // usageRankingBy returns what a ranking groups by for the view. Platform reports rank
