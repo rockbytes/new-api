@@ -1,3 +1,4 @@
+import type { CreateOrganizationMemberPayload } from '@/features/organization-admin/types'
 import { api } from '@/lib/api'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
@@ -88,5 +89,14 @@ export async function getOrganizationDeletionImpact(
 
 export async function deleteOrganization(id: number): Promise<void> {
   const res = await api.delete(`/api/organization/${id}`)
+  requireServerSuccess(res.data)
+}
+
+// A platform administrator adds a member account to the organization they are viewing.
+export async function createOrganizationMemberForAdmin(
+  id: number,
+  payload: CreateOrganizationMemberPayload
+): Promise<void> {
+  const res = await api.post(`/api/organization/${id}/members`, payload)
   requireServerSuccess(res.data)
 }

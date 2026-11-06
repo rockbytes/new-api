@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { ConfirmDialog } from '@/components/confirm-dialog'
 import {
   StaticDataTable,
   type StaticDataTableColumn,
@@ -27,34 +26,34 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { CreateMemberSheet } from '@/features/organization-admin/components/member-sheets'
 import { formatQuotaWithCurrency } from '@/lib/currency'
 import { formatTimestamp } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import {
+  createOrganizationMemberForAdmin,
   getOrganizationDetail,
   setOrganizationMemberAllocation,
   updateOrganizationName,
-  updateOrganizationStatus,
 } from '../api'
-import type { OrganizationMember, OrganizationStatus } from '../types'
-import { OrganizationDeleteDialog } from './organization-delete-dialog'
-import { OrganizationQuotaSection } from './organization-quota-section'
+import type { OrganizationMember } from '../types'
 
 type OrganizationDetailSheetProps = {
   organizationId: number | null
   onOpenChange: (open: boolean) => void
 }
 
+// Renaming and member allocations live here. Status, quota, and deletion are in the list row.
 export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const organizationId = props.organizationId
   const [name, setName] = useState('')
-  const [confirmSuspend, setConfirmSuspend] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(false)
   const [allocationTarget, setAllocationTarget] =
     useState<OrganizationMember | null>(null)
+  const [memberQuery, setMemberQuery] = useState('')
+  const [addMemberOpen, setAddMemberOpen] = useState(false)
 
   const detailQuery = useQuery({
     queryKey: ['organization', organizationId],
@@ -85,18 +84,6 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
       handleServerError(error, t('Failed to update organization.')),
   })
 
-  const statusMutation = useMutation({
-    mutationFn: (status: OrganizationStatus) =>
-      updateOrganizationStatus(organizationId ?? 0, status),
-    onSuccess: () => {
-      toast.success(t('Organization status updated.'))
-      setConfirmSuspend(false)
-      refresh()
-    },
-    onError: (error) =>
-      handleServerError(error, t('Failed to update organization status.')),
-  })
-
   // Changes a member's allocation the way the organization balance is adjusted: add,
   // subtract, or override. The member's usage is the lowest value the dialog allows.
   const handleAllocate = async (mode: QuotaAdjustMode, value: number) => {
@@ -124,8 +111,10 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
     }
   }
 
-  const nextStatus: OrganizationStatus =
-    organization?.status === 'active' ? 'suspended' : 'active'
+  const query = memberQuery.trim().toLowerCase()
+  const visibleMembers = (detailQuery.data?.members ?? []).filter((member) =>
+    member.username.toLowerCase().includes(query)
+  )
 
   const memberColumns: StaticDataTableColumn<OrganizationMember>[] = [
     {
@@ -143,9 +132,9 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
       header: t('Status'),
       cell: (row) =>
         row.status === 'active' ? (
-          <StatusBadge {...statusPresets.active} />
+          <StatusBadge {...statusPresets.active} label={t('Active')} />
         ) : (
-          <StatusBadge {...statusPresets.inactive} />
+          <StatusBadge {...statusPresets.inactive} label={t('Inactive')} />
         ),
     },
     {
@@ -175,7 +164,7 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
           className='text-primary hover:text-primary'
           onClick={() => setAllocationTarget(row)}
         >
-          {t('Set allocation')}
+          {t('Allocate quota')}
         </Button>
       ),
     },
@@ -191,9 +180,7 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
           <SheetHeader className={sideDrawerHeaderClassName()}>
             <SheetTitle>{organization?.name ?? t('Organization')}</SheetTitle>
             <SheetDescription>
-              {t(
-                'Rename the organization, suspend or resume it, and review its members.'
-              )}
+              {t('Rename the organization and review its members.')}
             </SheetDescription>
           </SheetHeader>
           {organization ? (
@@ -224,92 +211,45 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
                 </div>
               </section>
               <section className={sideDrawerSectionClassName()}>
-                <div className='flex items-center justify-between gap-2'>
-                  <span className='text-sm font-medium'>{t('Status')}</span>
-                  <div className='flex items-center gap-2'>
-                    <StatusBadge
-                      label={
-                        organization.status === 'active'
-                          ? t('Active')
-                          : t('Suspended')
-                      }
-                      variant={
-                        organization.status === 'active' ? 'success' : 'danger'
-                      }
+                <div className='flex flex-wrap items-center justify-between gap-2'>
+                  <h3 className='text-sm font-medium'>{t('Members')}</h3>
+                  <div className='flex flex-wrap items-center gap-2'>
+                    <Input
+                      type='search'
+                      aria-label={t('Search by username')}
+                      placeholder={t('Search by username')}
+                      value={memberQuery}
+                      onChange={(event) => setMemberQuery(event.target.value)}
+                      className='w-48'
                     />
-                    <Button
-                      variant='outline'
-                      onClick={() =>
-                        nextStatus === 'suspended'
-                          ? setConfirmSuspend(true)
-                          : statusMutation.mutate(nextStatus)
-                      }
-                      disabled={statusMutation.isPending}
-                    >
-                      {nextStatus === 'suspended' ? t('Suspend') : t('Resume')}
+                    <Button size='sm' onClick={() => setAddMemberOpen(true)}>
+                      {t('Add member')}
                     </Button>
                   </div>
                 </div>
-              </section>
-              <section className={sideDrawerSectionClassName()}>
-                <div className='flex items-center justify-between gap-2'>
-                  <span className='text-sm font-medium'>
-                    {t('Delete organization')}
-                  </span>
-                  <Button
-                    variant='destructive'
-                    onClick={() => setConfirmDelete(true)}
-                  >
-                    {t('Delete organization')}
-                  </Button>
-                </div>
-              </section>
-              <section className={sideDrawerSectionClassName()}>
-                <h3 className='text-sm font-medium'>
-                  {t('Organization quota')}
-                </h3>
-                <OrganizationQuotaSection
-                  organizationId={organizationId ?? 0}
-                />
-              </section>
-              <section className={sideDrawerSectionClassName()}>
-                <h3 className='text-sm font-medium'>{t('Members')}</h3>
                 <StaticDataTable
                   columns={memberColumns}
-                  data={detailQuery.data?.members ?? []}
+                  data={visibleMembers}
                 />
               </section>
             </div>
           ) : null}
         </SheetContent>
       </Sheet>
+      <CreateMemberSheet
+        open={addMemberOpen}
+        onOpenChange={setAddMemberOpen}
+        submit={(values) =>
+          createOrganizationMemberForAdmin(organizationId ?? 0, values)
+        }
+        onCreated={refresh}
+      />
       <QuotaAdjustDialog
         open={allocationTarget !== null}
         onOpenChange={(open) => !open && setAllocationTarget(null)}
         currentQuota={allocationTarget?.allocated_quota ?? 0}
         minimumQuota={allocationTarget?.used_quota ?? 0}
         onConfirm={handleAllocate}
-      />
-      <OrganizationDeleteDialog
-        organizationId={organizationId ?? 0}
-        open={confirmDelete}
-        onOpenChange={setConfirmDelete}
-        onDeleted={() => {
-          setConfirmDelete(false)
-          props.onOpenChange(false)
-        }}
-      />
-      <ConfirmDialog
-        open={confirmSuspend}
-        onOpenChange={setConfirmSuspend}
-        title={t('Suspend organization?')}
-        desc={t(
-          'Members of a suspended organization cannot use organization management until it is resumed.'
-        )}
-        confirmText={t('Suspend')}
-        destructive
-        isLoading={statusMutation.isPending}
-        handleConfirm={() => statusMutation.mutate('suspended')}
       />
     </>
   )

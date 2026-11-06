@@ -264,6 +264,88 @@ func ListOrganizations(startIdx int, pageSize int) ([]*Organization, int64, erro
 	return organizations, total, err
 }
 
+// OrganizationSummary is an organization with the figures its list row shows. MemberCount counts
+// active memberships. The quota figures follow GetOrganizationQuotaReconciliation: granted and
+// allocated come from the account and the member allocations, and unallocated is what is left of the
+// granted quota after consumption and after the members' unused allocations.
+type OrganizationSummary struct {
+	Organization
+	MemberCount      int64 `json:"member_count"`
+	GrantedQuota     int64 `json:"granted_quota"`
+	AllocatedQuota   int64 `json:"allocated_quota"`
+	UnallocatedQuota int64 `json:"unallocated_quota"`
+}
+
+// ListOrganizationSummaries returns one page of organizations with the figures in OrganizationSummary.
+// Each figure comes from one grouped query for the page, so the list does not query per organization.
+func ListOrganizationSummaries(startIdx int, pageSize int) ([]OrganizationSummary, int64, error) {
+	organizations, total, err := ListOrganizations(startIdx, pageSize)
+	if err != nil {
+		return nil, 0, err
+	}
+	summaries := make([]OrganizationSummary, 0, len(organizations))
+	if len(organizations) == 0 {
+		return summaries, total, nil
+	}
+	ids := make([]int, 0, len(organizations))
+	for _, organization := range organizations {
+		ids = append(ids, organization.Id)
+	}
+
+	var memberRows []struct {
+		OrganizationId int
+		MemberCount    int64
+	}
+	if err := DB.Model(&OrganizationMembership{}).
+		Select("organization_id, COUNT(*) AS member_count").
+		Where("organization_id IN ? AND status = ?", ids, OrganizationMembershipActive).
+		Group("organization_id").Scan(&memberRows).Error; err != nil {
+		return nil, 0, err
+	}
+	members := make(map[int]int64, len(memberRows))
+	for _, row := range memberRows {
+		members[row.OrganizationId] = row.MemberCount
+	}
+
+	var accounts []OrganizationQuotaAccount
+	if err := DB.Where("organization_id IN ?", ids).Find(&accounts).Error; err != nil {
+		return nil, 0, err
+	}
+	accountByOrganization := make(map[int]OrganizationQuotaAccount, len(accounts))
+	for _, account := range accounts {
+		accountByOrganization[account.OrganizationId] = account
+	}
+
+	var allocationRows []struct {
+		OrganizationId int
+		Allocated      int64
+		Used           int64
+	}
+	if err := DB.Model(&OrganizationMemberQuota{}).
+		Select("organization_id, COALESCE(SUM(allocated_quota), 0) AS allocated, COALESCE(SUM(used_quota), 0) AS used").
+		Where("organization_id IN ?", ids).
+		Group("organization_id").Scan(&allocationRows).Error; err != nil {
+		return nil, 0, err
+	}
+	allocated := make(map[int]int64, len(allocationRows))
+	used := make(map[int]int64, len(allocationRows))
+	for _, row := range allocationRows {
+		allocated[row.OrganizationId] = row.Allocated
+		used[row.OrganizationId] = row.Used
+	}
+
+	for _, organization := range organizations {
+		summary := OrganizationSummary{Organization: *organization, MemberCount: members[organization.Id]}
+		if account, ok := accountByOrganization[organization.Id]; ok {
+			summary.GrantedQuota = account.GrantedQuota
+			summary.AllocatedQuota = allocated[organization.Id]
+			summary.UnallocatedQuota = account.GrantedQuota - account.ConsumedQuota - (allocated[organization.Id] - used[organization.Id])
+		}
+		summaries = append(summaries, summary)
+	}
+	return summaries, total, nil
+}
+
 func UpdateOrganizationName(id int, name string, now int64) error {
 	result := DB.Model(&Organization{}).Where("id = ?", id).Updates(map[string]any{"name": name, "updated_time": now})
 	if result.Error != nil {

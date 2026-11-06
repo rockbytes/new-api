@@ -23,11 +23,19 @@ export interface OrganizationMember {
   used_quota: number
 }
 
+// A row of the organization list: the organization with its member count and quota figures.
+export interface OrganizationSummary extends Organization {
+  member_count: number
+  granted_quota: number
+  allocated_quota: number
+  unallocated_quota: number
+}
+
 export interface OrganizationPage {
   page: number
   page_size: number
   total: number
-  items: Organization[]
+  items: OrganizationSummary[]
 }
 
 export interface OrganizationDetail {

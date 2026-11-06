@@ -469,3 +469,41 @@ func TestOrganizationUnallocatedAdjustmentAddsSubtractsAndOverridesThroughTheLed
 	assert.Equal(t, int64(2), revokes, "subtract and the clearing override are recorded as revokes")
 	assert.Equal(t, int64(1), grants, "only the add is recorded as a grant")
 }
+
+// The list figures agree with the reconciliation for the same organization: only active members count,
+// and an organization without a quota account shows zeros.
+func TestOrganizationSummariesCountActiveMembersAndMatchReconciliation(t *testing.T) {
+	orgId, memberId := setupOrganizationQuotaTestDB(t)
+	disabled := &User{Id: 11, Username: "disabled-member", Password: "not-a-real-password", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, AffCode: "aff-disabled-member"}
+	require.NoError(t, DB.Create(disabled).Error)
+	require.NoError(t, DB.Create(&OrganizationMembership{OrganizationId: orgId, UserId: disabled.Id,
+		Role: OrganizationRoleMember, Status: "disabled", CreatedTime: 1, UpdatedTime: 1}).Error)
+	empty := &Organization{Name: "No Account Co", Status: OrganizationStatusActive, CreatedTime: 1, UpdatedTime: 1}
+	require.NoError(t, DB.Create(empty).Error)
+
+	_, err := GrantOrganizationQuota(orgId, 1000, 1, "grant", "grant-1", 1)
+	require.NoError(t, err)
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 300, false, 2))
+
+	summaries, total, err := ListOrganizationSummaries(0, 10)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), total)
+	byId := map[int]OrganizationSummary{}
+	for _, summary := range summaries {
+		byId[summary.Id] = summary
+	}
+
+	reconciliation := reconciliationOf(t, orgId)
+	quota := byId[orgId]
+	assert.Equal(t, int64(1), quota.MemberCount, "the disabled membership is not counted")
+	assert.Equal(t, reconciliation.GrantedQuota, quota.GrantedQuota)
+	assert.Equal(t, reconciliation.Allocated, quota.AllocatedQuota)
+	assert.Equal(t, reconciliation.Unallocated, quota.UnallocatedQuota)
+	assert.Equal(t, int64(700), quota.UnallocatedQuota)
+
+	bare := byId[empty.Id]
+	assert.Equal(t, int64(0), bare.MemberCount)
+	assert.Equal(t, int64(0), bare.GrantedQuota)
+	assert.Equal(t, int64(0), bare.UnallocatedQuota)
+}

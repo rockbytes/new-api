@@ -143,7 +143,7 @@ func organizationInitialPasswordValid(password string) bool {
 
 func GetOrganizations(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
-	organizations, total, err := model.ListOrganizations(pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	organizations, total, err := model.ListOrganizationSummaries(pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		respondOrganizationError(c, err)
 		return
@@ -314,6 +314,35 @@ func CreateOrganizationMember(c *gin.Context) {
 		return
 	}
 	if err := model.CreateOrganizationMemberAccount(organization.Id, username, request.Password, c.GetInt("id"), common.GetTimestamp()); err != nil {
+		respondOrganizationError(c, err)
+		return
+	}
+	common.ApiSuccess(c, nil)
+}
+
+// RootCreateOrganizationMember creates a member account in the organization named by the path.
+// Platform administrators use it from the organization page; organization admins use
+// CreateOrganizationMember for their own organization.
+func RootCreateOrganizationMember(c *gin.Context) {
+	id, ok := organizationIdParam(c)
+	if !ok {
+		return
+	}
+	var request organizationMemberCreateRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_INVALID_REQUEST", "Invalid request")
+		return
+	}
+	username := strings.TrimSpace(request.Username)
+	if username == "" {
+		writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_USERNAME_REQUIRED", "Username is required")
+		return
+	}
+	if !organizationInitialPasswordValid(request.Password) {
+		writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_PASSWORD_INVALID", "Password must be 8 to 128 characters")
+		return
+	}
+	if err := model.CreateOrganizationMemberAccount(id, username, request.Password, c.GetInt("id"), common.GetTimestamp()); err != nil {
 		respondOrganizationError(c, err)
 		return
 	}

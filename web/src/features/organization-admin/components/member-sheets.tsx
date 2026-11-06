@@ -41,7 +41,7 @@ import {
 } from '../api'
 import type { OrganizationMemberRow } from '../types'
 
-type CreateMemberValues = { username: string; password: string }
+export type CreateMemberValues = { username: string; password: string }
 type ResetPasswordValues = { password: string }
 
 type SheetProps = {
@@ -49,7 +49,14 @@ type SheetProps = {
   onOpenChange: (open: boolean) => void
 }
 
-export function CreateMemberSheet(props: SheetProps) {
+type CreateMemberSheetProps = SheetProps & {
+  // Creates the account. Organization admins create it in their own organization, which is the default.
+  // Platform administrators pass the organization they are viewing.
+  submit?: (values: CreateMemberValues) => Promise<void>
+  onCreated?: () => void
+}
+
+export function CreateMemberSheet(props: CreateMemberSheetProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
 
@@ -67,10 +74,12 @@ export function CreateMemberSheet(props: SheetProps) {
   })
 
   const mutation = useMutation({
-    mutationFn: createOrganizationMember,
+    mutationFn: (values: CreateMemberValues) =>
+      (props.submit ?? createOrganizationMember)(values),
     onSuccess: () => {
       toast.success(t('Member account created.'))
       queryClient.invalidateQueries({ queryKey: ['organization-members'] })
+      props.onCreated?.()
       form.reset()
       props.onOpenChange(false)
     },

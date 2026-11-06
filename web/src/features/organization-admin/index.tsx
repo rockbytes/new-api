@@ -207,7 +207,7 @@ export function OrganizationAdmin() {
           </DropdownMenuItem>
           {row.role === 'member' && (
             <DropdownMenuItem onClick={() => setAllocationTarget(row)}>
-              {t('Set allocation')}
+              {t('Allocate quota')}
             </DropdownMenuItem>
           )}
           <DropdownMenuItem onClick={() => setResetTarget(row)}>

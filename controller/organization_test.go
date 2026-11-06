@@ -90,9 +90,9 @@ func organizationTestEngine(userId int, role int) *gin.Engine {
 	root := engine.Group("/api/organization")
 	root.GET("/", GetOrganizations)
 	root.POST("/", CreateOrganization)
-	root.GET("/:id", GetOrganization)
 	root.PUT("/:id", UpdateOrganization)
 	root.PUT("/:id/status", UpdateOrganizationStatus)
+	root.POST("/:id/members", RootCreateOrganizationMember)
 	root.GET("/:id/quota", RootGetOrganizationQuota)
 	root.POST("/:id/quota/grant", RootGrantOrganizationQuota)
 	root.POST("/:id/quota/adjust", RootAdjustOrganizationQuota)
@@ -596,4 +596,29 @@ func TestOrganizationQuotaAdjustEndpointAddsAndRefusesOverdraw(t *testing.T) {
 		`{"mode":"subtract","amount":1500,"reason":"too much","reference":"endpoint-subtract"}`)
 	assert.Equal(t, http.StatusConflict, recorder.Code)
 	assert.Equal(t, "ORGANIZATION_QUOTA_INSUFFICIENT", organizationErrorCode(t, recorder))
+}
+
+// A platform administrator adds a member to any organization from its page. The new account joins
+// that organization as an ordinary member, and it appears in the organization's member list.
+func TestOrganizationRootAddsMemberToAnyOrganization(t *testing.T) {
+	db := setupOrganizationTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Task{}, &model.Log{}, &model.AuditLog{}))
+	organizationId := createOrganizationWithAdmin(t, "Member Co", "member-admin")
+	path := fmt.Sprintf("/api/organization/%d/members", organizationId)
+
+	recorder := doOrganizationRequest(t, organizationTestRootId, http.MethodPost, path,
+		`{"username":"added-by-root","password":"long-enough-pass"}`)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+
+	members, err := model.ListOrganizationMemberViews(organizationId)
+	require.NoError(t, err)
+	usernames := make([]string, 0, len(members))
+	for _, member := range members {
+		usernames = append(usernames, member.Username)
+	}
+	assert.Contains(t, usernames, "added-by-root")
+
+	refused := doOrganizationRequest(t, organizationTestRootId, http.MethodPost, path,
+		`{"username":"short","password":"short"}`)
+	assert.Equal(t, http.StatusBadRequest, refused.Code)
 }
