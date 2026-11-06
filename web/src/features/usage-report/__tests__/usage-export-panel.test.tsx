@@ -142,6 +142,20 @@ describe('UsageExportPanel', () => {
     expect(mockedCreate).not.toHaveBeenCalled()
   })
 
+  it('shows the row count a summary export will write', async () => {
+    mockedList.mockResolvedValue([])
+    mockedEstimate.mockResolvedValue({ delivery: 'direct', row_count: 4 })
+
+    renderPanel()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Usage summary (CSV)' })
+    )
+
+    const dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByText('4')).toBeInTheDocument()
+    expect(within(dialog).queryByText('-')).not.toBeInTheDocument()
+  })
+
   it('does not start an export when the confirmation is cancelled', async () => {
     mockedList.mockResolvedValue([])
     mockedEstimate.mockResolvedValue({ delivery: 'direct', row_count: 12 })

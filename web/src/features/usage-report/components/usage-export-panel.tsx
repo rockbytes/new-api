@@ -200,9 +200,7 @@ export function UsageExportPanel(props: {
             <dd>{props.scope.model}</dd>
             <dt className='text-muted-foreground'>{t('Rows')}</dt>
             <dd className='tabular-nums'>
-              {pending.option.key === 'summary'
-                ? '-'
-                : formatNumber(pending.estimate.row_count, locale)}
+              {formatNumber(pending.estimate.row_count, locale)}
             </dd>
             <dt className='text-muted-foreground'>{t('Delivery')}</dt>
             <dd>{deliveryText(pending.estimate)}</dd>

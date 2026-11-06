@@ -140,7 +140,33 @@ func planUsageExport(callerId int, callerRole int, request UsageExportRequest) (
 		}
 		plan.rows = count
 	}
+	if kind == UsageExportKindSummary {
+		count, err := usageSummaryRowCount(resolved, plan.window)
+		if err != nil {
+			return usageExportPlan{}, err
+		}
+		plan.rows = count
+	}
 	return plan, nil
+}
+
+// usageSummaryRowCount counts the rows a summary export writes: the totals row, one row per model,
+// and one row per ranked member or organization. It runs the same queries as the writer.
+func usageSummaryRowCount(resolved ResolvedUsageScope, window model.UsageWindow) (int64, error) {
+	models, err := model.GetUsageModels(resolved.Scope, window)
+	if err != nil {
+		return 0, err
+	}
+	rows := int64(1 + len(models))
+	by, ranked := UsageRankingFor(resolved)
+	if !ranked {
+		return rows, nil
+	}
+	ranking, err := model.GetUsageRanking(resolved.Scope, window, by)
+	if err != nil {
+		return 0, err
+	}
+	return rows + int64(len(ranking)), nil
 }
 
 // newUsageExportJob builds the record of an export from its checked plan.

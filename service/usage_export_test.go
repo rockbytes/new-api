@@ -388,3 +388,25 @@ func TestUsageExportAmountsFollowTheQuotaDisplaySetting(t *testing.T) {
 	assert.Contains(t, header, "consumed_amount")
 	assert.Contains(t, header, "currency")
 }
+
+// The confirmation shows the row count a summary export will write, so the estimate must match the
+// file: the totals row, the model rows, and the ranking rows.
+func TestUsageSummaryEstimateCountsTheRowsItWrites(t *testing.T) {
+	setupUsageExportServiceTest(t)
+	start, end := usageExportTestWindow()
+	request := UsageExportRequest{View: UsageViewPlatform, StartTimestamp: start, EndTimestamp: end, Format: UsageExportFormatCSV, Kind: UsageExportKindSummary, WithBom: true}
+
+	estimate, err := EstimateUsageExport(usageExportRoot, common.RoleRootUser, request)
+	require.NoError(t, err)
+	assert.Equal(t, UsageExportDeliveryDirect, estimate.Delivery)
+
+	summary := usageExportCreate(t, usageExportRoot, common.RoleRootUser, request)
+	var written int64
+	for _, row := range usageExportCSVRows(t, usageExportReadFile(t, summary)) {
+		if len(row) > 0 && (row[0] == "summary" || row[0] == "models" || row[0] == "rankings") {
+			written++
+		}
+	}
+	assert.Equal(t, written, estimate.RowCount)
+	assert.Equal(t, summary.RowCount, estimate.RowCount)
+}
