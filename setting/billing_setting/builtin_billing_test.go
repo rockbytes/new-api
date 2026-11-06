@@ -315,3 +315,60 @@ func TestClaude5BuiltinBilling(t *testing.T) {
 		})
 	}
 }
+
+// Gemini built-in prices are flat USD per 1M tokens. The cached usage reports
+// 3000 prompt tokens including 1000 cache reads. gemini-2.5-flash-lite has no
+// cache read price, so its cached tokens stay in the input price.
+func TestGeminiBuiltinBilling(t *testing.T) {
+	settings := config.GlobalConfig.Get("billing_setting").(*billing_setting.BillingSetting)
+	saved := *settings
+	savedRatios, savedPrices := ratio_setting.ModelRatio2JSONString(), ratio_setting.ModelPrice2JSONString()
+	t.Cleanup(func() {
+		*settings = saved
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(savedRatios))
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(savedPrices))
+	})
+	*settings = billing_setting.BillingSetting{BillingMode: map[string]string{}, BillingExpr: map[string]string{}}
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{}`))
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{}`))
+
+	plain := &dto.Usage{PromptTokens: 1000, CompletionTokens: 100}
+	cached := &dto.Usage{
+		PromptTokens: 3000, CompletionTokens: 200,
+		PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 1000},
+	}
+	for model, want := range map[string]struct{ plain, cached int }{
+		// 3.5 Flash plain: 1000*1.5 + 100*9 = 2400 -> $0.0024.
+		// 3.5 Flash cached: 2000*1.5 + 1000*0.15 + 200*9 = 4950 -> $0.00495.
+		"gemini-3.5-flash": {plain: 1200, cached: 2475},
+		// 3.5 Flash-Lite plain: 1000*0.3 + 100*2.5 = 550 -> $0.00055.
+		// 3.5 Flash-Lite cached: 2000*0.3 + 1000*0.03 + 200*2.5 = 1130 -> $0.00113.
+		"gemini-3.5-flash-lite": {plain: 275, cached: 565},
+		// Argon plain: 1000*2 + 100*10 = 3000 -> $0.003.
+		// Argon cached: 2000*2 + 1000*0.1 + 200*10 = 6100 -> $0.0061.
+		"gemini-4-argon": {plain: 1500, cached: 3050},
+		// 2.5 Flash-Lite plain: 1000*0.1 + 100*0.4 = 140 -> $0.00014.
+		// 2.5 Flash-Lite cached: 3000*0.1 + 200*0.4 = 380 -> $0.00038.
+		"gemini-2.5-flash-lite": {plain: 70, cached: 190},
+	} {
+		t.Run(model, func(t *testing.T) {
+			assert.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingMode(model))
+			expression, ok := billing_setting.GetBillingExpr(model)
+			require.True(t, ok)
+			for name, tc := range map[string]struct {
+				usage *dto.Usage
+				quota int
+			}{
+				"plain":  {plain, want.plain},
+				"cached": {cached, want.cached},
+			} {
+				params := service.BuildTieredTokenParams(tc.usage, false, billingexpr.UsedVars(expression))
+				result, err := billingexpr.ComputeTieredQuota(&billingexpr.BillingSnapshot{
+					ExprString: expression, ExprHash: billingexpr.ExprHashString(expression), GroupRatio: 1, QuotaPerUnit: 500000,
+				}, params)
+				require.NoError(t, err, name)
+				assert.Equal(t, tc.quota, result.ActualQuotaAfterGroup, name)
+			}
+		})
+	}
+}

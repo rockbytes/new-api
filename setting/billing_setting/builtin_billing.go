@@ -48,6 +48,16 @@ var builtinBillingExpr = map[string]string{
 	"deepseek-v4-flash":            deepSeekFlashExpr,
 	"deepseek-v4-flash-vision-exp": deepSeekFlashExpr,
 	"deepseek-v4-pro":              deepSeekPeak + ` ? tier("peak", p * 1.3 + cr * 0.0435 + c * 3.91) : tier("off_peak", p * 0.6522 + cr * 0.0217 + c * 1.96)`,
+	// Gemini standard paid-tier prices, USD per 1M tokens, from the price list
+	// for these models. Each has a flat 1M context window. Image, audio and
+	// video inputs bill at the text input price. Hosted Google Search bills per
+	// query through the default google_search tool price ($14 per 1K queries).
+	"gemini-3.5-flash":      `tier("base", p * 1.5 + c * 9 + cr * 0.15)`,
+	"gemini-3.5-flash-lite": `tier("base", p * 0.3 + c * 2.5 + cr * 0.03)`,
+	"gemini-4-argon":        `tier("base", p * 2 + c * 10 + cr * 0.1)`,
+	// gemini-2.5-flash-lite has no cache read price, so cached tokens bill at
+	// the input price. Batch prices are not modeled.
+	"gemini-2.5-flash-lite": `tier("base", p * 0.1 + c * 0.4)`,
 	// The Search and Fetch API routing names: $0.75 per 1,000 successful
 	// requests each, the same pricing page. The calls carry no tokens.
 	constant.DeepSeekSearchModel: `tier("request", fixed(0.00075))`,
