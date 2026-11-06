@@ -210,9 +210,9 @@ func TestDistributeHidesTaskPluginDetailsButLogsDiagnostics(t *testing.T) {
 
 	const group = "private-plugin-error-test-group"
 	for _, locale := range []struct{ language, message string }{
-		{"en", "No available channel for model task-model under group " + group + ": the model is claimed by a task plugin, which has no enabled channel serving it (distributor)"},
-		{"zh-CN", "分组 " + group + " 下模型 task-model 无可用渠道：该模型由任务插件认领，但当前没有启用的渠道可服务此模型（distributor）"},
-		{"zh-TW", "分組 " + group + " 下模型 task-model 無可用管道：該模型由任務插件認領，但目前沒有啟用的管道可服務此模型（distributor）"},
+		{"en", "No channel can serve model task-model in group " + group + ". The model is provided by a task plugin, but no enabled channel in this group serves it. Check the group's channels."},
+		{"zh-CN", "分组 " + group + " 中没有可以提供模型 task-model 的已启用渠道。该模型由任务插件提供，但此分组下没有渠道支持它，请检查此分组的渠道配置。"},
+		{"zh-TW", "分組 " + group + " 中沒有可以提供模型 task-model 的已啟用管道。該模型由任務插件提供，但此分組下沒有管道支援它，請檢查此分組的管道設定。"},
 	} {
 		for _, providerCount := range []int{1, 2} {
 			t.Run(fmt.Sprintf("%s/%d_providers", locale.language, providerCount), func(t *testing.T) {
@@ -262,7 +262,7 @@ func TestDistributeHidesTaskPluginDetailsButLogsDiagnostics(t *testing.T) {
 				require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 				requestID := recorder.Header().Get(common.RequestIdKey)
 				require.NotEmpty(t, requestID)
-				assert.JSONEq(t, fmt.Sprintf(`{"error":{"message":%q,"type":"new_api_error","code":"model_not_found"}}`,
+				assert.JSONEq(t, fmt.Sprintf(`{"error":{"message":%q,"type":"server_error","code":"model_not_found"}}`,
 					locale.message+" (request id: "+requestID+")"), recorder.Body.String())
 				assert.NotContains(t, recorder.Body.String(), "disable or override")
 				for _, key := range keys {

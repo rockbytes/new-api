@@ -212,6 +212,16 @@ func (e *NewAPIError) SetMessage(message string) {
 	e.Err = errors.New(message)
 }
 
+// responseErrorType is the type sent to clients. Errors the gateway generated carry the
+// internal new_api_error type, which is replaced by the standard type for the status code;
+// other types come from upstreams or named error kinds and are passed through.
+func (e *NewAPIError) responseErrorType(standard func(statusCode int) string) string {
+	if e.errorType == ErrorTypeNewAPIError {
+		return standard(e.StatusCode)
+	}
+	return string(e.errorType)
+}
+
 // ToOpenAIError masks the upstream addresses in the message; pass those of the
 // channel that produced the error, or none when no channel did.
 func (e *NewAPIError) ToOpenAIError(upstreamURLs ...string) OpenAIError {
@@ -233,7 +243,7 @@ func (e *NewAPIError) ToOpenAIError(upstreamURLs ...string) OpenAIError {
 	default:
 		result = OpenAIError{
 			Message: e.Error(),
-			Type:    string(e.errorType),
+			Type:    e.responseErrorType(OpenAIErrorTypeForStatus),
 			Param:   "",
 			Code:    e.errorCode,
 		}
@@ -265,7 +275,7 @@ func (e *NewAPIError) ToClaudeError(upstreamURLs ...string) ClaudeError {
 	default:
 		result = ClaudeError{
 			Message: e.Error(),
-			Type:    string(e.errorType),
+			Type:    e.responseErrorType(ClaudeErrorTypeForStatus),
 		}
 	}
 	if e.errorCode != ErrorCodeCountTokenFailed {
