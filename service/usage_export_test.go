@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/csv"
 	"errors"
@@ -90,10 +91,27 @@ func usageExportCreate(t *testing.T, caller int, role int, request UsageExportRe
 	t.Helper()
 	start, end := usageExportTestWindow()
 	request.StartTimestamp, request.EndTimestamp = start, end
-	job, err := CreateUsageExport(nil, caller, role, request)
+	created, err := CreateUsageExport(nil, caller, role, request)
 	require.NoError(t, err)
+	job := usageExportAwait(t, created.JobId)
 	require.Equal(t, model.UsageExportStatusSucceeded, job.Status, "error code: %s", job.ErrorCode)
 	return job
+}
+
+// usageExportAwait waits until a job reaches a final state. The job runs in the background, so
+// tests wait for its state instead of guessing a delay.
+func usageExportAwait(t *testing.T, jobId string) *model.UsageExportJob {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		job, err := model.GetUsageExportJob(jobId)
+		require.NoError(t, err)
+		if job.Status == model.UsageExportStatusSucceeded || job.Status == model.UsageExportStatusFailed {
+			return job
+		}
+		require.True(t, time.Now().Before(deadline), "job %s is still %s", jobId, job.Status)
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 func usageExportReadFile(t *testing.T, job *model.UsageExportJob) []byte {
@@ -235,29 +253,29 @@ func TestUsageExportCSVAndWorkbookReportTheSameNumbers(t *testing.T) {
 	assert.True(t, escaped, "the username cell is escaped in the workbook")
 }
 
-func TestUsageExportAsyncRunMatchesInlineBytes(t *testing.T) {
+// A direct export streams the same bytes a queued job stores, and it leaves no job record behind.
+func TestUsageExportDirectOutputMatchesQueuedJob(t *testing.T) {
 	setupUsageExportServiceTest(t)
-	inline := usageExportCreate(t, usageExportOrgAAdmin, common.RoleCommonUser, UsageExportRequest{
-		View: UsageViewOrganization, OrganizationId: usageExportOrgA, Format: UsageExportFormatCSV,
-		Kind: UsageExportKindRecords, WithBom: true})
-
-	// The background path runs the same job body: a queued row, then RunUsageExportJob.
 	start, end := usageExportTestWindow()
-	queued := &model.UsageExportJob{
-		JobId: common.GetUUID(), UserId: usageExportOrgAAdmin, View: string(UsageViewOrganization),
-		OrganizationId: usageExportOrgA, StartTimestamp: start, EndTimestamp: end,
-		Format: UsageExportFormatCSV, Kind: UsageExportKindRecords, WithBom: true,
-		Status: model.UsageExportStatusQueued, CreatedTime: common.GetTimestamp(),
-	}
-	require.NoError(t, model.CreateUsageExportJob(queued))
-	require.NoError(t, RunUsageExportJob(queued.JobId))
-	background, err := model.GetUsageExportJob(queued.JobId)
-	require.NoError(t, err)
-	require.Equal(t, model.UsageExportStatusSucceeded, background.Status)
+	request := UsageExportRequest{
+		View: UsageViewOrganization, OrganizationId: usageExportOrgA, StartTimestamp: start, EndTimestamp: end,
+		Format: UsageExportFormatCSV, Kind: UsageExportKindRecords, WithBom: true}
 
-	assert.Equal(t, usageExportReadFile(t, inline), usageExportReadFile(t, background))
-	assert.Equal(t, inline.RowCount, background.RowCount)
-	assert.True(t, strings.HasPrefix(string(usageExportReadFile(t, background)), usageExportBOM))
+	var jobsBefore int64
+	require.NoError(t, model.DB.Model(&model.UsageExportJob{}).Count(&jobsBefore).Error)
+	direct, err := PrepareDirectUsageExport(usageExportOrgAAdmin, common.RoleCommonUser, request)
+	require.NoError(t, err)
+	var streamed bytes.Buffer
+	_, err = direct.Write(&streamed)
+	direct.Close()
+	require.NoError(t, err)
+	var jobsAfter int64
+	require.NoError(t, model.DB.Model(&model.UsageExportJob{}).Count(&jobsAfter).Error)
+	assert.Equal(t, jobsBefore, jobsAfter, "a direct export stores no job")
+
+	queued := usageExportCreate(t, usageExportOrgAAdmin, common.RoleCommonUser, request)
+	assert.Equal(t, usageExportReadFile(t, queued), streamed.Bytes())
+	assert.True(t, strings.HasPrefix(streamed.String(), usageExportBOM))
 }
 
 func TestUsageExportCleanupExpiresFilesAndFailsStaleJobs(t *testing.T) {
@@ -318,7 +336,7 @@ func TestUsageExportLimitsActiveJobsPerUser(t *testing.T) {
 
 	job, err := CreateUsageExport(nil, usageExportOrgAAdmin, common.RoleCommonUser, request)
 	require.NoError(t, err, "the limit is per user")
-	assert.Equal(t, model.UsageExportStatusSucceeded, job.Status)
+	assert.Equal(t, model.UsageExportStatusSucceeded, usageExportAwait(t, job.JobId).Status)
 }
 
 // Export amounts follow the site's quota display setting, as the report page does. Each setting

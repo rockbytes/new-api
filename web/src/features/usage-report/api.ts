@@ -1,6 +1,9 @@
+import { isAxiosError } from 'axios'
+
 import { api } from '@/lib/api'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
+import { usageExportFileName } from './lib/export'
 import type {
   UsageCompanyRecord,
   UsageExportJob,
@@ -110,4 +113,51 @@ export async function downloadUsageExport(jobId: string): Promise<Blob> {
     skipBusinessError: true,
   })
   return res.data
+}
+
+// How an export is delivered. A direct export is streamed to the browser, a queued one becomes a
+// job that stays in the list.
+export interface UsageExportEstimate {
+  delivery: 'direct' | 'queued'
+  row_count: number
+}
+
+export async function getUsageExportEstimate(
+  request: UsageExportRequest
+): Promise<UsageExportEstimate> {
+  const res = await api.get('/api/usage/exports/estimate', { params: request })
+  return requireServerSuccess(res.data).data
+}
+
+// A failed download answers with JSON inside a blob. Read it back so the error code is visible.
+async function readBlobErrorBody(error: unknown): Promise<void> {
+  if (!isAxiosError(error)) return
+  const response = error.response
+  const body = response?.data
+  if (!response || !(body instanceof Blob)) return
+  try {
+    response.data = JSON.parse(await body.text())
+  } catch {
+    // Not JSON, so the blob stays as the body.
+  }
+}
+
+export async function downloadUsageExportDirect(
+  request: UsageExportRequest
+): Promise<{ blob: Blob; fileName: string }> {
+  try {
+    const res = await api.get<Blob>('/api/usage/exports/direct', {
+      params: request,
+      responseType: 'blob',
+      skipErrorHandler: true,
+      skipBusinessError: true,
+    })
+    return {
+      blob: res.data,
+      fileName: usageExportFileName(res.headers['content-disposition']),
+    }
+  } catch (error) {
+    await readBlobErrorBody(error)
+    throw error
+  }
 }

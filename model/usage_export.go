@@ -155,3 +155,28 @@ func ForEachUsageRecord(scope UsageScope, window UsageWindow, batchSize int, vis
 		}
 	}
 }
+
+// FailQueuedUsageExportJob fails a job that no generation slot picked up in time.
+func FailQueuedUsageExportJob(jobId string, errorCode string, now int64) error {
+	return DB.Model(&UsageExportJob{}).
+		Where("job_id = ? AND status = ?", jobId, UsageExportStatusQueued).
+		Updates(map[string]any{"status": UsageExportStatusFailed, "error_code": errorCode, "finished_time": now}).Error
+}
+
+// FailAbandonedQueuedUsageExportJobs fails queued jobs created before the cutoff. A job is left
+// queued when the process that owned it stopped before it ran.
+func FailAbandonedQueuedUsageExportJobs(createdBefore int64, now int64, errorCode string) (int64, error) {
+	result := DB.Model(&UsageExportJob{}).
+		Where("status = ? AND created_time > 0 AND created_time < ?", UsageExportStatusQueued, createdBefore).
+		Updates(map[string]any{"status": UsageExportStatusFailed, "error_code": errorCode, "finished_time": now})
+	return result.RowsAffected, result.Error
+}
+
+// DeleteUsageExportJobsCreatedBefore removes failed and expired job records older than the cutoff.
+// Succeeded jobs are kept until their file is deleted, so a record never outlives its file by
+// accident.
+func DeleteUsageExportJobsCreatedBefore(createdBefore int64) (int64, error) {
+	result := DB.Where("status IN ? AND created_time > 0 AND created_time < ?",
+		[]string{UsageExportStatusFailed, UsageExportStatusExpired}, createdBefore).Delete(&UsageExportJob{})
+	return result.RowsAffected, result.Error
+}

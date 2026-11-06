@@ -4,18 +4,28 @@ import userEvent from '@testing-library/user-event'
 import { toast } from 'sonner'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { createUsageExport, downloadUsageExport, getUsageExports } from '../api'
+import {
+  createUsageExport,
+  downloadUsageExport,
+  downloadUsageExportDirect,
+  getUsageExportEstimate,
+  getUsageExports,
+} from '../api'
 import { UsageExportPanel } from '../components/usage-export-panel'
 import type { UsageExportJob, UsageQueryParams } from '../types'
 
 vi.mock('../api', () => ({
   createUsageExport: vi.fn(),
   downloadUsageExport: vi.fn(),
+  downloadUsageExportDirect: vi.fn(),
+  getUsageExportEstimate: vi.fn(),
   getUsageExports: vi.fn(),
 }))
 
 const mockedCreate = vi.mocked(createUsageExport)
 const mockedDownload = vi.mocked(downloadUsageExport)
+const mockedDirect = vi.mocked(downloadUsageExportDirect)
+const mockedEstimate = vi.mocked(getUsageExportEstimate)
 const mockedList = vi.mocked(getUsageExports)
 
 const scope: UsageQueryParams = {
@@ -85,8 +95,9 @@ describe('UsageExportPanel', () => {
     expect(screen.getAllByRole('button', { name: 'Download' })).toHaveLength(1)
   })
 
-  it('starts a records CSV export for the scope and window on screen', async () => {
+  it('queues a large records CSV export for the scope and window on screen', async () => {
     mockedList.mockResolvedValue([])
+    mockedEstimate.mockResolvedValue({ delivery: 'queued', row_count: 9000 })
     mockedCreate.mockResolvedValue(job({ status: 'queued' }))
 
     renderPanel()
@@ -94,18 +105,75 @@ describe('UsageExportPanel', () => {
       await screen.findByRole('button', { name: 'Usage records (CSV)' })
     )
 
-    await waitFor(() =>
-      expect(mockedCreate).toHaveBeenCalledWith({
-        view: 'platform',
-        organization_id: 3,
-        user_id: 9,
-        start_timestamp: scope.start_timestamp,
-        end_timestamp: scope.end_timestamp,
-        tz_offset_minutes: -480,
-        format: 'csv',
-        kind: 'records',
-        with_bom: true,
+    const request = {
+      view: 'platform',
+      organization_id: 3,
+      user_id: 9,
+      start_timestamp: scope.start_timestamp,
+      end_timestamp: scope.end_timestamp,
+      tz_offset_minutes: -480,
+      format: 'csv',
+      kind: 'records',
+      with_bom: true,
+    }
+    await waitFor(() => expect(mockedCreate).toHaveBeenCalledWith(request))
+    expect(mockedEstimate).toHaveBeenCalledWith(request)
+    expect(mockedDirect).not.toHaveBeenCalled()
+  })
+
+  it('saves a small export directly under the name the server gave it', async () => {
+    mockedList.mockResolvedValue([])
+    mockedEstimate.mockResolvedValue({ delivery: 'direct', row_count: 12 })
+    mockedDirect.mockResolvedValue({
+      blob: new Blob(['usage']),
+      fileName: 'usage-records-now.csv',
+    })
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: vi.fn(() => 'blob:direct'),
+      configurable: true,
+    })
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      value: vi.fn(),
+      configurable: true,
+    })
+    const savedNames: string[] = []
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement
+    ) {
+      savedNames.push(this.download)
+    })
+
+    renderPanel()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Usage records (CSV)' })
+    )
+
+    await waitFor(() => expect(savedNames).toEqual(['usage-records-now.csv']))
+    expect(mockedCreate).not.toHaveBeenCalled()
+  })
+
+  it('explains a refused direct download when the download slots are full', async () => {
+    mockedList.mockResolvedValue([])
+    mockedEstimate.mockResolvedValue({ delivery: 'direct', row_count: 12 })
+    mockedDirect.mockRejectedValue(
+      Object.assign(new Error('Too many downloads are running'), {
+        response: {
+          status: 429,
+          data: { success: false, code: 'USAGE_DOWNLOAD_BUSY' },
+        },
       })
+    )
+    const errorToast = vi.spyOn(toast, 'error')
+
+    renderPanel()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Usage records (CSV)' })
+    )
+
+    await waitFor(() =>
+      expect(errorToast).toHaveBeenCalledWith(
+        'Too many downloads are running. Try again shortly.'
+      )
     )
   })
 
@@ -161,6 +229,7 @@ describe('UsageExportPanel', () => {
   })
 
   it('keeps polling a generating export until it is ready', async () => {
+    mockedEstimate.mockResolvedValue({ delivery: 'queued', row_count: 9000 })
     mockedList
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
@@ -183,6 +252,7 @@ describe('UsageExportPanel', () => {
   })
 
   it('explains a refused export with the row-limit message for its server code', async () => {
+    mockedEstimate.mockResolvedValue({ delivery: 'queued', row_count: 9000 })
     mockedList.mockResolvedValue([])
     mockedCreate.mockRejectedValue(
       Object.assign(new Error('The export exceeds the row limit'), {

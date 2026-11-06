@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/csv"
 	"errors"
 	"fmt"
@@ -29,22 +30,28 @@ const (
 	UsageExportFormatCSV  = "csv"
 	UsageExportFormatXLSX = "xlsx"
 
-	usageExportTTLSeconds       = 7 * 24 * 3600
-	usageExportSyncRowLimit     = 5000
-	usageExportMaxRows          = 500000
-	usageExportMaxXLSXRows      = 100000
-	usageExportBatchSize        = 1000
-	usageExportMaxActivePerUser = 3
-	usageExportStaleSeconds     = 30 * 60
-	usageExportDefaultDir       = "data/usage-exports"
-	usageExportDirEnv           = "USAGE_EXPORT_DIR"
-	usageExportBOM              = "\xEF\xBB\xBF"
-	usageExportTimeLayout       = "2006-01-02 15:04:05"
-	usageExportContentCSV       = "text/csv; charset=utf-8"
-	usageExportContentXLSX      = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-	usageExportErrorScope       = "USAGE_SCOPE_FORBIDDEN"
-	usageExportErrorTooLarge    = "USAGE_EXPORT_TOO_LARGE"
-	usageExportErrorFailed      = "USAGE_EXPORT_FAILED"
+	// usageExportTTLSeconds is how long a queued job's file stays downloadable.
+	usageExportTTLSeconds = 24 * 3600
+	// usageExportRecordRetentionSeconds is how long a finished job record stays listed after it was created.
+	usageExportRecordRetentionSeconds = 7 * 24 * 3600
+	// usageExportQueueTimeoutSeconds fails a job that no generation slot picked up in time.
+	usageExportQueueTimeoutSeconds = 3600
+	usageExportQueuePollInterval   = 2 * time.Second
+	usageExportErrorQueueTimeout   = "USAGE_EXPORT_QUEUE_TIMEOUT"
+	usageExportMaxRows             = 500000
+	usageExportMaxXLSXRows         = 100000
+	usageExportBatchSize           = 1000
+	usageExportMaxActivePerUser    = 3
+	usageExportStaleSeconds        = 30 * 60
+	usageExportDefaultDir          = "data/usage-exports"
+	usageExportDirEnv              = "USAGE_EXPORT_DIR"
+	usageExportBOM                 = "\xEF\xBB\xBF"
+	usageExportTimeLayout          = "2006-01-02 15:04:05"
+	usageExportContentCSV          = "text/csv; charset=utf-8"
+	usageExportContentXLSX         = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	usageExportErrorScope          = "USAGE_SCOPE_FORBIDDEN"
+	usageExportErrorTooLarge       = "USAGE_EXPORT_TOO_LARGE"
+	usageExportErrorFailed         = "USAGE_EXPORT_FAILED"
 )
 
 var (
@@ -87,16 +94,26 @@ type UsageExportRequest struct {
 	WithBom         bool
 }
 
-// CreateUsageExport authorizes the request now and stores a job. Small exports finish inside
-// the call; large ones run in the background and the caller polls the job.
-func CreateUsageExport(c *gin.Context, callerId int, callerRole int, request UsageExportRequest) (*model.UsageExportJob, error) {
+// usageExportPlan is a checked export request: the authorized scope, the window, and how many
+// detail rows the export will write.
+type usageExportPlan struct {
+	format   string
+	kind     string
+	resolved ResolvedUsageScope
+	window   model.UsageWindow
+	rows     int64
+}
+
+// planUsageExport checks a request and authorizes it for the caller. Row counts are taken only for
+// kinds that write detail rows; summary exports always have a small, fixed amount of data.
+func planUsageExport(callerId int, callerRole int, request UsageExportRequest) (usageExportPlan, error) {
 	format := request.Format
 	if format == "" {
 		format = UsageExportFormatCSV
 	}
 	kind, err := usageExportKind(format, request.Kind)
 	if err != nil {
-		return nil, err
+		return usageExportPlan{}, err
 	}
 	resolved, err := ResolveUsageScope(callerId, callerRole, UsageScopeRequest{
 		View:           request.View,
@@ -104,10 +121,83 @@ func CreateUsageExport(c *gin.Context, callerId int, callerRole int, request Usa
 		UserId:         request.UserId,
 	})
 	if err != nil {
-		return nil, err
+		return usageExportPlan{}, err
 	}
 	resolved.Scope.ModelName = request.ModelName
-	window := usageExportWindow(request.StartTimestamp, request.EndTimestamp, request.TzOffsetMinutes)
+	plan := usageExportPlan{
+		format:   format,
+		kind:     kind,
+		resolved: resolved,
+		window:   usageExportWindow(request.StartTimestamp, request.EndTimestamp, request.TzOffsetMinutes),
+	}
+	if kind == UsageExportKindRecords || kind == UsageExportKindWorkbook {
+		count, err := model.CountUsageRecords(resolved.Scope, plan.window)
+		if err != nil {
+			return usageExportPlan{}, err
+		}
+		if count > usageExportRowLimit(format) {
+			return usageExportPlan{}, ErrUsageExportTooLarge
+		}
+		plan.rows = count
+	}
+	return plan, nil
+}
+
+// newUsageExportJob builds the record of an export from its checked plan.
+func newUsageExportJob(callerId int, request UsageExportRequest, plan usageExportPlan) *model.UsageExportJob {
+	return &model.UsageExportJob{
+		JobId:           common.GetUUID(),
+		UserId:          callerId,
+		View:            string(plan.resolved.View),
+		OrganizationId:  plan.resolved.Scope.OrganizationId,
+		TargetUserId:    plan.resolved.Scope.UserId,
+		ModelName:       plan.resolved.Scope.ModelName,
+		StartTimestamp:  request.StartTimestamp,
+		EndTimestamp:    request.EndTimestamp,
+		TzOffsetMinutes: request.TzOffsetMinutes,
+		Format:          plan.format,
+		Kind:            plan.kind,
+		WithBom:         request.WithBom && plan.format == UsageExportFormatCSV,
+		Status:          model.UsageExportStatusQueued,
+		CreatedTime:     common.GetTimestamp(),
+	}
+}
+
+// Delivery values say how an export reaches the caller.
+const (
+	// UsageExportDeliveryDirect streams the file in the response. Nothing is stored.
+	UsageExportDeliveryDirect = "direct"
+	// UsageExportDeliveryQueued creates a job. The file is generated in the background and kept
+	// for a day so the caller can download it.
+	UsageExportDeliveryQueued = "queued"
+)
+
+// UsageExportEstimate says how an export would be delivered and how many detail rows it holds.
+type UsageExportEstimate struct {
+	Delivery string
+	RowCount int64
+}
+
+// EstimateUsageExport reports how the request would be delivered, without generating anything.
+func EstimateUsageExport(callerId int, callerRole int, request UsageExportRequest) (UsageExportEstimate, error) {
+	plan, err := planUsageExport(callerId, callerRole, request)
+	if err != nil {
+		return UsageExportEstimate{}, err
+	}
+	estimate := UsageExportEstimate{Delivery: UsageExportDeliveryDirect, RowCount: plan.rows}
+	if plan.rows > int64(usageExportLimits().SyncRowLimit) {
+		estimate.Delivery = UsageExportDeliveryQueued
+	}
+	return estimate, nil
+}
+
+// CreateUsageExport authorizes the request and stores a queued job. The job is generated in the
+// background as soon as a generation slot is free.
+func CreateUsageExport(c *gin.Context, callerId int, callerRole int, request UsageExportRequest) (*model.UsageExportJob, error) {
+	plan, err := planUsageExport(callerId, callerRole, request)
+	if err != nil {
+		return nil, err
+	}
 	active, err := model.CountActiveUsageExportJobs(callerId)
 	if err != nil {
 		return nil, err
@@ -115,45 +205,13 @@ func CreateUsageExport(c *gin.Context, callerId int, callerRole int, request Usa
 	if active >= usageExportMaxActivePerUser {
 		return nil, ErrUsageExportBusy
 	}
-	inline := true
-	if kind == UsageExportKindRecords || kind == UsageExportKindWorkbook {
-		count, err := model.CountUsageRecords(resolved.Scope, window)
-		if err != nil {
-			return nil, err
-		}
-		if count > usageExportRowLimit(format) {
-			return nil, ErrUsageExportTooLarge
-		}
-		inline = count <= usageExportSyncRowLimit
-	}
 
-	job := &model.UsageExportJob{
-		JobId:           common.GetUUID(),
-		UserId:          callerId,
-		View:            string(resolved.View),
-		OrganizationId:  resolved.Scope.OrganizationId,
-		TargetUserId:    resolved.Scope.UserId,
-		ModelName:       resolved.Scope.ModelName,
-		StartTimestamp:  request.StartTimestamp,
-		EndTimestamp:    request.EndTimestamp,
-		TzOffsetMinutes: request.TzOffsetMinutes,
-		Format:          format,
-		Kind:            kind,
-		WithBom:         request.WithBom && format == UsageExportFormatCSV,
-		Status:          model.UsageExportStatusQueued,
-		CreatedTime:     common.GetTimestamp(),
-	}
+	job := newUsageExportJob(callerId, request, plan)
 	if err := model.CreateUsageExportJob(job); err != nil {
 		return nil, err
 	}
 	recordUsageExportEvent(c, job, "created", "")
 
-	if inline {
-		if err := RunUsageExportJob(job.JobId); err != nil {
-			common.SysError("usage export " + job.JobId + " failed: " + err.Error())
-		}
-		return model.GetUsageExportJob(job.JobId)
-	}
 	jobId := job.JobId
 	gopool.Go(func() {
 		if err := RunUsageExportJob(jobId); err != nil {
@@ -161,6 +219,66 @@ func CreateUsageExport(c *gin.Context, callerId int, callerRole int, request Usa
 		}
 	})
 	return job, nil
+}
+
+// UsageDirectExport is an authorized export that streams to the caller. It holds a generation
+// slot until Close.
+type UsageDirectExport struct {
+	job      *model.UsageExportJob
+	resolved ResolvedUsageScope
+	window   model.UsageWindow
+	lease    *usageLease
+}
+
+// PrepareDirectUsageExport checks a small export and takes a generation slot. The caller writes
+// the export with Write, then calls Close.
+func PrepareDirectUsageExport(callerId int, callerRole int, request UsageExportRequest) (*UsageDirectExport, error) {
+	plan, err := planUsageExport(callerId, callerRole, request)
+	if err != nil {
+		return nil, err
+	}
+	if plan.rows > int64(usageExportLimits().SyncRowLimit) {
+		return nil, ErrUsageExportQueueRequired
+	}
+	lease, ok, err := acquireUsageGeneration(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrUsageGenerateBusy
+	}
+	return &UsageDirectExport{
+		job:      newUsageExportJob(callerId, request, plan),
+		resolved: plan.resolved,
+		window:   plan.window,
+		lease:    lease,
+	}, nil
+}
+
+// FileName is the download name of the direct export.
+func (d *UsageDirectExport) FileName() string {
+	return fmt.Sprintf("usage-%s-%s.%s", d.job.Kind, time.Now().Format("20060102-150405"), d.job.Format)
+}
+
+// ContentType is the media type of the direct export.
+func (d *UsageDirectExport) ContentType() string {
+	return UsageExportContentType(d.job.Format)
+}
+
+// Write generates the export into w and returns its detail row count.
+func (d *UsageDirectExport) Write(w io.Writer) (int64, error) {
+	return writeUsageExport(w, d.job, d.resolved, d.window)
+}
+
+// Close frees the generation slot.
+func (d *UsageDirectExport) Close() {
+	d.lease.Release()
+}
+
+// RecordUsageDirectExport audits a direct export. The export has no job record, so the audit row
+// carries a generated id instead.
+func RecordUsageDirectExport(c *gin.Context, direct *UsageDirectExport) {
+	recordUsageExportEvent(c, direct.job, "direct_downloaded", "")
 }
 
 // usageExportKind returns the stored kind for a request. XLSX is always the whole workbook;
@@ -192,18 +310,28 @@ func UsageExportContentType(format string) string {
 	return usageExportContentCSV
 }
 
-// RunUsageExportJob generates one queued job. It claims the job first, so a job runs once.
+// RunUsageExportJob generates one queued job. It waits for a generation slot, then claims the
+// job, so a job runs once even when several goroutines try to run it.
 func RunUsageExportJob(jobId string) error {
+	job, err := model.GetUsageExportJob(jobId)
+	if err != nil {
+		return err
+	}
+	if job.Status != model.UsageExportStatusQueued {
+		return nil
+	}
+	lease, err := waitForUsageGeneration(job)
+	if err != nil {
+		return err
+	}
+	defer lease.Release()
+
 	claimed, err := model.ClaimUsageExportJob(jobId, common.GetTimestamp())
 	if err != nil {
 		return err
 	}
 	if !claimed {
 		return nil
-	}
-	job, err := model.GetUsageExportJob(jobId)
-	if err != nil {
-		return err
 	}
 	rows, key, fileName, err := generateUsageExport(job)
 	if err != nil {
@@ -221,6 +349,28 @@ func RunUsageExportJob(jobId string) error {
 	}
 	recordUsageExportEvent(nil, job, "succeeded", fmt.Sprintf(" rows=%d", rows))
 	return nil
+}
+
+// waitForUsageGeneration polls for a generation slot. A job that is still queued after the queue
+// timeout fails, so a job never waits forever.
+func waitForUsageGeneration(job *model.UsageExportJob) (*usageLease, error) {
+	for {
+		lease, ok, err := acquireUsageGeneration(context.Background())
+		if err != nil {
+			common.SysError("usage export " + job.JobId + " waiting for a generation slot: " + err.Error())
+		} else if ok {
+			return lease, nil
+		}
+		now := common.GetTimestamp()
+		if now-job.CreatedTime >= usageExportQueueTimeoutSeconds {
+			if err := model.FailQueuedUsageExportJob(job.JobId, usageExportErrorQueueTimeout, now); err != nil {
+				return nil, err
+			}
+			recordUsageExportEvent(nil, job, "failed", " error="+usageExportErrorQueueTimeout)
+			return nil, ErrUsageGenerateBusy
+		}
+		time.Sleep(usageExportQueuePollInterval)
+	}
 }
 
 // generateUsageExport re-authorizes the job for its owner's current role, then streams the

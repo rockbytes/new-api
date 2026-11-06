@@ -14,16 +14,164 @@ import (
 const usageExportListLimit = 50
 
 type usageExportCreateRequest struct {
-	View            string `json:"view"`
-	OrganizationId  int    `json:"organization_id"`
-	UserId          int    `json:"user_id"`
-	ModelName       string `json:"model_name"`
-	StartTimestamp  int64  `json:"start_timestamp"`
-	EndTimestamp    int64  `json:"end_timestamp"`
-	TzOffsetMinutes int    `json:"tz_offset_minutes"`
-	Kind            string `json:"kind"`
-	Format          string `json:"format"`
-	WithBom         bool   `json:"with_bom"`
+	View            string `json:"view" form:"view"`
+	OrganizationId  int    `json:"organization_id" form:"organization_id"`
+	UserId          int    `json:"user_id" form:"user_id"`
+	ModelName       string `json:"model_name" form:"model_name"`
+	StartTimestamp  int64  `json:"start_timestamp" form:"start_timestamp"`
+	EndTimestamp    int64  `json:"end_timestamp" form:"end_timestamp"`
+	TzOffsetMinutes int    `json:"tz_offset_minutes" form:"tz_offset_minutes"`
+	Kind            string `json:"kind" form:"kind"`
+	Format          string `json:"format" form:"format"`
+	WithBom         bool   `json:"with_bom" form:"with_bom"`
+}
+
+// usageExportRequestFrom applies the window and option checks shared by every export endpoint,
+// and returns the service request. It writes the error response and returns false when the
+// request is not valid.
+func usageExportRequestFrom(c *gin.Context, request usageExportCreateRequest) (service.UsageExportRequest, bool) {
+	now := common.GetTimestamp()
+	if request.EndTimestamp == 0 {
+		request.EndTimestamp = now
+	}
+	if request.StartTimestamp == 0 {
+		request.StartTimestamp = request.EndTimestamp - usageDefaultWindowSeconds
+	}
+	if request.StartTimestamp < 0 || request.StartTimestamp > request.EndTimestamp ||
+		request.EndTimestamp-request.StartTimestamp > usageMaxWindowSeconds {
+		writeUsageError(c, http.StatusBadRequest, "USAGE_INVALID_WINDOW", "Invalid time range")
+		return service.UsageExportRequest{}, false
+	}
+	if request.TzOffsetMinutes < -usageMaxTzOffsetMinutes || request.TzOffsetMinutes > usageMaxTzOffsetMinutes {
+		writeUsageError(c, http.StatusBadRequest, "USAGE_INVALID_REQUEST", "Invalid tz_offset_minutes")
+		return service.UsageExportRequest{}, false
+	}
+	modelName, validModel := usageModelName(request.ModelName)
+	if !validModel {
+		writeUsageError(c, http.StatusBadRequest, "USAGE_INVALID_REQUEST", "Invalid model_name")
+		return service.UsageExportRequest{}, false
+	}
+	return service.UsageExportRequest{
+		View:            service.UsageView(request.View),
+		OrganizationId:  request.OrganizationId,
+		UserId:          request.UserId,
+		ModelName:       modelName,
+		StartTimestamp:  request.StartTimestamp,
+		EndTimestamp:    request.EndTimestamp,
+		TzOffsetMinutes: request.TzOffsetMinutes,
+		Format:          request.Format,
+		Kind:            request.Kind,
+		WithBom:         request.WithBom,
+	}, true
+}
+
+// writeUsageExportError maps the export service's refusals to responses. It returns false for an
+// error it does not own, which the caller reports as a scope error.
+func writeUsageExportError(c *gin.Context, err error) bool {
+	switch {
+	case errors.Is(err, service.ErrUsageExportKind):
+		writeUsageError(c, http.StatusBadRequest, "USAGE_EXPORT_KIND_INVALID", "Invalid export format or kind")
+	case errors.Is(err, service.ErrUsageExportTooLarge):
+		writeUsageError(c, http.StatusBadRequest, "USAGE_EXPORT_TOO_LARGE", "The export exceeds the row limit; narrow the range or the scope, or use CSV")
+	case errors.Is(err, service.ErrUsageExportBusy):
+		writeUsageError(c, http.StatusTooManyRequests, "USAGE_EXPORT_BUSY", "Wait for your running exports to finish before starting another")
+	case errors.Is(err, service.ErrUsageGenerateBusy):
+		writeUsageError(c, http.StatusTooManyRequests, "USAGE_EXPORT_GENERATE_BUSY", "Exports are being generated; try again shortly")
+	case errors.Is(err, service.ErrUsageDownloadBusy):
+		writeUsageError(c, http.StatusTooManyRequests, "USAGE_DOWNLOAD_BUSY", "Too many downloads are running; try again shortly")
+	case errors.Is(err, service.ErrUsageExportQueueRequired):
+		writeUsageError(c, http.StatusConflict, "USAGE_EXPORT_QUEUE_REQUIRED", "The export is too large to download directly; create a queued export instead")
+	case errors.Is(err, service.ErrUsageExportUnavailable):
+		writeUsageError(c, http.StatusServiceUnavailable, "USAGE_EXPORT_UNAVAILABLE", "Export limits are temporarily unavailable; try again shortly")
+	default:
+		return false
+	}
+	return true
+}
+
+// CreateUsageExport queues an export as a job. The file is generated in the background and kept
+// for a day, so it can be downloaded more than once.
+func CreateUsageExport(c *gin.Context) {
+	var body usageExportCreateRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		writeUsageError(c, http.StatusBadRequest, "USAGE_INVALID_REQUEST", "Invalid request")
+		return
+	}
+	request, ok := usageExportRequestFrom(c, body)
+	if !ok {
+		return
+	}
+	job, err := service.CreateUsageExport(c, c.GetInt("id"), c.GetInt("role"), request)
+	if err != nil && !writeUsageExportError(c, err) {
+		writeUsageScopeError(c, err)
+		return
+	}
+	if err != nil {
+		return
+	}
+	common.ApiSuccess(c, usageExportResponse(job, common.GetTimestamp()))
+}
+
+// EstimateUsageExport reports whether an export would be delivered directly or queued as a job.
+func EstimateUsageExport(c *gin.Context) {
+	var query usageExportCreateRequest
+	if err := c.ShouldBindQuery(&query); err != nil {
+		writeUsageError(c, http.StatusBadRequest, "USAGE_INVALID_REQUEST", "Invalid request")
+		return
+	}
+	request, ok := usageExportRequestFrom(c, query)
+	if !ok {
+		return
+	}
+	estimate, err := service.EstimateUsageExport(c.GetInt("id"), c.GetInt("role"), request)
+	if err != nil && !writeUsageExportError(c, err) {
+		writeUsageScopeError(c, err)
+		return
+	}
+	if err != nil {
+		return
+	}
+	common.ApiSuccess(c, gin.H{"delivery": estimate.Delivery, "row_count": estimate.RowCount})
+}
+
+// DirectUsageExport streams a small export in the response. Nothing is stored. The download is
+// limited to the download slots and bandwidth shared by all downloads.
+func DirectUsageExport(c *gin.Context) {
+	var query usageExportCreateRequest
+	if err := c.ShouldBindQuery(&query); err != nil {
+		writeUsageError(c, http.StatusBadRequest, "USAGE_INVALID_REQUEST", "Invalid request")
+		return
+	}
+	request, ok := usageExportRequestFrom(c, query)
+	if !ok {
+		return
+	}
+	download, err := service.AcquireUsageDownload(c.Request.Context(), c.GetInt("id"))
+	if err != nil {
+		if !writeUsageExportError(c, err) {
+			common.ApiError(c, err)
+		}
+		return
+	}
+	defer download.Release()
+
+	direct, err := service.PrepareDirectUsageExport(c.GetInt("id"), c.GetInt("role"), request)
+	if err != nil {
+		if !writeUsageExportError(c, err) {
+			writeUsageScopeError(c, err)
+		}
+		return
+	}
+	defer direct.Close()
+
+	service.RecordUsageDirectExport(c, direct)
+	c.Header("Content-Type", direct.ContentType())
+	c.Header("Content-Disposition", "attachment; filename=\""+direct.FileName()+"\"")
+	c.Header("Cache-Control", "no-store")
+	c.Status(http.StatusOK)
+	if _, err := direct.Write(service.UsageDownloadWriter(c.Request.Context(), c.Writer)); err != nil {
+		common.SysError("direct usage export stopped: " + err.Error())
+	}
 }
 
 // usageExportResponse is the job as clients see it. The storage key never leaves the server.
@@ -58,64 +206,6 @@ func usageExportResponse(job *model.UsageExportJob, now int64) gin.H {
 		response["download_url"] = "/api/usage/exports/" + job.JobId + "/download"
 	}
 	return response
-}
-
-// CreateUsageExport authorizes and queues (or completes) one export.
-func CreateUsageExport(c *gin.Context) {
-	var request usageExportCreateRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
-		writeUsageError(c, http.StatusBadRequest, "USAGE_INVALID_REQUEST", "Invalid request")
-		return
-	}
-	now := common.GetTimestamp()
-	if request.EndTimestamp == 0 {
-		request.EndTimestamp = now
-	}
-	if request.StartTimestamp == 0 {
-		request.StartTimestamp = request.EndTimestamp - usageDefaultWindowSeconds
-	}
-	if request.StartTimestamp < 0 || request.StartTimestamp > request.EndTimestamp ||
-		request.EndTimestamp-request.StartTimestamp > usageMaxWindowSeconds {
-		writeUsageError(c, http.StatusBadRequest, "USAGE_INVALID_WINDOW", "Invalid time range")
-		return
-	}
-	if request.TzOffsetMinutes < -usageMaxTzOffsetMinutes || request.TzOffsetMinutes > usageMaxTzOffsetMinutes {
-		writeUsageError(c, http.StatusBadRequest, "USAGE_INVALID_REQUEST", "Invalid tz_offset_minutes")
-		return
-	}
-	modelName, validModel := usageModelName(request.ModelName)
-	if !validModel {
-		writeUsageError(c, http.StatusBadRequest, "USAGE_INVALID_REQUEST", "Invalid model_name")
-		return
-	}
-
-	job, err := service.CreateUsageExport(c, c.GetInt("id"), c.GetInt("role"), service.UsageExportRequest{
-		View:            service.UsageView(request.View),
-		OrganizationId:  request.OrganizationId,
-		UserId:          request.UserId,
-		ModelName:       modelName,
-		StartTimestamp:  request.StartTimestamp,
-		EndTimestamp:    request.EndTimestamp,
-		TzOffsetMinutes: request.TzOffsetMinutes,
-		Format:          request.Format,
-		Kind:            request.Kind,
-		WithBom:         request.WithBom,
-	})
-	switch {
-	case errors.Is(err, service.ErrUsageExportKind):
-		writeUsageError(c, http.StatusBadRequest, "USAGE_EXPORT_KIND_INVALID", "Invalid export format or kind")
-		return
-	case errors.Is(err, service.ErrUsageExportTooLarge):
-		writeUsageError(c, http.StatusBadRequest, "USAGE_EXPORT_TOO_LARGE", "The export exceeds the row limit; narrow the range or the scope, or use CSV")
-		return
-	case errors.Is(err, service.ErrUsageExportBusy):
-		writeUsageError(c, http.StatusTooManyRequests, "USAGE_EXPORT_BUSY", "Wait for your running exports to finish before starting another")
-		return
-	case err != nil:
-		writeUsageScopeError(c, err)
-		return
-	}
-	common.ApiSuccess(c, usageExportResponse(job, common.GetTimestamp()))
 }
 
 // ListUsageExports returns the caller's newest jobs.
@@ -197,6 +287,15 @@ func DownloadUsageExport(c *gin.Context) {
 		writeUsageError(c, http.StatusGone, "USAGE_EXPORT_EXPIRED", "The export has expired")
 		return
 	}
+	download, err := service.AcquireUsageDownload(c.Request.Context(), c.GetInt("id"))
+	if err != nil {
+		if !writeUsageExportError(c, err) {
+			common.ApiError(c, err)
+		}
+		return
+	}
+	defer download.Release()
+
 	file, err := service.OpenUsageExportFile(job)
 	if err != nil {
 		writeUsageError(c, http.StatusGone, "USAGE_EXPORT_EXPIRED", "The export has expired")
@@ -210,5 +309,5 @@ func DownloadUsageExport(c *gin.Context) {
 	c.Header("Content-Disposition", "attachment; filename=\""+job.FileName+"\"")
 	c.Header("Cache-Control", "no-store")
 	c.Status(http.StatusOK)
-	_, _ = io.Copy(c.Writer, file)
+	_, _ = io.Copy(service.UsageDownloadWriter(c.Request.Context(), c.Writer), file)
 }

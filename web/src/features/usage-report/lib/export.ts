@@ -42,3 +42,10 @@ export function saveUsageExportFile(blob: Blob, fileName: string): void {
   anchor.click()
   URL.revokeObjectURL(url)
 }
+
+// A direct export names its file in Content-Disposition. The name is a fallback for a response
+// that lacks the header, so the saved file still has a neutral name.
+export function usageExportFileName(disposition: string | undefined): string {
+  const match = /filename="([^"]+)"/.exec(disposition ?? '')
+  return match ? match[1] : 'usage-export'
+}

@@ -366,6 +366,8 @@ func SetApiRouter(router *gin.Engine) {
 		usageReportRoute.GET("/rankings", controller.GetUsageRankings)
 		usageReportRoute.GET("/records", controller.GetUsageRecords)
 		usageReportRoute.POST("/exports", controller.CreateUsageExport)
+		usageReportRoute.GET("/exports/estimate", controller.EstimateUsageExport)
+		usageReportRoute.GET("/exports/direct", controller.DirectUsageExport)
 		usageReportRoute.GET("/exports", controller.ListUsageExports)
 		usageReportRoute.GET("/exports/:job_id", controller.GetUsageExport)
 		usageReportRoute.GET("/exports/:job_id/download", controller.DownloadUsageExport)

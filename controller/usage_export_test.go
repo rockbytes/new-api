@@ -2,12 +2,14 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -41,6 +43,8 @@ func setupUsageExportEndpoints(t *testing.T) *gin.Engine {
 
 	engine.POST("/api/usage/exports", CreateUsageExport)
 	engine.GET("/api/usage/exports", ListUsageExports)
+	engine.GET("/api/usage/exports/estimate", EstimateUsageExport)
+	engine.GET("/api/usage/exports/direct", DirectUsageExport)
 	engine.GET("/api/usage/exports/:job_id", GetUsageExport)
 	engine.GET("/api/usage/exports/:job_id/download", DownloadUsageExport)
 	return engine
@@ -71,12 +75,25 @@ func usageExportBody(t *testing.T, recorder *httptest.ResponseRecorder) map[stri
 	return body
 }
 
-// usageExportCreate creates an export as the caller and returns the job the response reports.
+// usageExportCreate queues an export as the caller and waits until the background job finishes.
+// It returns the job as the API reports it.
 func usageExportCreate(t *testing.T, engine *gin.Engine, user int, role int, request map[string]any) map[string]any {
 	t.Helper()
 	created := usageExportCall(t, engine, user, role, http.MethodPost, "/api/usage/exports", request)
 	require.Equal(t, http.StatusOK, created.Code, created.Body.String())
-	return usageData(usageExportBody(t, created))
+	jobId := usageData(usageExportBody(t, created))["job_id"].(string)
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		got := usageExportCall(t, engine, user, role, http.MethodGet, "/api/usage/exports/"+jobId, nil)
+		require.Equal(t, http.StatusOK, got.Code, got.Body.String())
+		job := usageData(usageExportBody(t, got))
+		if job["status"] == "succeeded" || job["status"] == "failed" {
+			return job
+		}
+		require.True(t, time.Now().Before(deadline), "job %s is still %s", jobId, job["status"])
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 func TestUsageExportOwnerCreatesAndDownloadsItsFile(t *testing.T) {
@@ -239,4 +256,72 @@ func TestUsageExportCarriesTheModelFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, download.Code, download.Body.String())
 	assert.Contains(t, download.Body.String(), "a-member-personal")
 	assert.NotContains(t, download.Body.String(), "a-admin", "m1 rows are excluded")
+}
+
+// A small export is delivered directly. The estimate says so, and the download streams the file
+// without creating a job.
+func TestUsageExportDirectDeliveryStoresNothing(t *testing.T) {
+	engine := setupUsageExportEndpoints(t)
+	query := "/api/usage/exports/estimate?view=organization&organization_id=1&kind=records&format=csv"
+	estimated := usageExportCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, http.MethodGet, query, nil)
+	require.Equal(t, http.StatusOK, estimated.Code, estimated.Body.String())
+	estimate := usageData(usageExportBody(t, estimated))
+	assert.Equal(t, "direct", estimate["delivery"])
+	assert.Equal(t, float64(2), estimate["row_count"], "organization A paid for two requests in the fixture")
+
+	var before int64
+	require.NoError(t, model.DB.Model(&model.UsageExportJob{}).Count(&before).Error)
+	direct := usageExportCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, http.MethodGet,
+		"/api/usage/exports/direct?view=organization&organization_id=1&kind=records&format=csv&with_bom=true", nil)
+	require.Equal(t, http.StatusOK, direct.Code, direct.Body.String())
+	assert.Equal(t, "text/csv; charset=utf-8", direct.Header().Get("Content-Type"))
+	assert.Contains(t, direct.Header().Get("Content-Disposition"), "attachment")
+	assert.Contains(t, direct.Body.String(), "org-a-member")
+	assert.NotContains(t, direct.Body.String(), "org-b-member", "the file holds only the organization's rows")
+	var after int64
+	require.NoError(t, model.DB.Model(&model.UsageExportJob{}).Count(&after).Error)
+	assert.Equal(t, before, after, "a direct download creates no job record")
+}
+
+// A user who holds their download share is refused, even when global download slots are free.
+func TestUsageExportDownloadsAreLimitedPerUser(t *testing.T) {
+	engine := setupUsageExportEndpoints(t)
+	ctx := context.Background()
+	first, err := service.AcquireUsageDownload(ctx, usageOrgAAdmin)
+	require.NoError(t, err)
+	defer first.Release()
+	second, err := service.AcquireUsageDownload(ctx, usageOrgAAdmin)
+	require.NoError(t, err)
+	defer second.Release()
+
+	refused := usageExportCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, http.MethodGet,
+		"/api/usage/exports/direct?view=organization&organization_id=1&kind=records&format=csv", nil)
+	assert.Equal(t, http.StatusTooManyRequests, refused.Code)
+	assert.Contains(t, refused.Body.String(), "USAGE_DOWNLOAD_BUSY")
+
+	second.Release()
+	allowed := usageExportCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, http.MethodGet,
+		"/api/usage/exports/direct?view=organization&organization_id=1&kind=records&format=csv", nil)
+	assert.Equal(t, http.StatusOK, allowed.Code)
+}
+
+// Each export limit answers with its own status and code, so the page can explain the refusal.
+func TestUsageExportLimitErrorsHaveTheirStatusAndCode(t *testing.T) {
+	cases := []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{service.ErrUsageDownloadBusy, http.StatusTooManyRequests, "USAGE_DOWNLOAD_BUSY"},
+		{service.ErrUsageGenerateBusy, http.StatusTooManyRequests, "USAGE_EXPORT_GENERATE_BUSY"},
+		{service.ErrUsageExportQueueRequired, http.StatusConflict, "USAGE_EXPORT_QUEUE_REQUIRED"},
+		{service.ErrUsageExportUnavailable, http.StatusServiceUnavailable, "USAGE_EXPORT_UNAVAILABLE"},
+	}
+	for _, tc := range cases {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		require.True(t, writeUsageExportError(c, tc.err), tc.code)
+		assert.Equal(t, tc.status, recorder.Code, tc.code)
+		assert.Contains(t, recorder.Body.String(), tc.code)
+	}
 }

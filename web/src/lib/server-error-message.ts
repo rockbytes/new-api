@@ -19,6 +19,12 @@ const serverErrorMessageKeys = {
     'The export exceeds the row limit. Narrow the range or the scope, or use CSV.',
   USAGE_EXPORT_BUSY:
     'Wait for your running exports to finish before starting another.',
+  USAGE_EXPORT_GENERATE_BUSY: 'Exports are being generated. Try again shortly.',
+  USAGE_DOWNLOAD_BUSY: 'Too many downloads are running. Try again shortly.',
+  USAGE_EXPORT_QUEUE_REQUIRED:
+    'This export is too large to download directly. Create a queued export instead.',
+  USAGE_EXPORT_UNAVAILABLE:
+    'Export limits are temporarily unavailable. Try again shortly.',
   SECURITY_VERIFICATION_FAILED: 'Verification failed. Please try again.',
   PASSKEY_RP_ID_UNAVAILABLE:
     'This Passkey domain is not available on this website. Use its original website or another verification method.',

@@ -34,6 +34,11 @@ func (usageExportCleanupHandler) Run(ctx context.Context, task *model.SystemTask
 	} else if stale > 0 {
 		common.SysLog("usage export cleanup: failed stale jobs: " + common.GetJsonString(stale))
 	}
+	if abandoned, err := model.FailAbandonedQueuedUsageExportJobs(now-usageExportQueueTimeoutSeconds, now, usageExportErrorQueueTimeout); err != nil {
+		common.SysError("usage export cleanup: fail abandoned jobs: " + err.Error())
+	} else if abandoned > 0 {
+		common.SysLog("usage export cleanup: failed abandoned queued jobs: " + common.GetJsonString(abandoned))
+	}
 
 	expired, err := model.ListExpiredUsageExportJobs(now, usageExportCleanupBatch)
 	if err != nil {
@@ -50,6 +55,11 @@ func (usageExportCleanupHandler) Run(ctx context.Context, task *model.SystemTask
 			continue
 		}
 		common.SysLog("usage export cleanup: expired " + job.JobId)
+	}
+	if purged, err := model.DeleteUsageExportJobsCreatedBefore(now - usageExportRecordRetentionSeconds); err != nil {
+		common.SysError("usage export cleanup: purge job records: " + err.Error())
+	} else if purged > 0 {
+		common.SysLog("usage export cleanup: purged job records: " + common.GetJsonString(purged))
 	}
 	if err := model.FinishSystemTask(task.TaskID, runnerID, model.SystemTaskStatusSucceeded, nil, ""); err != nil {
 		logSystemTaskLockError(ctx, task, err)

@@ -17,7 +17,13 @@ import { formatNumber, formatTimestamp } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { getServerErrorStatus } from '@/lib/server-error-message'
 
-import { createUsageExport, downloadUsageExport, getUsageExports } from '../api'
+import {
+  createUsageExport,
+  downloadUsageExport,
+  downloadUsageExportDirect,
+  getUsageExportEstimate,
+  getUsageExports,
+} from '../api'
 import {
   USAGE_EXPORT_OPTIONS,
   USAGE_EXPORT_STATUS_BADGES,
@@ -60,11 +66,24 @@ export function UsageExportPanel(props: { params: UsageQueryParams }) {
     return option ? t(option.labelKey) : ''
   }
 
-  const createMutation = useMutation({
-    mutationFn: (option: UsageExportOption) =>
-      createUsageExport(buildUsageExportRequest(props.params, option)),
-    onSuccess: async () => {
-      toast.success(t('Export started'))
+  // The server decides how the export is delivered. A small one streams straight to the file
+  // the browser saves. A large one becomes a job that stays in the list for a day.
+  const exportMutation = useMutation({
+    mutationFn: async (option: UsageExportOption) => {
+      const request = buildUsageExportRequest(props.params, option)
+      const estimate = await getUsageExportEstimate(request)
+      if (estimate.delivery === 'queued') {
+        await createUsageExport(request)
+        return 'queued' as const
+      }
+      const file = await downloadUsageExportDirect(request)
+      saveUsageExportFile(file.blob, file.fileName)
+      return 'direct' as const
+    },
+    onSuccess: async (delivery) => {
+      if (delivery === 'queued') {
+        toast.success(t('Export queued. Download it from the list when ready.'))
+      }
       await queryClient.invalidateQueries({ queryKey: EXPORTS_QUERY_KEY })
     },
     onError: (error) => {
@@ -100,8 +119,8 @@ export function UsageExportPanel(props: { params: UsageQueryParams }) {
             type='button'
             size='sm'
             variant='outline'
-            disabled={createMutation.isPending}
-            onClick={() => createMutation.mutate(option)}
+            disabled={exportMutation.isPending}
+            onClick={() => exportMutation.mutate(option)}
           >
             {t(option.labelKey)}
           </Button>
@@ -117,6 +136,7 @@ export function UsageExportPanel(props: { params: UsageQueryParams }) {
               <TableHead>{t('Export')}</TableHead>
               <TableHead>{t('Status')}</TableHead>
               <TableHead className='text-right'>{t('Rows')}</TableHead>
+              <TableHead>{t('Expires')}</TableHead>
               <TableHead>
                 <span className='sr-only'>{t('Action')}</span>
               </TableHead>
@@ -141,6 +161,9 @@ export function UsageExportPanel(props: { params: UsageQueryParams }) {
                     {job.status === 'succeeded' || job.status === 'expired'
                       ? formatNumber(job.row_count, locale)
                       : '-'}
+                  </TableCell>
+                  <TableCell className='whitespace-nowrap'>
+                    {hasFile ? formatTimestamp(job.expires_time) : '-'}
                   </TableCell>
                   <TableCell className='text-right'>
                     {hasFile && (
