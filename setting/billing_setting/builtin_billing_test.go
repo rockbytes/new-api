@@ -210,3 +210,56 @@ func TestDeepSeekBuiltinBilling(t *testing.T) {
 		assert.Equal(t, 375, result.ActualQuotaAfterGroup, model)
 	}
 }
+
+// Claude 5 family built-in prices are flat USD per 1M tokens: input, output,
+// cache read at 0.1x input, 5m cache write at 1.25x and 1h cache write at 2x.
+// Hosted web search is billed by the tool price, not by the expression.
+func TestClaude5BuiltinBilling(t *testing.T) {
+	settings := config.GlobalConfig.Get("billing_setting").(*billing_setting.BillingSetting)
+	saved := *settings
+	savedRatios, savedPrices := ratio_setting.ModelRatio2JSONString(), ratio_setting.ModelPrice2JSONString()
+	t.Cleanup(func() {
+		*settings = saved
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(savedRatios))
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(savedPrices))
+	})
+	*settings = billing_setting.BillingSetting{BillingMode: map[string]string{}, BillingExpr: map[string]string{}}
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{}`))
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{}`))
+
+	plain := &dto.Usage{PromptTokens: 1000, CompletionTokens: 100, UsageSemantic: "anthropic"}
+	// 1000 text input, 2000 cache reads, 400 5m writes and 200 1h writes.
+	cached := &dto.Usage{
+		PromptTokens: 1000, CompletionTokens: 100, UsageSemantic: "anthropic",
+		PromptTokensDetails:         dto.InputTokenDetails{CachedTokens: 2000, CacheWriteTokens: 600},
+		ClaudeCacheCreation5mTokens: 400, ClaudeCacheCreation1hTokens: 200,
+	}
+	for model, want := range map[string]struct{ plain, cached int }{
+		// Opus: 1000*5 + 100*25 = 7500 -> $0.0075; with cache 13000 -> $0.013.
+		"claude-opus-5-5": {plain: 3750, cached: 6500},
+		// Sonnet: 1000*2 + 100*10 = 3000 -> $0.003; with cache 5200 -> $0.0052.
+		"claude-sonnet-5-5": {plain: 1500, cached: 2600},
+		// Fable: 1000*10 + 100*50 = 15000 -> $0.015; with cache 26000 -> $0.026.
+		"claude-fable-5-1": {plain: 7500, cached: 13000},
+	} {
+		t.Run(model, func(t *testing.T) {
+			assert.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingMode(model))
+			expression, ok := billing_setting.GetBillingExpr(model)
+			require.True(t, ok)
+			for name, tc := range map[string]struct {
+				usage *dto.Usage
+				quota int
+			}{
+				"plain":  {plain, want.plain},
+				"cached": {cached, want.cached},
+			} {
+				params := service.BuildTieredTokenParams(tc.usage, true, billingexpr.UsedVars(expression))
+				result, err := billingexpr.ComputeTieredQuota(&billingexpr.BillingSnapshot{
+					ExprString: expression, ExprHash: billingexpr.ExprHashString(expression), GroupRatio: 1, QuotaPerUnit: 500000,
+				}, params)
+				require.NoError(t, err, name)
+				assert.Equal(t, tc.quota, result.ActualQuotaAfterGroup, name)
+			}
+		})
+	}
+}

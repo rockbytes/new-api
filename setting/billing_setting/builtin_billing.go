@@ -24,6 +24,13 @@ var builtinBillingExpr = map[string]string{
 	// Do not infer service-tier discounts from incoming request parameters:
 	// channels filter service_tier by default, so it may not reach the upstream.
 	"gpt-6-astra": `len <= 272000 ? tier("standard", p * 10 + c * 50 + cr * 1 + cc * 12.5 + cc12h * 25) : tier("long_context", p * 20 + c * 75 + cr * 2 + cc * 25 + cc12h * 50)`,
+	// Claude 5 family, USD per 1M tokens, flat across the 1M context window.
+	// cc is the 5m cache write, cc1h the 1h write (2x input). Hosted web search
+	// is not in the expression: it bills per call through the default
+	// web_search tool price ($10 per 1K calls).
+	"claude-opus-5-5":   `tier("base", p * 5 + c * 25 + cr * 0.5 + cc * 6.25 + cc1h * 10)`,
+	"claude-sonnet-5-5": `tier("base", p * 2 + c * 10 + cr * 0.2 + cc * 2.5 + cc1h * 4)`,
+	"claude-fable-5-1":  `tier("base", p * 10 + c * 50 + cr * 1 + cc * 12.5 + cc1h * 20)`,
 	// https://api-docs.deepseek.com/quick_start/pricing (2026-10-17). Off-peak
 	// is half the peak price. deepseek-v4-flash and deepseek-v4-flash-vision-exp
 	// run on V4.1 Flash and bill at the Flash price. Images bill as input
