@@ -228,9 +228,7 @@ describe('security page migration', () => {
   it('Profile retains preferences and no longer mounts security controls or requests', async () => {
     await renderPage('/profile')
     await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Save Settings' })
-      ).toBeVisible()
+      expect(screen.getByText('Language Preferences')).toBeVisible()
     )
     expect(
       screen.queryByRole('button', { name: 'Change Password' })
