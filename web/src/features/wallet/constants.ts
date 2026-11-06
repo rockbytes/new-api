@@ -46,3 +46,13 @@ export const DEFAULT_DISCOUNT_RATE = 1.0
  * Default minimum topup amount
  */
 export const DEFAULT_MIN_TOPUP = 1
+
+/**
+ * Show the "Add funds" card on the wallet page. Hidden for now; set to true to restore it.
+ */
+export const WALLET_TOPUP_CARD_VISIBLE = false
+
+/**
+ * Show the "Referral plan" card on the wallet page. Hidden for now; set to true to restore it.
+ */
+export const WALLET_AFFILIATE_CARD_VISIBLE = false
