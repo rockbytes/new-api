@@ -16,20 +16,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// setUserGroupVisibleGroups grants userGroup the given groups for the duration of
+// the test. The previous rules are restored when the test ends.
+func setUserGroupVisibleGroups(t *testing.T, userGroup string, groups map[string]string) {
+	t.Helper()
+	specialGroups := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup
+	original := specialGroups.ReadAll()
+	t.Cleanup(func() {
+		specialGroups.Clear()
+		specialGroups.AddAll(original)
+	})
+	rules := make(map[string]string, len(groups))
+	for name, desc := range groups {
+		rules["+:"+name] = desc
+	}
+	specialGroups.Set(userGroup, rules)
+}
+
 func configureTokenAutoGroupsTest(t *testing.T, maxCount string, autoGroups string) {
 	t.Helper()
 	originalMax := setting.GetMaxTokenAutoGroups()
 	originalAutoGroups := setting.AutoGroups2JsonString()
-	originalUsableGroups := setting.UserUsableGroups2JSONString()
 	originalRatios := ratio_setting.GroupRatio2JSONString()
 	require.NoError(t, setting.UpdateMaxTokenAutoGroups(maxCount))
 	require.NoError(t, setting.UpdateAutoGroupsByJsonString(autoGroups))
-	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","vip":"VIP"}`))
+	setUserGroupVisibleGroups(t, "default", map[string]string{"default": "Default", "vip": "VIP"})
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":1}`))
 	t.Cleanup(func() {
 		require.NoError(t, setting.UpdateMaxTokenAutoGroups(stringInt(originalMax)))
 		require.NoError(t, setting.UpdateAutoGroupsByJsonString(originalAutoGroups))
-		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUsableGroups))
 		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
 	})
 }

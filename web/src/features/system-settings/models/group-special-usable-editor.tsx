@@ -25,14 +25,6 @@ import {
 } from '@/components/ui/collapsible'
 import { Combobox } from '@/components/ui/combobox'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 
 const sectionCardClassName = 'min-w-0 shadow-none'
 const sectionHeaderClassName = 'gap-2 border-b'
@@ -40,7 +32,6 @@ const sectionHeaderClassName = 'gap-2 border-b'
 type Rule = {
   _id: string
   userGroup: string
-  visible: boolean
   targetGroup: string
   description: string
 }
@@ -50,22 +41,10 @@ function uid() {
   return `gsu_${++_idCounter}`
 }
 
-// Raw keys use +: (add), -: (remove), or no prefix (also add).
-// The UI collapses this to visible/hidden and serializes visible rules
-// with the +: prefix, which the backend treats identically to no prefix.
-function parseRawKey(rawKey: string): { visible: boolean; groupName: string } {
-  if (rawKey.startsWith('-:')) {
-    return { visible: false, groupName: rawKey.slice(2) }
-  }
-  if (rawKey.startsWith('+:')) {
-    return { visible: true, groupName: rawKey.slice(2) }
-  }
-  return { visible: true, groupName: rawKey }
-}
-
-function toRawKey(visible: boolean, groupName: string): string {
-  return visible ? `+:${groupName}` : `-:${groupName}`
-}
+// Only "+:<group>" rules are read: each one grants one group to a user group.
+// Any other key (including legacy "-:" removal rules) is dropped on save, so
+// the saved configuration matches what the backend honours.
+const GRANT_PREFIX = '+:'
 
 function safeParseJson(str: string): Record<string, Record<string, string>> {
   if (!str || !str.trim()) return {}
@@ -81,19 +60,12 @@ function flattenRules(nested: Record<string, Record<string, string>>): Rule[] {
   for (const [userGroup, inner] of Object.entries(nested)) {
     if (typeof inner !== 'object' || inner === null) continue
     for (const [rawKey, desc] of Object.entries(inner)) {
-      const { visible, groupName } = parseRawKey(rawKey)
-      let description = ''
-      if (!visible) {
-        description = 'remove'
-      } else if (typeof desc === 'string') {
-        description = desc
-      }
+      if (!rawKey.startsWith(GRANT_PREFIX)) continue
       rules.push({
         _id: uid(),
         userGroup,
-        visible,
-        targetGroup: groupName,
-        description,
+        targetGroup: rawKey.slice(GRANT_PREFIX.length),
+        description: typeof desc === 'string' ? desc : '',
       })
     }
   }
@@ -102,10 +74,10 @@ function flattenRules(nested: Record<string, Record<string, string>>): Rule[] {
 
 function serializeRules(rules: Rule[]): string {
   const result: Record<string, Record<string, string>> = {}
-  for (const { userGroup, visible, targetGroup, description } of rules) {
+  for (const { userGroup, targetGroup, description } of rules) {
     if (!userGroup || !targetGroup) continue
     if (!result[userGroup]) result[userGroup] = {}
-    result[userGroup][toRawKey(visible, targetGroup)] = description
+    result[userGroup][`${GRANT_PREFIX}${targetGroup}`] = description
   }
   return Object.keys(result).length === 0
     ? '{}'
@@ -152,7 +124,11 @@ type GroupSectionProps = {
   groupName: string
   items: Rule[]
   groupOptions: string[]
-  onUpdate: (id: string, field: keyof Rule, val: string | boolean) => void
+  onUpdate: (
+    id: string,
+    field: 'targetGroup' | 'description',
+    val: string
+  ) => void
   onRemove: (id: string) => void
   onAdd: (groupName: string) => void
   onRemoveGroup: (groupName: string) => void
@@ -223,47 +199,9 @@ function GroupSection(props: GroupSectionProps) {
             {props.items.map((rule) => (
               <div
                 key={rule._id}
-                className='grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border p-3 sm:grid-cols-[130px_minmax(0,1fr)_minmax(0,1fr)_auto] sm:border-0 sm:p-0'
+                className='grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:border-0 sm:p-0'
               >
-                <Select
-                  value={rule.visible ? 'visible' : 'hidden'}
-                  onValueChange={(v) =>
-                    v !== null &&
-                    props.onUpdate(rule._id, 'visible', v === 'visible')
-                  }
-                >
-                  <SelectTrigger
-                    className='w-full sm:w-[130px]'
-                    aria-label={t('Group visibility')}
-                  >
-                    <SelectValue>
-                      <StatusBadge
-                        label={rule.visible ? t('Extra visible') : t('Hidden')}
-                        variant={rule.visible ? 'info' : 'danger'}
-                        copyable={false}
-                      />
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent alignItemWithTrigger={false}>
-                    <SelectGroup>
-                      <SelectItem value='visible'>
-                        <StatusBadge
-                          label={t('Extra visible')}
-                          variant='info'
-                          copyable={false}
-                        />
-                      </SelectItem>
-                      <SelectItem value='hidden'>
-                        <StatusBadge
-                          label={t('Hidden')}
-                          variant='danger'
-                          copyable={false}
-                        />
-                      </SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                <div className='col-start-1 row-start-2 flex min-w-0 items-center gap-1.5 sm:col-start-auto sm:row-start-auto'>
+                <div className='flex min-w-0 items-center gap-1.5'>
                   <GroupSelect
                     className='min-w-0 flex-1'
                     options={props.groupOptions}
@@ -281,21 +219,15 @@ function GroupSection(props: GroupSectionProps) {
                       />
                     )}
                 </div>
-                {rule.visible ? (
-                  <Input
-                    className='col-start-1 row-start-3 min-w-0 sm:col-start-auto sm:row-start-auto'
-                    aria-label={t('Description')}
-                    value={rule.description}
-                    placeholder={t('Description')}
-                    onChange={(e) =>
-                      props.onUpdate(rule._id, 'description', e.target.value)
-                    }
-                  />
-                ) : (
-                  <div className='text-muted-foreground hidden px-3 text-sm sm:block'>
-                    -
-                  </div>
-                )}
+                <Input
+                  className='col-start-1 row-start-2 min-w-0 sm:col-start-auto sm:row-start-auto'
+                  aria-label={t('Description')}
+                  value={rule.description}
+                  placeholder={t('Description')}
+                  onChange={(e) =>
+                    props.onUpdate(rule._id, 'description', e.target.value)
+                  }
+                />
                 <Button
                   variant='ghost'
                   size='sm'
@@ -332,19 +264,8 @@ export function GroupSpecialUsableRulesEditor(
   )
 
   const updateRule = useCallback(
-    (id: string, field: keyof Rule, val: string | boolean) => {
-      emitChange(
-        rules.map((r) => {
-          if (r._id !== id) return r
-          const updated = { ...r, [field]: val }
-          if (field === 'visible' && val === false) {
-            updated.description = 'remove'
-          } else if (field === 'visible' && val === true && !r.visible) {
-            if (updated.description === 'remove') updated.description = ''
-          }
-          return updated
-        })
-      )
+    (id: string, field: 'targetGroup' | 'description', val: string) => {
+      emitChange(rules.map((r) => (r._id === id ? { ...r, [field]: val } : r)))
     },
     [rules, emitChange]
   )
@@ -367,7 +288,6 @@ export function GroupSpecialUsableRulesEditor(
         {
           _id: uid(),
           userGroup: groupName,
-          visible: true,
           targetGroup: '',
           description: '',
         },
@@ -390,18 +310,13 @@ export function GroupSpecialUsableRulesEditor(
     return order.map((name) => ({ name, items: map[name] }))
   }, [rules])
 
-  const newGroupCandidates = useMemo(() => {
-    const used = new Set(grouped.map((g) => g.name))
-    return props.groupOptions.filter((name) => !used.has(name))
-  }, [grouped, props.groupOptions])
-
   return (
     <Card className={sectionCardClassName}>
       <CardHeader className={sectionHeaderClassName}>
         <CardTitle>{t('Special usable group rules')}</CardTitle>
         <CardDescription>
           {t(
-            'Make extra groups visible to, or hide default groups from, users of a specific group.'
+            'Users of a group see only the groups granted by a rule. Groups without a rule are hidden.'
           )}
         </CardDescription>
       </CardHeader>
@@ -430,7 +345,9 @@ export function GroupSpecialUsableRulesEditor(
           <div className='flex items-center justify-center pt-2'>
             <GroupSelect
               className='w-full sm:w-72'
-              options={newGroupCandidates}
+              options={props.groupOptions.filter(
+                (name) => !grouped.some((g) => g.name === name)
+              )}
               value=''
               placeholder={t('Add rules for a user group')}
               onValueChange={addRuleToGroup}

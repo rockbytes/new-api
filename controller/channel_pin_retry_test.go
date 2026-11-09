@@ -8,7 +8,6 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"net/http"
@@ -134,13 +133,11 @@ func TestRequestPolicyRoutingDatabaseMatrix(t *testing.T) {
 				}
 			}
 			db := modelManagementDB(t, dialect.kind, dsn)
-			previousGroups := setting.UserUsableGroups2JSONString()
 			previousRatios, err := common.Marshal(ratio_setting.GetGroupRatioCopy())
 			require.NoError(t, err)
-			require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
+			setUserGroupVisibleGroups(t, "default", map[string]string{"default": "Default"})
 			require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
 			t.Cleanup(func() {
-				require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousGroups))
 				require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(string(previousRatios)))
 			})
 			// Channel 1 holds the session binding but is no longer usable.

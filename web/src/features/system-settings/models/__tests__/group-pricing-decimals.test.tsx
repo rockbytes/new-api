@@ -9,7 +9,6 @@ function PricingFixture() {
   const [settings, setSettings] = useState<Record<string, string>>({
     GroupRatio: '{"default":1}',
     TopupGroupRatio: '{}',
-    UserUsableGroups: '{}',
   })
   return (
     <>
@@ -19,7 +18,6 @@ function PricingFixture() {
         defaultUseAutoGroupField={null}
         groupRatio={settings.GroupRatio}
         topupGroupRatio={settings.TopupGroupRatio}
-        userUsableGroups={settings.UserUsableGroups}
         groupGroupRatio='{}'
         autoGroups='[]'
         maxTokenAutoGroupsField={null}

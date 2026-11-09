@@ -7209,6 +7209,7 @@
     "Users can download their own logs from the usage log page. Administrators can always export.": "Users can download their own logs from the usage log page. Administrators can always export.",
     "Users in {{group}}": "Users in {{group}}",
     "Users must wait for a successful drawing before upscales or variations.": "Users must wait for a successful drawing before upscales or variations.",
+    "Users of a group see only the groups granted by a rule. Groups without a rule are hidden.": "Users of a group see only the groups granted by a rule. Groups without a rule are hidden.",
     "Users of vip, when billed as premium, pay ratio": "Users of vip, when billed as premium, pay ratio",
     "Users only see groups marked as user selectable. Non-selectable groups can still be assigned by administrators.": "Users only see groups marked as user selectable. Non-selectable groups can still be assigned by administrators.",
     "uses": "uses",

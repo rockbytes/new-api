@@ -7209,6 +7209,7 @@
     "Users can download their own logs from the usage log page. Administrators can always export.": "Les utilisateurs peuvent télécharger leurs propres journaux depuis la page des journaux d'utilisation. Les administrateurs peuvent toujours exporter.",
     "Users in {{group}}": "Utilisateurs du groupe {{group}}",
     "Users must wait for a successful drawing before upscales or variations.": "Les utilisateurs doivent attendre une génération réussie avant les upscales ou variations.",
+    "Users of a group see only the groups granted by a rule. Groups without a rule are hidden.": "Les utilisateurs d'un groupe ne voient que les groupes accordés par une règle. Les groupes sans règle sont masqués.",
     "Users of vip, when billed as premium, pay ratio": "Les utilisateurs de vip, facturés sous premium, paient le taux",
     "Users only see groups marked as user selectable. Non-selectable groups can still be assigned by administrators.": "Les utilisateurs ne voient que les groupes marqués comme sélectionnables. Les groupes non sélectionnables peuvent toujours être attribués par les administrateurs.",
     "uses": "utilisations",

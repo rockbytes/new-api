@@ -182,6 +182,7 @@ func decodeUserModelsResponse(t *testing.T, recorder *httptest.ResponseRecorder)
 }
 
 func TestGetUserModelsFiltersByRequestedGroup(t *testing.T) {
+	setUserGroupVisibleGroups(t, "default", map[string]string{"default": "Default", "vip": "VIP"})
 	db := setupModelListControllerTestDB(t)
 	require.NoError(t, db.Create(&model.User{
 		Id:       1002,
@@ -217,23 +218,21 @@ func TestGetUserModelsFiltersByRequestedGroup(t *testing.T) {
 
 func TestGetUserModelsExpandsAutoGroupsInConfiguredOrder(t *testing.T) {
 	originalAutoGroups := setting.AutoGroups2JsonString()
-	originalUsableGroups := setting.UserUsableGroups2JSONString()
 	originalSpecialGroups := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup.ReadAll()
 	t.Cleanup(func() {
 		require.NoError(t, setting.UpdateAutoGroupsByJsonString(originalAutoGroups))
-		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUsableGroups))
 		specialGroups := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup
 		specialGroups.Clear()
 		specialGroups.AddAll(originalSpecialGroups)
 	})
 
 	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["vip","default","unavailable"]`))
-	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"auto":"自动分组","default":"默认分组","unavailable":"不可用分组"}`))
 	specialGroups := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup
 	specialGroups.Clear()
 	specialGroups.Set("default", map[string]string{
-		"+:vip":         "VIP 分组",
-		"-:unavailable": "",
+		"+:auto":    "自动分组",
+		"+:default": "默认分组",
+		"+:vip":     "VIP 分组",
 	})
 
 	db := setupModelListControllerTestDB(t)
@@ -434,14 +433,12 @@ func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {
 func TestListModelsTokenLimitUsesResolvedCustomAutoGroups(t *testing.T) {
 	withSelfUseModeEnabled(t)
 	originalMax := setting.GetMaxTokenAutoGroups()
-	originalUsableGroups := setting.UserUsableGroups2JSONString()
 	originalRatios := ratio_setting.GroupRatio2JSONString()
 	require.NoError(t, setting.UpdateMaxTokenAutoGroups("5"))
-	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","vip":"VIP"}`))
+	setUserGroupVisibleGroups(t, "default", map[string]string{"default": "Default", "vip": "VIP"})
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":1}`))
 	t.Cleanup(func() {
 		require.NoError(t, setting.UpdateMaxTokenAutoGroups(fmt.Sprintf("%d", originalMax)))
-		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUsableGroups))
 		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
 	})
 
@@ -469,7 +466,7 @@ func TestListModelsTokenLimitUsesResolvedCustomAutoGroups(t *testing.T) {
 	ids := decodeListModelsResponse(t, recorder)
 	require.Equal(t, map[string]struct{}{"zz-vip-allowed": {}}, ids)
 
-	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
+	setUserGroupVisibleGroups(t, "default", map[string]string{"default": "Default"})
 	emptyRecorder := httptest.NewRecorder()
 	emptyCtx, _ := gin.CreateTestContext(emptyRecorder)
 	emptyCtx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)

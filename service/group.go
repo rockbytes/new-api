@@ -11,34 +11,25 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// GetUserUsableGroups returns the groups a user group may select, mapped to their
+// descriptions. Nothing is visible unless the user group's rules grant it: each
+// "+:<group>" rule makes one group visible. "-:" rules from earlier configurations
+// are ignored, so they can never widen access.
 func GetUserUsableGroups(userGroup string) map[string]string {
-	groupsCopy := setting.GetUserUsableGroupsCopy()
-	if userGroup != "" {
-		specialSettings, b := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup.Get(userGroup)
-		if b {
-			// 处理特殊可用分组
-			for specialGroup, desc := range specialSettings {
-				if after, ok := strings.CutPrefix(specialGroup, "-:"); ok {
-					// 移除分组
-					groupToRemove := after
-					delete(groupsCopy, groupToRemove)
-				} else if after, ok := strings.CutPrefix(specialGroup, "+:"); ok {
-					// 添加分组
-					groupToAdd := after
-					groupsCopy[groupToAdd] = desc
-				} else {
-					// 直接添加分组
-					groupsCopy[specialGroup] = desc
-				}
-			}
-		}
-		// 如果userGroup不在UserUsableGroups中，返回UserUsableGroups + userGroup。
-		// 描述是英文源文本，由 web 控制台翻译；管理员配置的描述原样显示。
-		if _, ok := groupsCopy[userGroup]; !ok {
-			groupsCopy[userGroup] = "User group"
+	usableGroups := make(map[string]string)
+	if userGroup == "" {
+		return usableGroups
+	}
+	rules, ok := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup.Get(userGroup)
+	if !ok {
+		return usableGroups
+	}
+	for rule, desc := range rules {
+		if after, ok := strings.CutPrefix(rule, "+:"); ok {
+			usableGroups[after] = desc
 		}
 	}
-	return groupsCopy
+	return usableGroups
 }
 
 func GroupInUserUsableGroups(userGroup, groupName string) bool {

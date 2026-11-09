@@ -7209,6 +7209,7 @@
     "Users can download their own logs from the usage log page. Administrators can always export.": "使用者可以在使用日誌頁面下載自己的日誌。管理員始終可以匯出。",
     "Users in {{group}}": "{{group}} 分組的用戶",
     "Users must wait for a successful drawing before upscales or variations.": "用戶必須等待成功的繪圖完成，才能進行放大或變體。",
+    "Users of a group see only the groups granted by a rule. Groups without a rule are hidden.": "用戶分組的用戶只能看到規則授予的分組，未配置規則的分組對其不可見。",
     "Users of vip, when billed as premium, pay ratio": "vip 分組的用戶，按 premium 收費時，倍率用",
     "Users only see groups marked as user selectable. Non-selectable groups can still be assigned by administrators.": "用戶只能看到標記為用戶可選的分組。不可選分組仍可由管理員分配。",
     "uses": "使用次數",

@@ -12,6 +12,10 @@ import (
 
 const retiredThemeOptionKey = "theme.frontend"
 
+// retiredUserUsableGroupsOptionKey is the global "Selectable groups" list. Groups
+// are now granted per user group, so the stored value is no longer read.
+const retiredUserUsableGroupsOptionKey = "UserUsableGroups"
+
 type legacyOptionTransform func(string) (string, error)
 
 // MigrateRetiredFrontendOptions normalizes options that belonged to the

@@ -7209,6 +7209,7 @@
     "Users can download their own logs from the usage log page. Administrators can always export.": "Пользователи могут скачивать свои журналы на странице журнала использования. Администраторы могут экспортировать всегда.",
     "Users in {{group}}": "Пользователи группы {{group}}",
     "Users must wait for a successful drawing before upscales or variations.": "Пользователи должны дождаться успешного рисунка перед апскейлом или вариациями.",
+    "Users of a group see only the groups granted by a rule. Groups without a rule are hidden.": "Пользователи группы видят только группы, разрешённые правилом. Группы без правила скрыты.",
     "Users of vip, when billed as premium, pay ratio": "Пользователи vip при тарификации по premium платят коэффициент",
     "Users only see groups marked as user selectable. Non-selectable groups can still be assigned by administrators.": "Пользователи видят только группы, отмеченные как доступные для выбора. Недоступные для выбора группы всё равно могут назначаться администраторами.",
     "uses": "использует",

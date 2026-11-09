@@ -19,7 +19,6 @@ import { GroupRatioForm } from '../group-ratio-form'
 const defaults = {
   GroupRatio: '{"default":1,"vip":0.8}',
   TopupGroupRatio: '{"vip":1.2}',
-  UserUsableGroups: '{"default":"Standard access","vip":"Premium access"}',
   GroupGroupRatio: '{}',
   AutoGroups: '["default","vip"]',
   MaxTokenAutoGroups: 5,
@@ -30,7 +29,6 @@ const defaults = {
 const schema = z.object({
   GroupRatio: z.string(),
   TopupGroupRatio: z.string(),
-  UserUsableGroups: z.string(),
   GroupGroupRatio: z.string(),
   AutoGroups: z.string(),
   MaxTokenAutoGroups: positiveIntegerSchema('Enter a positive integer'),
@@ -61,13 +59,13 @@ function Fixture(props: {
 }
 
 describe('group settings workspace', () => {
-  it('filters by description and clears search without discarding edits', async () => {
+  it('filters by group name and clears search without discarding edits', async () => {
     const user = userEvent.setup()
     render(<Fixture />)
     const search = screen.getByRole('textbox', {
-      name: 'Search groups by name or description',
+      name: 'Search groups...',
     })
-    await user.type(search, 'PREMIUM')
+    await user.type(search, 'VIP')
     expect(screen.getAllByRole('textbox', { name: 'Group name' })).toHaveLength(
       1
     )
@@ -120,12 +118,6 @@ describe('group settings workspace', () => {
       group_1: 1,
       default: 1,
       vip: 0.8,
-    })
-    expect(JSON.parse(saved.UserUsableGroups)).toEqual({
-      group_2: '',
-      group_1: '',
-      default: 'Standard access',
-      vip: 'Premium access',
     })
     expect(JSON.parse(saved.TopupGroupRatio)).toEqual({ vip: 1.2 })
     expect(saved.AutoGroups).toBe(defaults.AutoGroups)
@@ -299,7 +291,6 @@ describe('group settings workspace', () => {
         initial={{
           GroupRatio: '{}',
           TopupGroupRatio: '{}',
-          UserUsableGroups: '{}',
           AutoGroups: '[]',
         }}
       />
@@ -319,17 +310,13 @@ describe('group settings workspace', () => {
   it('preserves pricing edits when switching between visual and JSON editors', async () => {
     const user = userEvent.setup()
     render(<Fixture />)
-    await user.clear(
-      screen.getAllByRole('textbox', { name: 'Group description' })[1]
-    )
-    await user.type(
-      screen.getAllByRole('textbox', { name: 'Group description' })[1],
-      'Updated description'
-    )
+    const vipRatio = screen.getAllByRole('spinbutton', { name: 'Ratio' })[1]
+    await user.clear(vipRatio)
+    await user.type(vipRatio, '0.5')
     await user.click(screen.getByRole('button', { name: 'Switch to JSON' }))
     await user.click(screen.getByRole('button', { name: 'Switch to Visual' }))
-    expect(
-      screen.getAllByRole('textbox', { name: 'Group description' })[1]
-    ).toHaveValue('Updated description')
+    expect(screen.getAllByRole('spinbutton', { name: 'Ratio' })[1]).toHaveValue(
+      0.5
+    )
   })
 })

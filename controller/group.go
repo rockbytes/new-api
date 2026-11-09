@@ -5,7 +5,6 @@ import (
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -30,7 +29,7 @@ func GetUserGroups(c *gin.Context) {
 	userGroup, _ = model.GetUserGroup(userId, false)
 	userUsableGroups := service.GetUserUsableGroups(userGroup)
 	for groupName, _ := range ratio_setting.GetGroupRatioCopy() {
-		// UserUsableGroups contains the groups that the user can use
+		// userUsableGroups holds the groups granted to this user group
 		if desc, ok := userUsableGroups[groupName]; ok {
 			usableGroups[groupName] = map[string]any{
 				"ratio": service.GetUserGroupRatio(userGroup, groupName),
@@ -38,10 +37,10 @@ func GetUserGroups(c *gin.Context) {
 			}
 		}
 	}
-	if _, ok := userUsableGroups["auto"]; ok {
+	if desc, ok := userUsableGroups["auto"]; ok {
 		usableGroups["auto"] = map[string]any{
 			"ratio": "auto",
-			"desc":  setting.GetUsableGroupDescription("auto"),
+			"desc":  desc,
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{

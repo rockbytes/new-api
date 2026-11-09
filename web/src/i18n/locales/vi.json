@@ -7209,6 +7209,7 @@
     "Users can download their own logs from the usage log page. Administrators can always export.": "Người dùng có thể tải nhật ký của mình từ trang nhật ký sử dụng. Quản trị viên luôn có thể xuất.",
     "Users in {{group}}": "Người dùng trong {{group}}",
     "Users must wait for a successful drawing before upscales or variations.": "Người dùng phải chờ vẽ thành công trước khi upscale hoặc biến thể.",
+    "Users of a group see only the groups granted by a rule. Groups without a rule are hidden.": "Người dùng của một nhóm chỉ thấy các nhóm được cấp bởi quy tắc. Nhóm không có quy tắc sẽ bị ẩn.",
     "Users of vip, when billed as premium, pay ratio": "Người dùng của vip, khi tính phí theo premium, trả hệ số",
     "Users only see groups marked as user selectable. Non-selectable groups can still be assigned by administrators.": "Người dùng chỉ thấy các nhóm được đánh dấu là có thể chọn. Nhóm không thể chọn vẫn có thể do quản trị viên gán.",
     "uses": "sử dụng",

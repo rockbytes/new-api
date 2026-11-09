@@ -14,20 +14,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// setUserGroupVisibleGroups grants userGroup the given groups for the duration of
+// the test. The previous rules are restored when the test ends.
+func setUserGroupVisibleGroups(t *testing.T, userGroup string, groups map[string]string) {
+	t.Helper()
+	specialGroups := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup
+	original := specialGroups.ReadAll()
+	t.Cleanup(func() {
+		specialGroups.Clear()
+		specialGroups.AddAll(original)
+	})
+	rules := make(map[string]string, len(groups))
+	for name, desc := range groups {
+		rules["+:"+name] = desc
+	}
+	specialGroups.Set(userGroup, rules)
+}
+
 func configureRequestAutoGroupsTest(t *testing.T) {
 	t.Helper()
 	originalMax := setting.GetMaxTokenAutoGroups()
 	originalAutoGroups := setting.AutoGroups2JsonString()
-	originalUsableGroups := setting.UserUsableGroups2JSONString()
 	originalRatios := ratio_setting.GroupRatio2JSONString()
 	require.NoError(t, setting.UpdateMaxTokenAutoGroups("2"))
 	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["vip","default","svip"]`))
-	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","vip":"VIP","svip":"SVIP"}`))
+	setUserGroupVisibleGroups(t, "default", map[string]string{"default": "Default", "vip": "VIP", "svip": "SVIP"})
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":1,"svip":1}`))
 	t.Cleanup(func() {
 		require.NoError(t, setting.UpdateMaxTokenAutoGroups(fmt.Sprintf("%d", originalMax)))
 		require.NoError(t, setting.UpdateAutoGroupsByJsonString(originalAutoGroups))
-		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUsableGroups))
 		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
 	})
 }
@@ -64,9 +79,31 @@ func TestGetRequestAutoGroupsDoesNotFallBackAfterPermissionChange(t *testing.T) 
 	configureRequestAutoGroupsTest(t)
 	ctx := newRequestAutoGroupsContext()
 	common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, []string{"vip"})
-	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
+	setUserGroupVisibleGroups(t, "default", map[string]string{"default": "Default"})
 
 	groups := GetRequestAutoGroups(ctx, "default")
 
 	assert.Empty(t, groups)
+}
+
+func TestGetUserUsableGroupsGrantsOnlyExplicitRules(t *testing.T) {
+	specialGroups := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup
+	original := specialGroups.ReadAll()
+	t.Cleanup(func() {
+		specialGroups.Clear()
+		specialGroups.AddAll(original)
+	})
+	specialGroups.Clear()
+	specialGroups.Set("team-a", map[string]string{
+		"+:team-a":   "Team A",
+		"+:supplier": "Supplier",
+		"-:other":    "ignored",
+	})
+	specialGroups.Set("team-c", map[string]string{"+:supplier": "Supplier"})
+
+	assert.Empty(t, GetUserUsableGroups("team-b"), "a user group without rules sees nothing, not even its own group")
+	assert.Empty(t, GetUserUsableGroups(""))
+	assert.Equal(t, map[string]string{"team-a": "Team A", "supplier": "Supplier"}, GetUserUsableGroups("team-a"))
+	assert.Equal(t, map[string]string{"supplier": "Supplier"}, GetUserUsableGroups("team-c"), "own group is not added unless granted")
+	assert.False(t, GroupInUserUsableGroups("team-a", "other"), "a removal rule never widens access")
 }
