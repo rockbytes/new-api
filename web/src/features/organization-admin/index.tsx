@@ -13,6 +13,10 @@ import {
 } from '@/components/data-table'
 import { EmptyState } from '@/components/empty-state'
 import { SectionPageLayout } from '@/components/layout'
+import {
+  QuotaAdjustDialog,
+  type QuotaAdjustMode,
+} from '@/components/quota-adjust-dialog'
 import { StatusBadge, statusPresets } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -31,7 +35,6 @@ import {
   setOwnMemberAllocation,
   updateOrganizationMember,
 } from './api'
-import { AllocationSheet } from './components/allocation-sheet'
 import {
   CreateMemberSheet,
   ResetMemberPasswordSheet,
@@ -96,6 +99,28 @@ export function OrganizationAdmin() {
       handleServerError(error, t('Failed to update allocation.')),
   })
 
+  // Adds to, subtracts from, or overrides the member's allocation. The allocation cannot fall
+  // below the usage the member has already recorded, which the dialog enforces as the minimum.
+  const handleAllocate = async (
+    mode: QuotaAdjustMode,
+    value: number
+  ): Promise<boolean> => {
+    if (!allocationTarget) return false
+    const current = allocationTarget.allocated_quota
+    let allocated = value
+    if (mode === 'add') allocated = current + value
+    if (mode === 'subtract') allocated = current - value
+    try {
+      await allocationMutation.mutateAsync({
+        userId: allocationTarget.user_id,
+        allocated,
+      })
+      return true
+    } catch {
+      return false
+    }
+  }
+
   const deleteMutation = useMutation({
     mutationFn: (member: OrganizationMemberRow) =>
       deleteOrganizationMember(member.user_id),
@@ -157,9 +182,9 @@ export function OrganizationAdmin() {
       header: t('Status'),
       cell: (row) =>
         row.status === 'active' ? (
-          <StatusBadge {...statusPresets.active} />
+          <StatusBadge {...statusPresets.active} label={t('Active')} />
         ) : (
-          <StatusBadge {...statusPresets.inactive} />
+          <StatusBadge {...statusPresets.inactive} label={t('Inactive')} />
         ),
     },
     {
@@ -265,20 +290,12 @@ export function OrganizationAdmin() {
           <StaticDataTable columns={columns} data={members} />
         </SectionPageLayout.Content>
       </SectionPageLayout>
-      <AllocationSheet
+      <QuotaAdjustDialog
         open={allocationTarget !== null}
         onOpenChange={(open) => !open && setAllocationTarget(null)}
-        username={allocationTarget?.username ?? ''}
-        allocated={allocationTarget?.allocated_quota ?? 0}
-        used={allocationTarget?.used_quota ?? 0}
-        isPending={allocationMutation.isPending}
-        onSubmit={(allocated) =>
-          allocationTarget &&
-          allocationMutation.mutate({
-            userId: allocationTarget.user_id,
-            allocated,
-          })
-        }
+        currentQuota={allocationTarget?.allocated_quota ?? 0}
+        minimumQuota={allocationTarget?.used_quota ?? 0}
+        onConfirm={handleAllocate}
       />
       <CreateMemberSheet open={createOpen} onOpenChange={setCreateOpen} />
       <ResetMemberPasswordSheet

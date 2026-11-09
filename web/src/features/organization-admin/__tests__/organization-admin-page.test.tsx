@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AxiosError, type AxiosResponse } from 'axios'
+import i18next from 'i18next'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
@@ -43,6 +44,8 @@ function mockOrganizationApi(role: 'admin' | 'member') {
             role: 'member',
             status: 'active',
             created_time: 1700000000,
+            allocated_quota: 0,
+            used_quota: 0,
           },
           {
             user_id: 3,
@@ -51,6 +54,8 @@ function mockOrganizationApi(role: 'admin' | 'member') {
             role: 'member',
             status: 'active',
             created_time: 1700000000,
+            allocated_quota: 0,
+            used_quota: 0,
           },
         ],
       })
@@ -143,4 +148,44 @@ it('filters the member list by username without case sensitivity as the admin ty
 
   expect(screen.getByText('carol')).toBeInTheDocument()
   expect(screen.queryByText('bob')).not.toBeInTheDocument()
+})
+
+it('shows member status labels in the current language', async () => {
+  i18next.addResourceBundle('en', 'translation', { Active: '生效' }, true, true)
+  try {
+    mockOrganizationApi('admin')
+
+    renderPage()
+
+    expect(await screen.findAllByText('生效')).toHaveLength(2)
+  } finally {
+    i18next.removeResourceBundle('en', 'translation')
+  }
+})
+
+it('adds to a member allocation through the adjust quota dialog', async () => {
+  mockOrganizationApi('admin')
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue(response({ success: true }))
+  const user = userEvent.setup()
+
+  renderPage()
+
+  const bobRow = within(await screen.findByRole('row', { name: /bob/ }))
+  await user.click(bobRow.getByRole('button', { name: 'Member actions' }))
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Allocate quota' })
+  )
+  const dialog = await screen.findByRole('dialog', { name: 'Adjust Quota' })
+  await user.type(within(dialog).getByRole('spinbutton'), '1')
+  await user.click(within(dialog).getByRole('button', { name: 'Confirm' }))
+
+  await waitFor(() =>
+    expect(put).toHaveBeenCalledWith('/api/organization/self/members/2/quota', {
+      allocated: expect.any(Number),
+    })
+  )
+  const body = put.mock.calls[0]?.[1] as { allocated: number }
+  expect(body.allocated).toBeGreaterThan(0)
 })
