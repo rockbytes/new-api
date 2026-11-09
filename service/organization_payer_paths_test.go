@@ -54,7 +54,7 @@ func setupPayerPathsTest(t *testing.T) (organizationId int, userId int) {
 		Role: model.OrganizationRoleMember, Status: model.OrganizationMembershipActive, CreatedTime: 1, UpdatedTime: 1}).Error)
 	_, err = model.GrantOrganizationQuota(organization.Id, 10000, 1, "grant", "grant-payer", 1)
 	require.NoError(t, err)
-	require.NoError(t, model.SetOrganizationMemberAllocation(organization.Id, member.Id, 5000, false, 2))
+	require.NoError(t, model.SetOrganizationMemberAllocation(organization.Id, member.Id, 5000, 2))
 	return organization.Id, member.Id
 }
 

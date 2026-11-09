@@ -48,7 +48,7 @@ func TestOrganizationQuotaFundingRejectsByMemberLimitWithoutFallback(t *testing.
 	orgId, userId := setupOrganizationFundingTest(t)
 	_, err := model.GrantOrganizationQuota(orgId, 1000, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
-	require.NoError(t, model.SetOrganizationMemberAllocation(orgId, userId, 40, false, 2))
+	require.NoError(t, model.SetOrganizationMemberAllocation(orgId, userId, 40, 2))
 	funding := &OrganizationQuotaFunding{organizationId: orgId, userId: userId, requestId: "req-a"}
 
 	require.NoError(t, funding.PreConsume(30))
@@ -61,7 +61,7 @@ func TestOrganizationQuotaFundingReportsDisabledMemberAndSuspendedOrganization(t
 	orgId, userId := setupOrganizationFundingTest(t)
 	_, err := model.GrantOrganizationQuota(orgId, 1000, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
-	require.NoError(t, model.SetOrganizationMemberAllocation(orgId, userId, 500, false, 2))
+	require.NoError(t, model.SetOrganizationMemberAllocation(orgId, userId, 500, 2))
 
 	disabled := model.OrganizationMembershipDisabled
 	require.NoError(t, model.UpdateOrganizationMember(orgId, userId, nil, &disabled, 3))
@@ -80,7 +80,7 @@ func TestOrganizationQuotaFundingRejectsByOrganizationLimit(t *testing.T) {
 	orgId, userId := setupOrganizationFundingTest(t)
 	_, err := model.GrantOrganizationQuota(orgId, 50, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
-	require.NoError(t, model.SetOrganizationMemberAllocation(orgId, userId, 500, false, 2))
+	require.NoError(t, model.SetOrganizationMemberAllocation(orgId, userId, 500, 2))
 	funding := &OrganizationQuotaFunding{organizationId: orgId, userId: userId, requestId: "req-b"}
 
 	require.NoError(t, funding.PreConsume(40))
@@ -91,7 +91,7 @@ func TestOrganizationQuotaFundingSettlesCappedAndRefundsOnce(t *testing.T) {
 	orgId, userId := setupOrganizationFundingTest(t)
 	_, err := model.GrantOrganizationQuota(orgId, 100, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
-	require.NoError(t, model.SetOrganizationMemberAllocation(orgId, userId, 200, false, 2))
+	require.NoError(t, model.SetOrganizationMemberAllocation(orgId, userId, 200, 2))
 	funding := &OrganizationQuotaFunding{organizationId: orgId, userId: userId, requestId: "req-c"}
 
 	require.NoError(t, funding.PreConsume(60))

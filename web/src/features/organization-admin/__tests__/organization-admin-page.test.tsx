@@ -189,3 +189,53 @@ it('adds to a member allocation through the adjust quota dialog', async () => {
   const body = put.mock.calls[0]?.[1] as { allocated: number }
   expect(body.allocated).toBeGreaterThan(0)
 })
+
+it('offers quota allocation on the admin own row but not on another admin row', async () => {
+  mockOrganizationApi('admin')
+  const membersOnly = vi.mocked(api.get).getMockImplementation()
+  vi.mocked(api.get).mockImplementation(async (url: string, config) => {
+    if (url !== '/api/organization/self/members') return membersOnly?.(url, config)
+    return response({
+      success: true,
+      data: [
+        {
+          user_id: 1,
+          username: 'alice',
+          display_name: 'Alice',
+          role: 'admin',
+          status: 'active',
+          created_time: 1700000000,
+          allocated_quota: 0,
+          used_quota: 0,
+        },
+        {
+          user_id: 4,
+          username: 'dave',
+          display_name: 'Dave',
+          role: 'admin',
+          status: 'active',
+          created_time: 1700000000,
+          allocated_quota: 0,
+          used_quota: 0,
+        },
+      ],
+    })
+  })
+  const user = userEvent.setup()
+
+  renderPage()
+
+  const aliceRow = within(await screen.findByRole('row', { name: /alice/ }))
+  await user.click(aliceRow.getByRole('button', { name: 'Member actions' }))
+  expect(
+    await screen.findByRole('menuitem', { name: 'Allocate quota' })
+  ).toBeInTheDocument()
+  await user.keyboard('{Escape}')
+
+  const daveRow = within(await screen.findByRole('row', { name: /dave/ }))
+  await user.click(daveRow.getByRole('button', { name: 'Member actions' }))
+  await screen.findByRole('menuitem', { name: 'Make member' })
+  expect(
+    screen.queryByRole('menuitem', { name: 'Allocate quota' })
+  ).not.toBeInTheDocument()
+})

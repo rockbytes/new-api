@@ -28,7 +28,7 @@ var (
 	ErrOrganizationQuotaInsufficient       = errors.New("insufficient organization quota")
 	ErrOrganizationMemberQuotaInsufficient = errors.New("insufficient member quota")
 	ErrOrganizationMemberQuotaBelowUsage   = errors.New("member allocation cannot be below the usage already recorded")
-	ErrOrganizationMemberRoleNotAllowed    = errors.New("organization admins can only set the allocation of ordinary members")
+	ErrOrganizationMemberRoleNotAllowed    = errors.New("organization admins can only set the allocation of ordinary members and their own")
 	ErrOrganizationQuotaOverflow           = errors.New("organization quota total would overflow")
 	ErrOrganizationLedgerRefInvalid        = errors.New("organization ledger reference is invalid")
 )
@@ -191,7 +191,20 @@ func GrantOrganizationQuota(organizationId int, amount int64, actorUserId int, r
 // quota (B). It cannot go below the usage the member has already recorded. When
 // membersOnly is set, the target must be an ordinary member, which is how organization
 // admins are limited (they cannot set their own or other admins' allocations).
-func SetOrganizationMemberAllocation(organizationId int, userId int, allocated int64, membersOnly bool, now int64) error {
+// SetOrganizationMemberAllocation sets any membership's allocation. Root uses it.
+func SetOrganizationMemberAllocation(organizationId int, userId int, allocated int64, now int64) error {
+	return setOrganizationMemberAllocation(organizationId, userId, allocated, nil, now)
+}
+
+// SetOrganizationMemberAllocationAsAdmin lets an organization admin set the allocation of
+// an ordinary member or of their own membership. Other admins' allocations stay with Root.
+func SetOrganizationMemberAllocationAsAdmin(organizationId int, actorUserId int, userId int, allocated int64, now int64) error {
+	return setOrganizationMemberAllocation(organizationId, userId, allocated, &actorUserId, now)
+}
+
+// setOrganizationMemberAllocation applies the write under the organization lock. A nil
+// actor means the caller is Root and no role restriction applies.
+func setOrganizationMemberAllocation(organizationId int, userId int, allocated int64, actorUserId *int, now int64) error {
 	if allocated < 0 {
 		return ErrOrganizationQuotaInvalidAmount
 	}
@@ -203,7 +216,7 @@ func SetOrganizationMemberAllocation(organizationId int, userId int, allocated i
 		if err != nil {
 			return err
 		}
-		if membersOnly && membership.Role != OrganizationRoleMember {
+		if actorUserId != nil && membership.Role != OrganizationRoleMember && userId != *actorUserId {
 			return ErrOrganizationMemberRoleNotAllowed
 		}
 		row, err := lockOrganizationMemberQuota(tx, organizationId, userId, now)

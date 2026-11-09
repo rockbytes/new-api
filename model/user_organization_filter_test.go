@@ -15,7 +15,7 @@ func TestUserListFiltersByOrganizationAndReportsItsName(t *testing.T) {
 	organizationId, memberId := setupOrganizationQuotaTestDB(t)
 	_, err := GrantOrganizationQuota(organizationId, 1000, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
-	require.NoError(t, SetOrganizationMemberAllocation(organizationId, memberId, 5000, false, 2))
+	require.NoError(t, SetOrganizationMemberAllocation(organizationId, memberId, 5000, 2))
 	require.NoError(t, ConsumeOrganizationQuota(organizationId, memberId, "req-1", 1, 300, 3))
 
 	other := &Organization{Name: "Other Co", Status: OrganizationStatusActive, CreatedTime: 1, UpdatedTime: 1}

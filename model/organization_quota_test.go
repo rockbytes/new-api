@@ -127,7 +127,7 @@ func TestOrganizationQuotaAllocationIsALimitAndMayExceedRemaining(t *testing.T) 
 	_, err := GrantOrganizationQuota(orgId, 1000, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
 
-	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 5000, false, 2))
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 5000, 2))
 
 	reconciliation := reconciliationOf(t, orgId)
 	assert.Equal(t, int64(1000), reconciliation.GrantedQuota)
@@ -140,13 +140,13 @@ func TestOrganizationQuotaConsumeChecksMemberAndOrganizationLimits(t *testing.T)
 	orgId, memberId := setupOrganizationQuotaTestDB(t)
 	_, err := GrantOrganizationQuota(orgId, 100, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
-	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 50, false, 2))
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 50, 2))
 
 	require.NoError(t, ConsumeOrganizationQuota(orgId, memberId, "req-1", 1, 40, 3))
 	err = ConsumeOrganizationQuota(orgId, memberId, "req-2", 1, 20, 4)
 	assert.ErrorIs(t, err, ErrOrganizationMemberQuotaInsufficient, "the member's allocation has 10 left")
 
-	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 500, false, 5))
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 500, 5))
 	err = ConsumeOrganizationQuota(orgId, memberId, "req-3", 1, 80, 6)
 	assert.ErrorIs(t, err, ErrOrganizationQuotaInsufficient, "the organization has 60 left")
 
@@ -160,7 +160,7 @@ func TestOrganizationQuotaSettleCapsAndRecordsShortfall(t *testing.T) {
 	orgId, memberId := setupOrganizationQuotaTestDB(t)
 	_, err := GrantOrganizationQuota(orgId, 100, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
-	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 200, false, 2))
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 200, 2))
 	require.NoError(t, ConsumeOrganizationQuota(orgId, memberId, "req-1", 1, 60, 3))
 
 	// The organization has 40 left, so settling 50 more charges 40 and records 10 as shortfall.
@@ -179,18 +179,18 @@ func TestOrganizationQuotaAllocationCannotDropBelowUsage(t *testing.T) {
 	orgId, memberId := setupOrganizationQuotaTestDB(t)
 	_, err := GrantOrganizationQuota(orgId, 1000, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
-	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 100, false, 2))
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 100, 2))
 	require.NoError(t, ConsumeOrganizationQuota(orgId, memberId, "req-1", 1, 60, 3))
 
-	assert.ErrorIs(t, SetOrganizationMemberAllocation(orgId, memberId, 50, false, 4), ErrOrganizationMemberQuotaBelowUsage)
-	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 60, false, 5), "the allocation may equal the usage")
+	assert.ErrorIs(t, SetOrganizationMemberAllocation(orgId, memberId, 50, 4), ErrOrganizationMemberQuotaBelowUsage)
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 60, 5), "the allocation may equal the usage")
 }
 
 func TestOrganizationQuotaManualRefundIsCappedAndIdempotent(t *testing.T) {
 	orgId, memberId := setupOrganizationQuotaTestDB(t)
 	_, err := GrantOrganizationQuota(orgId, 1000, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
-	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 300, false, 2))
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 300, 2))
 	require.NoError(t, ConsumeOrganizationQuota(orgId, memberId, "req-3", 1, 100, 3))
 	_, _, err = SettleOrganizationQuota(orgId, memberId, "req-3", 2, -40, 4)
 	require.NoError(t, err)
@@ -217,7 +217,7 @@ func TestOrganizationRequestSettlesToTargetThroughLedger(t *testing.T) {
 	orgId, memberId := setupOrganizationQuotaTestDB(t)
 	_, err := GrantOrganizationQuota(orgId, 1000, 1, "grant", "grant-task", 1)
 	require.NoError(t, err)
-	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 300, false, 2))
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 300, 2))
 	require.NoError(t, ConsumeOrganizationQuota(orgId, memberId, "req-task", 1, 100, 3))
 
 	// Settling to 70 refunds 30. Repeating the same settlement changes nothing.
@@ -248,7 +248,7 @@ func TestOrganizationQuotaDisabledMemberKeepsAllocationAndUsage(t *testing.T) {
 	orgId, memberId := setupOrganizationQuotaTestDB(t)
 	_, err := GrantOrganizationQuota(orgId, 1000, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
-	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 300, false, 2))
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 300, 2))
 	require.NoError(t, ConsumeOrganizationQuota(orgId, memberId, "req-4", 1, 100, 3))
 
 	// Disabling blocks use only. The allocation and the recorded usage stay as they are.
@@ -281,7 +281,7 @@ func TestOrganizationQuotaLedgerMatchesSnapshotUnderMixedWorkload(t *testing.T) 
 	_, err := GrantOrganizationQuota(orgId, 5000, 1, "grant", "grant-workload", 1)
 	require.NoError(t, err)
 	for _, member := range members {
-		require.NoError(t, SetOrganizationMemberAllocation(orgId, member, 1200, false, 2))
+		require.NoError(t, SetOrganizationMemberAllocation(orgId, member, 1200, 2))
 	}
 
 	// Forty requests, reserved concurrently. Limits decide which succeed.
@@ -347,7 +347,7 @@ func TestOrganizationQuotaConcurrentConsumeNeverOverdrawsOrganization(t *testing
 	orgId, memberId := setupOrganizationQuotaTestDB(t)
 	_, err := GrantOrganizationQuota(orgId, 100, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
-	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 1000, false, 2))
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 1000, 2))
 
 	const attempts = 20
 	var wg sync.WaitGroup
@@ -378,7 +378,7 @@ func TestOrganizationDeletionReportsBlockersUntilDependenciesAreCleared(t *testi
 
 	_, err := GrantOrganizationQuota(organizationId, 1000, 1, "initial", "grant-delete-blocked", 1)
 	require.NoError(t, err)
-	require.NoError(t, SetOrganizationMemberAllocation(organizationId, memberId, 300, false, 1))
+	require.NoError(t, SetOrganizationMemberAllocation(organizationId, memberId, 300, 1))
 
 	assert.ErrorIs(t, DeleteOrganization(organizationId, 2), ErrOrganizationDeleteNotSuspended, "an active organization cannot be deleted")
 	require.NoError(t, ChangeOrganizationStatus(organizationId, OrganizationStatusSuspended, 2))
@@ -445,7 +445,7 @@ func TestOrganizationUnallocatedAdjustmentAddsSubtractsAndOverridesThroughTheLed
 	_, err = AdjustOrganizationUnallocatedQuota(organizationId, OrganizationAdjustSubtract, 700, 1, "too much", "adjust-subtract-2", 3)
 	assert.ErrorIs(t, err, ErrOrganizationUnallocatedInsufficient, "the pool cannot go below zero")
 
-	require.NoError(t, SetOrganizationMemberAllocation(organizationId, memberId, 300, false, 3))
+	require.NoError(t, SetOrganizationMemberAllocation(organizationId, memberId, 300, 3))
 	unchanged, err := AdjustOrganizationUnallocatedQuota(organizationId, OrganizationAdjustOverride, 300, 1, "already there", "adjust-override-same", 4)
 	require.NoError(t, err)
 	assert.False(t, unchanged.Applied, "overriding to the current value changes nothing")
@@ -484,7 +484,7 @@ func TestOrganizationSummariesCountActiveMembersAndMatchReconciliation(t *testin
 
 	_, err := GrantOrganizationQuota(orgId, 1000, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
-	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 300, false, 2))
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 300, 2))
 
 	summaries, total, err := ListOrganizationSummaries(0, 10)
 	require.NoError(t, err)

@@ -50,6 +50,14 @@ func setupOrganizationPayerHTTP(t *testing.T) (*httptest.Server, int, *model.Use
 	// that the queries use, which the test cannot set directly.
 	// Startup order matches main.go: default ratios first, then the database, then options.
 	ratio_setting.InitRatioSettings()
+	specialGroups := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup
+	originalSpecialGroups := specialGroups.ReadAll()
+	t.Cleanup(func() {
+		specialGroups.Clear()
+		specialGroups.AddAll(originalSpecialGroups)
+	})
+	// The payer members use the default user group, which may select the default group.
+	specialGroups.Set("default", map[string]string{"+:default": "Default"})
 	require.NoError(t, model.InitDB())
 	require.NoError(t, model.InitLogDB())
 	model.InitOptionMap()
@@ -86,7 +94,7 @@ func setupOrganizationPayerHTTP(t *testing.T) (*httptest.Server, int, *model.Use
 		Role: model.OrganizationRoleMember, Status: model.OrganizationMembershipActive, CreatedTime: 1, UpdatedTime: 1}).Error)
 	_, err := model.GrantOrganizationQuota(organization.Id, 10000000, 1, "grant", "grant-payer-http", 1)
 	require.NoError(t, err)
-	require.NoError(t, model.SetOrganizationMemberAllocation(organization.Id, member.Id, 5000000, false, 2))
+	require.NoError(t, model.SetOrganizationMemberAllocation(organization.Id, member.Id, 5000000, 2))
 
 	organizationKey := &model.Token{UserId: member.Id, Key: payerTestOrganizationKey, Name: "payer-org", Status: common.TokenStatusEnabled,
 		CreatedTime: 1, AccessedTime: 1, ExpiredTime: -1, UnlimitedQuota: true, AllowUserQuotaQuery: true, Group: "default"}

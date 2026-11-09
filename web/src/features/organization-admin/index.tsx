@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input'
 import { formatQuotaWithCurrency } from '@/lib/currency'
 import { formatTimestamp } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   deleteOrganizationMember,
@@ -55,6 +56,7 @@ export function OrganizationAdmin() {
 
   const selfQuery = useOrganizationSelf()
   const isAdmin = selfQuery.data?.role === 'admin'
+  const currentUserId = useAuthStore((state) => state.auth.user?.id)
 
   const membersQuery = useQuery({
     queryKey: ['organization-members'],
@@ -235,7 +237,7 @@ export function OrganizationAdmin() {
               <Power size={16} />
             </DropdownMenuShortcut>
           </DropdownMenuItem>
-          {row.role === 'member' && (
+          {(row.role === 'member' || row.user_id === currentUserId) && (
             <DropdownMenuItem onClick={() => setAllocationTarget(row)}>
               {t('Allocate quota')}
             </DropdownMenuItem>

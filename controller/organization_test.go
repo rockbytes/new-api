@@ -199,8 +199,20 @@ func TestOrganizationQuotaAllocationPermissions(t *testing.T) {
 
 	recorder = doOrganizationRequest(t, adminId, http.MethodPut,
 		fmt.Sprintf("/api/organization/self/members/%d/quota", adminId), `{"allocated":300}`)
+	assert.Equal(t, http.StatusOK, recorder.Code, "an admin may set their own allocation")
+
+	recorder = doOrganizationRequest(t, adminId, http.MethodPost, "/api/organization/self/members",
+		`{"username":"quota-peer","password":"`+organizationTestPass+`"}`)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	peerId := userByName(t, db, "quota-peer").Id
+	recorder = doOrganizationRequest(t, adminId, http.MethodPut,
+		fmt.Sprintf("/api/organization/self/members/%d", peerId), `{"role":"admin"}`)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+
+	recorder = doOrganizationRequest(t, adminId, http.MethodPut,
+		fmt.Sprintf("/api/organization/self/members/%d/quota", peerId), `{"allocated":300}`)
 	assert.Equal(t, http.StatusForbidden, recorder.Code)
-	assert.Equal(t, "ORGANIZATION_PERMISSION_DENIED", organizationErrorCode(t, recorder), "an admin cannot set their own allocation")
+	assert.Equal(t, "ORGANIZATION_PERMISSION_DENIED", organizationErrorCode(t, recorder), "an admin cannot set another admin's allocation")
 
 	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodPut,
 		fmt.Sprintf("/api/organization/%d/members/%d/quota", orgId, adminId), `{"allocated":200}`)

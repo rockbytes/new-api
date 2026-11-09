@@ -74,7 +74,7 @@ func RootSetOrganizationMemberAllocation(c *gin.Context) {
 		writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_INVALID_REQUEST", "Invalid request")
 		return
 	}
-	if err := model.SetOrganizationMemberAllocation(id, userId, req.Allocated, false, common.GetTimestamp()); err != nil {
+	if err := model.SetOrganizationMemberAllocation(id, userId, req.Allocated, common.GetTimestamp()); err != nil {
 		respondOrganizationError(c, err)
 		return
 	}
@@ -132,7 +132,7 @@ func SetOwnOrganizationMemberAllocation(c *gin.Context) {
 		writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_INVALID_REQUEST", "Invalid request")
 		return
 	}
-	if err := model.SetOrganizationMemberAllocation(organization.Id, userId, req.Allocated, true, common.GetTimestamp()); err != nil {
+	if err := model.SetOrganizationMemberAllocationAsAdmin(organization.Id, c.GetInt("id"), userId, req.Allocated, common.GetTimestamp()); err != nil {
 		respondOrganizationError(c, err)
 		return
 	}
