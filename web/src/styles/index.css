@@ -548,3 +548,14 @@
     width: 100%;
   }
 }
+/* Compact rows also tighten the controls and stacked text inside table cells.
+ * Unlayered rules here win over the Tailwind utilities those elements carry. */
+:root[data-table-density='compact'] [data-slot='table-cell'] {
+  line-height: 1.25rem;
+}
+:root[data-table-density='compact'] [data-slot='table-cell'] button {
+  height: 1.5rem;
+}
+:root[data-table-density='compact'] [data-slot='table-cell'] .space-y-1\.5 > :not(:last-child) {
+  margin-block-end: 0.125rem;
+}
