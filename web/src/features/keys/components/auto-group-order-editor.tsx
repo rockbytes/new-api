@@ -114,6 +114,7 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
             : t('Add Auto group')
         }
         disabled={atLimit || candidates.length === 0}
+        hideDescription
       />
 
       {isInheriting && props.globalOptions.length === 0 && (

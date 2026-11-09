@@ -37,6 +37,9 @@ type ApiKeyGroupComboboxProps = {
   onValueChange: (value: string) => void
   placeholder?: string
   disabled?: boolean
+  // Hides each option's description (the group's remark) in the trigger, the
+  // list and search. Defaults to showing it.
+  hideDescription?: boolean
 }
 
 export function ApiKeyGroupCombobox({
@@ -45,6 +48,7 @@ export function ApiKeyGroupCombobox({
   onValueChange,
   placeholder,
   disabled,
+  hideDescription = false,
 }: ApiKeyGroupComboboxProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -62,11 +66,11 @@ export function ApiKeyGroupCombobox({
       return (
         option.value.toLowerCase().includes(search) ||
         option.label.toLowerCase().includes(search) ||
-        option.desc?.toLowerCase().includes(search) ||
+        (!hideDescription && option.desc?.toLowerCase().includes(search)) ||
         ratioText.includes(search)
       )
     })
-  }, [options, searchValue])
+  }, [options, searchValue, hideDescription])
 
   const handleSelect = (selectedValue: string) => {
     onValueChange(selectedValue)
@@ -101,7 +105,7 @@ export function ApiKeyGroupCombobox({
             <span className='block truncate font-medium'>
               {selectedOption?.label || placeholder || t('Select a group')}
             </span>
-            {selectedOption?.desc && (
+            {!hideDescription && selectedOption?.desc && (
               <span className='text-muted-foreground block truncate text-[11px] sm:text-xs'>
                 {selectedOption.desc}
               </span>
@@ -164,7 +168,7 @@ export function ApiKeyGroupCombobox({
                       <span className='block truncate font-medium'>
                         {option.label}
                       </span>
-                      {option.desc && (
+                      {!hideDescription && option.desc && (
                         <span className='text-muted-foreground block truncate text-xs'>
                           {option.desc}
                         </span>

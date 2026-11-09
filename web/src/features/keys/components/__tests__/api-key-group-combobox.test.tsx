@@ -49,7 +49,7 @@ const options = [
   { value: 'vip', label: 'vip', desc: 'Priority group', ratio: 3 },
 ]
 
-function Harness(props: { initialValue: string }) {
+function Harness(props: { initialValue: string; hideDescription?: boolean }) {
   const [value, setValue] = useState(props.initialValue)
 
   return (
@@ -58,6 +58,7 @@ function Harness(props: { initialValue: string }) {
         options={options}
         value={value}
         onValueChange={setValue}
+        hideDescription={props.hideDescription}
       />
       <output data-testid='selected-group'>{value}</output>
     </I18nextProvider>
@@ -134,6 +135,26 @@ describe('API key group combobox Auto effect', () => {
     expect(
       defaultOption.querySelector('[data-auto-group-effect="ratio"]')
     ).toBe(null)
+  })
+
+  test('hides group descriptions from the trigger, the list and search when asked', () => {
+    setReducedMotion(false)
+    render(<Harness initialValue='default' hideDescription />)
+
+    const trigger = getTrigger()
+    expect(trigger).toHaveTextContent('default')
+    expect(trigger).not.toHaveTextContent('User group')
+
+    fireEvent.click(trigger)
+    expect(getCommandItem('vip').textContent).not.toContain('Priority group')
+    expect(getCommandItem('default').textContent).not.toContain('User group')
+
+    fireEvent.input(screen.getByPlaceholderText('Search...'), {
+      target: { value: 'priority' },
+    })
+    expect(
+      document.querySelectorAll('[data-slot="command-item"]')
+    ).toHaveLength(0)
   })
 
   test('keeps search and selection behavior while leaving normal groups unstyled', async () => {

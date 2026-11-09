@@ -160,6 +160,13 @@ describe('Auto group order editor', () => {
     )
   })
 
+  test('hides group descriptions in the add-group dropdown', () => {
+    const { container } = render(<Harness initialGroups={['default']} />)
+
+    fireEvent.click(within(container).getByRole('combobox'))
+    expect(getCommandItem('team').textContent).not.toContain('Shared access')
+  })
+
   test('adds and removes groups, then restores inheritance as an empty value', () => {
     const { container } = render(<Harness />)
     fireEvent.click(findButton(container, 'Remove vip'))

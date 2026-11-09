@@ -477,6 +477,7 @@ export function ApiKeysMutateDrawer({
                           })
                         }}
                         placeholder={t('Select a group')}
+                        hideDescription
                       />
                     </FormControl>
                     <FormMessage />
