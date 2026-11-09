@@ -16,21 +16,27 @@ import {
   type ReactNode,
 } from 'react'
 
+import fuminoModelLinkLogo from '@/assets/brand-icons/fumino-model-link.svg'
 import sglangLogo from '@/assets/brand-icons/sglang.svg'
 import { IconSub2api } from '@/assets/custom/icon-sub2api'
 import { IconWan } from '@/assets/custom/icon-wan'
 
-const CUSTOM_ICONS: Record<string, ComponentType<{ size?: number }>> = {
-  SGLang: (props) => (
+function imageLogoIcon(src: string): ComponentType<{ size?: number }> {
+  return (props) => (
     <img
-      src={sglangLogo}
+      src={src}
       alt=''
       aria-hidden='true'
       width={props.size ?? 20}
       height={props.size ?? 20}
       className='object-contain'
     />
-  ),
+  )
+}
+
+const CUSTOM_ICONS: Record<string, ComponentType<{ size?: number }>> = {
+  FuminoModelLink: imageLogoIcon(fuminoModelLinkLogo),
+  SGLang: imageLogoIcon(sglangLogo),
   Sub2API: IconSub2api,
   Wan: IconWan,
 }

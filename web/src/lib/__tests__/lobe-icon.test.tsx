@@ -113,10 +113,16 @@ describe('Lobe icons', () => {
       'width',
       '24'
     )
+    rerender(getLobeIcon('FuminoModelLink.Color', 32))
+    expect(screen.getByRole('presentation', { hidden: true })).toHaveAttribute(
+      'width',
+      '32'
+    )
     expect(getLobeIconNames()).toEqual(
       expect.arrayContaining([
         'OpenAI',
         'Claude.Color',
+        'FuminoModelLink',
         'SGLang',
         'Sub2API',
         'Wan',
