@@ -19,6 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuShortcut,
 } from '@/components/ui/dropdown-menu'
+import { Input } from '@/components/ui/input'
 import { formatQuotaWithCurrency } from '@/lib/currency'
 import { formatTimestamp } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
@@ -47,6 +48,7 @@ export function OrganizationAdmin() {
   )
   const [deleteTarget, setDeleteTarget] =
     useState<OrganizationMemberRow | null>(null)
+  const [memberQuery, setMemberQuery] = useState('')
 
   const selfQuery = useOrganizationSelf()
   const isAdmin = selfQuery.data?.role === 'admin'
@@ -139,7 +141,10 @@ export function OrganizationAdmin() {
     )
   }
 
-  const members = membersQuery.data ?? []
+  const keyword = memberQuery.trim().toLowerCase()
+  const members = (membersQuery.data ?? []).filter((member) =>
+    member.username.toLowerCase().includes(keyword)
+  )
   const columns: StaticDataTableColumn<OrganizationMemberRow>[] = [
     { id: 'username', header: t('Username'), cell: (row) => row.username },
     {
@@ -243,10 +248,20 @@ export function OrganizationAdmin() {
           </Button>
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
-          <p className='text-muted-foreground mb-3 text-sm'>
-            {t('Remaining quota')}:{' '}
-            {formatQuotaWithCurrency(quotaQuery.data?.remaining_quota)}
-          </p>
+          <div className='mb-3 flex flex-wrap items-center justify-between gap-3'>
+            <p className='text-muted-foreground text-sm'>
+              {t('Remaining quota')}:{' '}
+              {formatQuotaWithCurrency(quotaQuery.data?.remaining_quota)}
+            </p>
+            <Input
+              type='search'
+              aria-label={t('Search by username')}
+              placeholder={t('Search by username')}
+              value={memberQuery}
+              onChange={(event) => setMemberQuery(event.target.value)}
+              className='w-full sm:w-56'
+            />
+          </div>
           <StaticDataTable columns={columns} data={members} />
         </SectionPageLayout.Content>
       </SectionPageLayout>

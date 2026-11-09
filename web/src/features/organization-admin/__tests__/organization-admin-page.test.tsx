@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { AxiosError, type AxiosResponse } from 'axios'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -39,6 +40,14 @@ function mockOrganizationApi(role: 'admin' | 'member') {
             user_id: 2,
             username: 'bob',
             display_name: 'Bob',
+            role: 'member',
+            status: 'active',
+            created_time: 1700000000,
+          },
+          {
+            user_id: 3,
+            username: 'carol',
+            display_name: 'Carol',
             role: 'member',
             status: 'active',
             created_time: 1700000000,
@@ -116,4 +125,22 @@ it('lists the organization members and offers member actions for an admin accoun
   expect(
     screen.getByRole('button', { name: 'Create member account' })
   ).toBeInTheDocument()
+})
+
+it('filters the member list by username without case sensitivity as the admin types', async () => {
+  mockOrganizationApi('admin')
+  const user = userEvent.setup()
+
+  renderPage()
+
+  expect(await screen.findByText('bob')).toBeInTheDocument()
+  expect(screen.getByText('carol')).toBeInTheDocument()
+
+  await user.type(
+    screen.getByRole('searchbox', { name: 'Search by username' }),
+    'CA'
+  )
+
+  expect(screen.getByText('carol')).toBeInTheDocument()
+  expect(screen.queryByText('bob')).not.toBeInTheDocument()
 })
