@@ -213,9 +213,9 @@ func TestDeepSeekBuiltinBilling(t *testing.T) {
 	}
 }
 
-// GPT-6 Luna and Sol are flat USD per 1M tokens. The cached usage reports
-// 3000 prompt tokens including 1000 cache reads and 800 cache writes.
-func TestGPT6LunaSolBuiltinBilling(t *testing.T) {
+// GPT-6 Luna is flat USD per 1M tokens. The cached usage reports 3000 prompt
+// tokens including 1000 cache reads and 800 cache writes.
+func TestGPT6LunaBuiltinBilling(t *testing.T) {
 	settings := config.GlobalConfig.Get("billing_setting").(*billing_setting.BillingSetting)
 	saved := *settings
 	savedRatios, savedPrices := ratio_setting.ModelRatio2JSONString(), ratio_setting.ModelPrice2JSONString()
@@ -237,9 +237,6 @@ func TestGPT6LunaSolBuiltinBilling(t *testing.T) {
 		// Luna plain: 1000*0.1 + 100*0.5 = 150 -> $0.00015.
 		// Luna cached: 1200*0.1 + 1000*0.01 + 800*0.125 + 200*0.5 = 330 -> $0.00033.
 		"gpt-6-luna": {plain: 75, cached: 165},
-		// Sol plain: 1000*2 + 100*10 = 3000 -> $0.003.
-		// Sol cached: 1200*2 + 1000*0.2 + 800*2.5 + 200*10 = 6600 -> $0.0066.
-		"gpt-6-sol": {plain: 1500, cached: 3300},
 	} {
 		t.Run(model, func(t *testing.T) {
 			assert.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingMode(model))
@@ -259,6 +256,56 @@ func TestGPT6LunaSolBuiltinBilling(t *testing.T) {
 				require.NoError(t, err, name)
 				assert.Equal(t, tc.quota, result.ActualQuotaAfterGroup, name)
 			}
+		})
+	}
+}
+
+// GPT-6 Sol is USD per 1M tokens. Above 272K input tokens the long-context
+// rates bill the whole request. The cached usage reports 3000 prompt tokens
+// including 1000 cache reads and 800 cache writes.
+func TestGPT6SolBuiltinBilling(t *testing.T) {
+	settings := config.GlobalConfig.Get("billing_setting").(*billing_setting.BillingSetting)
+	saved := *settings
+	savedRatios, savedPrices := ratio_setting.ModelRatio2JSONString(), ratio_setting.ModelPrice2JSONString()
+	t.Cleanup(func() {
+		*settings = saved
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(savedRatios))
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(savedPrices))
+	})
+	*settings = billing_setting.BillingSetting{BillingMode: map[string]string{}, BillingExpr: map[string]string{}}
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{}`))
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{}`))
+
+	assert.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingMode("gpt-6-sol"))
+	expression, ok := billing_setting.GetBillingExpr("gpt-6-sol")
+	require.True(t, ok)
+
+	for name, tc := range map[string]struct {
+		usage *dto.Usage
+		tier  string
+		quota int
+	}{
+		// Standard plain: 1000*2 + 100*10 = 3000 -> $0.003.
+		"standard": {&dto.Usage{PromptTokens: 1000, CompletionTokens: 100}, "standard", 1500},
+		// Standard cached: 1200*2 + 1000*0.2 + 800*2.5 + 200*10 = 6600 -> $0.0066.
+		"standard cached": {&dto.Usage{PromptTokens: 3000, CompletionTokens: 200,
+			PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 1000, CacheWriteTokens: 800}}, "standard", 3300},
+		// Exactly 272000 input tokens stays standard: 272000*2 + 1000*10 = 554000 -> $0.554.
+		"at 272K": {&dto.Usage{PromptTokens: 272000, CompletionTokens: 1000}, "standard", 277000},
+		// 272001 input tokens bills the whole request at long-context rates: 272001*4 + 1000*15 = 1103004 -> $1.103004.
+		"above 272K": {&dto.Usage{PromptTokens: 272001, CompletionTokens: 1000}, "long_context", 551502},
+		// Long cached: 80000*4 + 200000*0.4 + 20000*5 + 1000*15 = 515000 -> $0.515.
+		"above 272K cached": {&dto.Usage{PromptTokens: 300000, CompletionTokens: 1000,
+			PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 200000, CacheWriteTokens: 20000}}, "long_context", 257500},
+	} {
+		t.Run(name, func(t *testing.T) {
+			params := service.BuildTieredTokenParams(tc.usage, false, billingexpr.UsedVars(expression))
+			result, err := billingexpr.ComputeTieredQuota(&billingexpr.BillingSnapshot{
+				ExprString: expression, ExprHash: billingexpr.ExprHashString(expression), GroupRatio: 1, QuotaPerUnit: 500000,
+			}, params)
+			require.NoError(t, err)
+			assert.Equal(t, tc.tier, result.MatchedTier)
+			assert.Equal(t, tc.quota, result.ActualQuotaAfterGroup)
 		})
 	}
 }

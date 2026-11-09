@@ -34,12 +34,16 @@ var builtinBillingExpr = map[string]string{
 	"claude-opus-5-5":   `tier("base", p * 5 + c * 25 + cr * 0.5 + cc * 6.25 + cc1h * 10)`,
 	"claude-sonnet-5-5": `tier("base", p * 2 + c * 10 + cr * 0.2 + cc * 2.5 + cc1h * 4)`,
 	"claude-fable-5-1":  `tier("base", p * 10 + c * 50 + cr * 1 + cc * 12.5 + cc1h * 20)`,
-	// GPT-6 Luna and Sol: flat USD per 1M tokens across the 1.05M context
+	// GPT-6 Luna: flat USD per 1M tokens across the 1.05M context
 	// window, from the model price list (cache write is the single write
 	// price, so no 12h split is priced here). Hosted web search bills per call
 	// through the default web_search tool price ($10 per 1K calls).
 	"gpt-6-luna": `tier("base", p * 0.1 + c * 0.5 + cr * 0.01 + cc * 0.125)`,
-	"gpt-6-sol":  `tier("base", p * 2 + c * 10 + cr * 0.2 + cc * 2.5)`,
+	// GPT-6 Sol: USD per 1M tokens. Once input exceeds 272K tokens, the
+	// long-context rates apply to the whole request. Cache write is the single
+	// write price, so no 12h split is priced here. Hosted web search bills per
+	// call through the default web_search tool price ($10 per 1K calls).
+	"gpt-6-sol": `len <= 272000 ? tier("standard", p * 2 + c * 10 + cr * 0.2 + cc * 2.5) : tier("long_context", p * 4 + c * 15 + cr * 0.4 + cc * 5)`,
 	// DeepSeek standard V4.1 Flash and V4 Pro peak/off-peak prices (USD per 1M
 	// tokens), from the standard price list. deepseek-v4-flash and
 	// deepseek-v4-flash-vision-exp run on V4.1 Flash and bill at the Flash
