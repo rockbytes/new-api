@@ -47,6 +47,7 @@ import { requireServerSuccess } from '@/lib/server-error-message'
 
 import {
   createOrganizationMember,
+  getUsableGroupNames,
   resetOrganizationMemberPassword,
 } from '../api'
 import type { OrganizationMemberRow, OrganizationRole } from '../types'
@@ -68,8 +69,13 @@ type CreateMemberSheetProps = SheetProps & {
   // Creates the account. Organization admins create it in their own organization, which is the default.
   // Platform administrators pass the organization they are viewing.
   submit?: (values: CreateMemberValues) => Promise<void>
-  // Platform administrators also choose the user group and organization role.
-  withAdminOptions?: boolean
+  // Shows the user group picker. Options come from groupScope.
+  withGroupOption?: boolean
+  // 'all' lists every configured group (platform administrators); 'usable' lists only
+  // the groups the signed-in user may select (organization admins).
+  groupScope?: 'all' | 'usable'
+  // Platform administrators also choose the organization role.
+  withRoleOption?: boolean
   onCreated?: () => void
 }
 
@@ -78,7 +84,9 @@ const MEMBER_ROLE_OPTIONS: OrganizationRole[] = ['member', 'admin']
 export function CreateMemberSheet(props: CreateMemberSheetProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const withAdminOptions = props.withAdminOptions === true
+  const showGroup = props.withGroupOption === true
+  const showRole = props.withRoleOption === true
+  const groupScope = props.groupScope ?? 'usable'
 
   const schema = useMemo(
     () =>
@@ -88,24 +96,32 @@ export function CreateMemberSheet(props: CreateMemberSheetProps) {
         group: z
           .string()
           .refine(
-            (value) => !withAdminOptions || value.trim() !== '',
+            (value) => !showGroup || value.trim() !== '',
             t('Select a group')
           ),
         role: z.enum(['admin', 'member']),
       }),
-    [t, withAdminOptions]
+    [t, showGroup]
   )
   const form = useForm<CreateMemberValues>({
     resolver: zodResolver(schema),
     defaultValues: { username: '', password: '', group: '', role: 'member' },
   })
 
-  const groupsQuery = useQuery({
+  const allGroupsQuery = useQuery({
     queryKey: ['groups'],
     queryFn: async () => requireServerSuccess(await getGroups()),
-    enabled: withAdminOptions,
+    enabled: showGroup && groupScope === 'all',
   })
-  const groups = groupsQuery.data?.data ?? []
+  const usableGroupsQuery = useQuery({
+    queryKey: ['organization-usable-groups'],
+    queryFn: getUsableGroupNames,
+    enabled: showGroup && groupScope === 'usable',
+  })
+  const groups =
+    groupScope === 'all'
+      ? (allGroupsQuery.data?.data ?? [])
+      : (usableGroupsQuery.data ?? [])
 
   const mutation = useMutation({
     mutationFn: (values: CreateMemberValues) => {
@@ -115,6 +131,7 @@ export function CreateMemberSheet(props: CreateMemberSheetProps) {
       return createOrganizationMember({
         username: values.username,
         password: values.password,
+        ...(showGroup ? { group: values.group } : {}),
       })
     },
     onSuccess: () => {
@@ -171,7 +188,7 @@ export function CreateMemberSheet(props: CreateMemberSheetProps) {
                 </FormItem>
               )}
             />
-            {withAdminOptions ? (
+            {showGroup ? (
               <FormField
                 control={form.control}
                 name='group'
@@ -208,7 +225,7 @@ export function CreateMemberSheet(props: CreateMemberSheetProps) {
                 )}
               />
             ) : null}
-            {withAdminOptions ? (
+            {showRole ? (
               <FormField
                 control={form.control}
                 name='role'

@@ -299,7 +299,11 @@ export function OrganizationAdmin() {
         minimumQuota={allocationTarget?.used_quota ?? 0}
         onConfirm={handleAllocate}
       />
-      <CreateMemberSheet open={createOpen} onOpenChange={setCreateOpen} />
+      <CreateMemberSheet
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        withGroupOption
+      />
       <ResetMemberPasswordSheet
         open={resetTarget !== null}
         member={resetTarget}
