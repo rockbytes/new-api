@@ -12,6 +12,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -633,4 +634,62 @@ func TestOrganizationRootAddsMemberToAnyOrganization(t *testing.T) {
 	refused := doOrganizationRequest(t, organizationTestRootId, http.MethodPost, path,
 		`{"username":"short","password":"short"}`)
 	assert.Equal(t, http.StatusBadRequest, refused.Code)
+}
+
+// A platform administrator chooses the user group and organization role of the
+// new member. Omitted fields keep the defaults; unknown values are rejected
+// before any account is created.
+func TestRootCreateOrganizationMemberChoosesGroupAndRole(t *testing.T) {
+	db := setupOrganizationTestDB(t)
+	createOrganizationTestUser(t, db, "root", common.UserStatusEnabled)
+	organizationId := createOrganizationWithAdmin(t, "Ops", "alice")
+
+	originalRatios := ratio_setting.GroupRatio2JSONString()
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":1}`))
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
+	})
+	path := fmt.Sprintf("/api/organization/%d/members", organizationId)
+
+	t.Run("explicit group and admin role are stored", func(t *testing.T) {
+		_, status := organizationResponseData(t, doOrganizationRequest(t, organizationTestRootId, http.MethodPost, path,
+			`{"username":"dana","password":"`+organizationTestPass+`","group":"vip","role":"admin"}`))
+		require.Equal(t, http.StatusOK, status)
+		dana := userByName(t, db, "dana")
+		assert.Equal(t, "vip", dana.Group)
+		var membership model.OrganizationMembership
+		require.NoError(t, db.Where("user_id = ? AND organization_id = ?", dana.Id, organizationId).First(&membership).Error)
+		assert.Equal(t, model.OrganizationRoleAdmin, membership.Role)
+	})
+
+	t.Run("omitted group and role keep the default group and member role", func(t *testing.T) {
+		_, status := organizationResponseData(t, doOrganizationRequest(t, organizationTestRootId, http.MethodPost, path,
+			`{"username":"erin","password":"`+organizationTestPass+`"}`))
+		require.Equal(t, http.StatusOK, status)
+		erin := userByName(t, db, "erin")
+		assert.Equal(t, "default", erin.Group)
+		var membership model.OrganizationMembership
+		require.NoError(t, db.Where("user_id = ? AND organization_id = ?", erin.Id, organizationId).First(&membership).Error)
+		assert.Equal(t, model.OrganizationRoleMember, membership.Role)
+	})
+
+	t.Run("unknown group is rejected without creating the account", func(t *testing.T) {
+		recorder := doOrganizationRequest(t, organizationTestRootId, http.MethodPost, path,
+			`{"username":"frank","password":"`+organizationTestPass+`","group":"missing"}`)
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Equal(t, "ORGANIZATION_INVALID_GROUP", organizationErrorCode(t, recorder))
+		var count int64
+		require.NoError(t, db.Model(&model.User{}).Where("username = ?", "frank").Count(&count).Error)
+		assert.Zero(t, count)
+	})
+
+	t.Run("unknown role is rejected without creating the account", func(t *testing.T) {
+		recorder := doOrganizationRequest(t, organizationTestRootId, http.MethodPost, path,
+			`{"username":"gina","password":"`+organizationTestPass+`","role":"owner"}`)
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Equal(t, "ORGANIZATION_INVALID_ROLE", organizationErrorCode(t, recorder))
+		var count int64
+		require.NoError(t, db.Model(&model.User{}).Where("username = ?", "gina").Count(&count).Error)
+		assert.Zero(t, count)
+	})
 }

@@ -26,6 +26,9 @@ export interface OrganizationMemberRow {
 export interface CreateOrganizationMemberPayload {
   username: string
   password: string
+  // Platform administrators also choose the user group and organization role.
+  group?: string
+  role?: OrganizationRole
 }
 
 export type { OrganizationQuota }

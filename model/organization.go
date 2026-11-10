@@ -115,7 +115,7 @@ func countActiveOrganizationAdmins(tx *gorm.DB, organizationId int) (int64, erro
 // change its initial password at first login (D12). It mirrors the parts of
 // User.Insert that apply to a password-created account, inside the caller's
 // transaction so the account and its membership are created atomically.
-func createOrganizationAccountWithTx(tx *gorm.DB, username string, password string) (*User, error) {
+func createOrganizationAccountWithTx(tx *gorm.DB, username string, password string, group string) (*User, error) {
 	username = strings.TrimSpace(username)
 	var existing int64
 	if err := tx.Model(&User{}).Where("username = ?", username).Count(&existing).Error; err != nil {
@@ -132,6 +132,7 @@ func createOrganizationAccountWithTx(tx *gorm.DB, username string, password stri
 	user := &User{
 		Username:           username,
 		Password:           hashed,
+		Group:              group,
 		Role:               common.RoleCommonUser,
 		Status:             common.UserStatusEnabled,
 		MustChangePassword: true,
@@ -219,7 +220,7 @@ func ensureOrganizationAdminEligibleTx(tx *gorm.DB, userId int) error {
 func CreateOrganizationWithAdmin(name string, adminUsername string, adminPassword string, operatorId int, now int64) (*Organization, error) {
 	organization := &Organization{Name: name, Status: OrganizationStatusActive, CreatedTime: now, UpdatedTime: now}
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		admin, err := createOrganizationAccountWithTx(tx, adminUsername, adminPassword)
+		admin, err := createOrganizationAccountWithTx(tx, adminUsername, adminPassword, "")
 		if err != nil {
 			return err
 		}
@@ -463,8 +464,12 @@ func GetActiveOrganizationMembership(userId int) (*OrganizationMembership, *Orga
 }
 
 // CreateOrganizationMemberAccount creates a member account with an initial
-// password (D12) and its active membership in one transaction.
-func CreateOrganizationMemberAccount(organizationId int, username string, password string, operatorId int, now int64) error {
+// password (D12) and its active membership in one transaction. An empty group
+// keeps the default user group; role must be a valid organization role.
+func CreateOrganizationMemberAccount(organizationId int, username string, password string, group string, role string, operatorId int, now int64) error {
+	if !ValidOrganizationRole(role) {
+		return ErrOrganizationInvalidRole
+	}
 	return DB.Transaction(func(tx *gorm.DB) error {
 		organization, err := lockOrganization(tx, organizationId)
 		if err != nil {
@@ -473,14 +478,14 @@ func CreateOrganizationMemberAccount(organizationId int, username string, passwo
 		if organization.Status != OrganizationStatusActive {
 			return ErrOrganizationNotActive
 		}
-		member, err := createOrganizationAccountWithTx(tx, username, password)
+		member, err := createOrganizationAccountWithTx(tx, username, password, group)
 		if err != nil {
 			return err
 		}
 		return tx.Create(&OrganizationMembership{
 			OrganizationId: organizationId,
 			UserId:         member.Id,
-			Role:           OrganizationRoleMember,
+			Role:           role,
 			Status:         OrganizationMembershipActive,
 			InvitedBy:      operatorId,
 			CreatedTime:    now,

@@ -239,6 +239,7 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
       <CreateMemberSheet
         open={addMemberOpen}
         onOpenChange={setAddMemberOpen}
+        withAdminOptions
         submit={(values) =>
           createOrganizationMemberForAdmin(organizationId ?? 0, values)
         }

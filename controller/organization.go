@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
 )
@@ -35,6 +36,16 @@ type organizationStatusRequest struct {
 type organizationMemberCreateRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+}
+
+// organizationRootMemberCreateRequest is used by platform administrators, who
+// also choose the member's user group and organization role. An omitted group
+// keeps the default group, and an omitted role creates a member.
+type organizationRootMemberCreateRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Group    string `json:"group"`
+	Role     string `json:"role"`
 }
 
 type organizationPasswordRequest struct {
@@ -313,7 +324,7 @@ func CreateOrganizationMember(c *gin.Context) {
 		writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_PASSWORD_INVALID", "Password must be 8 to 128 characters")
 		return
 	}
-	if err := model.CreateOrganizationMemberAccount(organization.Id, username, request.Password, c.GetInt("id"), common.GetTimestamp()); err != nil {
+	if err := model.CreateOrganizationMemberAccount(organization.Id, username, request.Password, "", model.OrganizationRoleMember, c.GetInt("id"), common.GetTimestamp()); err != nil {
 		respondOrganizationError(c, err)
 		return
 	}
@@ -328,7 +339,7 @@ func RootCreateOrganizationMember(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var request organizationMemberCreateRequest
+	var request organizationRootMemberCreateRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_INVALID_REQUEST", "Invalid request")
 		return
@@ -342,7 +353,20 @@ func RootCreateOrganizationMember(c *gin.Context) {
 		writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_PASSWORD_INVALID", "Password must be 8 to 128 characters")
 		return
 	}
-	if err := model.CreateOrganizationMemberAccount(id, username, request.Password, c.GetInt("id"), common.GetTimestamp()); err != nil {
+	group := strings.TrimSpace(request.Group)
+	if group != "" && !ratio_setting.ContainsGroupRatio(group) {
+		writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_INVALID_GROUP", "User group does not exist")
+		return
+	}
+	role := strings.TrimSpace(request.Role)
+	if role == "" {
+		role = model.OrganizationRoleMember
+	}
+	if !model.ValidOrganizationRole(role) {
+		writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_INVALID_ROLE", "Invalid organization role")
+		return
+	}
+	if err := model.CreateOrganizationMemberAccount(id, username, request.Password, group, role, c.GetInt("id"), common.GetTimestamp()); err != nil {
 		respondOrganizationError(c, err)
 		return
 	}

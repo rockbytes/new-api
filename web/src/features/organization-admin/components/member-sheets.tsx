@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -24,6 +24,14 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   Sheet,
   SheetClose,
   SheetContent,
@@ -32,16 +40,23 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { getGroups } from '@/features/users/api'
 import { handleServerError } from '@/lib/handle-server-error'
 import { accountPasswordSchema } from '@/lib/password-policy'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import {
   createOrganizationMember,
   resetOrganizationMemberPassword,
 } from '../api'
-import type { OrganizationMemberRow } from '../types'
+import type { OrganizationMemberRow, OrganizationRole } from '../types'
 
-export type CreateMemberValues = { username: string; password: string }
+export type CreateMemberValues = {
+  username: string
+  password: string
+  group: string
+  role: OrganizationRole
+}
 type ResetPasswordValues = { password: string }
 
 type SheetProps = {
@@ -53,29 +68,55 @@ type CreateMemberSheetProps = SheetProps & {
   // Creates the account. Organization admins create it in their own organization, which is the default.
   // Platform administrators pass the organization they are viewing.
   submit?: (values: CreateMemberValues) => Promise<void>
+  // Platform administrators also choose the user group and organization role.
+  withAdminOptions?: boolean
   onCreated?: () => void
 }
+
+const MEMBER_ROLE_OPTIONS: OrganizationRole[] = ['member', 'admin']
 
 export function CreateMemberSheet(props: CreateMemberSheetProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const withAdminOptions = props.withAdminOptions === true
 
   const schema = useMemo(
     () =>
       z.object({
         username: z.string().trim().min(1, t('Username is required.')),
         password: accountPasswordSchema,
+        group: z
+          .string()
+          .refine(
+            (value) => !withAdminOptions || value.trim() !== '',
+            t('Select a group')
+          ),
+        role: z.enum(['admin', 'member']),
       }),
-    [t]
+    [t, withAdminOptions]
   )
   const form = useForm<CreateMemberValues>({
     resolver: zodResolver(schema),
-    defaultValues: { username: '', password: '' },
+    defaultValues: { username: '', password: '', group: '', role: 'member' },
   })
 
+  const groupsQuery = useQuery({
+    queryKey: ['groups'],
+    queryFn: async () => requireServerSuccess(await getGroups()),
+    enabled: withAdminOptions,
+  })
+  const groups = groupsQuery.data?.data ?? []
+
   const mutation = useMutation({
-    mutationFn: (values: CreateMemberValues) =>
-      (props.submit ?? createOrganizationMember)(values),
+    mutationFn: (values: CreateMemberValues) => {
+      if (props.submit) {
+        return props.submit(values)
+      }
+      return createOrganizationMember({
+        username: values.username,
+        password: values.password,
+      })
+    },
     onSuccess: () => {
       toast.success(t('Member account created.'))
       queryClient.invalidateQueries({ queryKey: ['organization-members'] })
@@ -130,6 +171,80 @@ export function CreateMemberSheet(props: CreateMemberSheetProps) {
                 </FormItem>
               )}
             />
+            {withAdminOptions ? (
+              <FormField
+                control={form.control}
+                name='group'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('User group')}</FormLabel>
+                    <Select
+                      items={groups.map((group) => ({
+                        value: group,
+                        label: group,
+                      }))}
+                      onValueChange={(value) =>
+                        value !== null && field.onChange(value)
+                      }
+                      value={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder={t('Select a group')} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent alignItemWithTrigger={false}>
+                        <SelectGroup>
+                          {groups.map((group) => (
+                            <SelectItem key={group} value={group}>
+                              {group}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : null}
+            {withAdminOptions ? (
+              <FormField
+                control={form.control}
+                name='role'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Organization role')}</FormLabel>
+                    <Select
+                      items={MEMBER_ROLE_OPTIONS.map((role) => ({
+                        value: role,
+                        label: role === 'admin' ? t('Admin') : t('Member'),
+                      }))}
+                      onValueChange={(value) =>
+                        value !== null && field.onChange(value)
+                      }
+                      value={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent alignItemWithTrigger={false}>
+                        <SelectGroup>
+                          {MEMBER_ROLE_OPTIONS.map((role) => (
+                            <SelectItem key={role} value={role}>
+                              {role === 'admin' ? t('Admin') : t('Member')}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : null}
           </form>
         </Form>
         <SheetFooter className={sideDrawerFooterClassName()}>

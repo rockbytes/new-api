@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event'
 import i18next from 'i18next'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { getGroups } from '@/features/users/api'
+
 import { Organizations } from '..'
 import {
   createOrganizationMemberForAdmin,
@@ -27,12 +29,14 @@ vi.mock('../api', () => ({
 
 vi.mock('@/features/users/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/users/api')>()),
+  getGroups: vi.fn(),
   searchUsers: vi.fn(),
 }))
 
 const mockedList = vi.mocked(getOrganizations)
 const mockedDetail = vi.mocked(getOrganizationDetail)
 const mockedCreateMember = vi.mocked(createOrganizationMemberForAdmin)
+const mockedGroups = vi.mocked(getGroups)
 
 const organization: OrganizationSummary = {
   id: 1,
@@ -112,6 +116,11 @@ describe('organization members', () => {
   })
 
   it('creates a member account in the organization being viewed', async () => {
+    // The group list loads when the detail sheet mounts, so mock it before opening.
+    mockedGroups.mockResolvedValue({
+      success: true,
+      data: ['default', 'vip'],
+    } as never)
     const user = await openDetail()
     mockedCreateMember.mockResolvedValue(undefined)
 
@@ -124,12 +133,18 @@ describe('organization members', () => {
       within(dialog).getByLabelText('Initial password'),
       'long-enough-pass'
     )
+    await user.click(
+      await within(dialog).findByRole('combobox', { name: 'User group' })
+    )
+    await user.click(await screen.findByRole('option', { name: 'vip' }))
     await user.click(within(dialog).getByRole('button', { name: 'Create' }))
 
     await waitFor(() =>
       expect(mockedCreateMember).toHaveBeenCalledWith(1, {
         username: 'carol',
         password: 'long-enough-pass',
+        group: 'vip',
+        role: 'member',
       })
     )
   })
