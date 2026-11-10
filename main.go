@@ -213,7 +213,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:    ":" + port,
-		Handler: server,
+		Handler: router.OpenAIRootPathAlias(server),
 	}
 
 	go func() {

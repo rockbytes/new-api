@@ -1,6 +1,7 @@
 package router
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/constant"
@@ -235,4 +236,36 @@ func registerMjRouterGroup(relayMjRouter *gin.RouterGroup) {
 		relayMjRouter.POST("/insight-face/swap", controller.RelayMidjourney)
 		relayMjRouter.POST("/submit/upload-discord-images", controller.RelayMidjourney)
 	}
+}
+
+// openAIRootPaths are OpenAI-compatible endpoints that clients may call without
+// the /v1 prefix when their base_url is the bare host.
+var openAIRootPaths = []string{
+	"/responses",
+	"/chat/completions",
+	"/completions",
+	"/embeddings",
+	"/moderations",
+	"/images/generations",
+	"/images/edits",
+	"/audio/speech",
+	"/audio/transcriptions",
+	"/audio/translations",
+}
+
+// OpenAIRootPathAlias rewrites a bare OpenAI endpoint path (for example
+// /responses) to its /v1 form before gin routes the request. Routing, token
+// auth, and channel path filters then see the same path as a /v1 request.
+func OpenAIRootPathAlias(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, root := range openAIRootPaths {
+			if r.URL.Path == root || strings.HasPrefix(r.URL.Path, root+"/") {
+				r.URL.Path = "/v1" + r.URL.Path
+				r.URL.RawPath = ""
+				r.RequestURI = "/v1" + r.RequestURI
+				break
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }

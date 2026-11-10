@@ -89,6 +89,44 @@ func TestListModelsSupportsOpenAIAndGeminiAuthentication(t *testing.T) {
 	}
 }
 
+func TestOpenAIRootPathAliasReachesRelayRoutes(t *testing.T) {
+	setupRelayRouterTestDB(t)
+
+	engine := gin.New()
+	SetRelayRouter(engine)
+	SetTaskPluginProtocolRouter(engine)
+	handler := OpenAIRootPathAlias(engine)
+
+	tests := []struct {
+		name       string
+		path       string
+		wantStatus int
+		wantJSON   bool
+	}{
+		{name: "bare responses reaches relay auth", path: "/responses", wantStatus: http.StatusUnauthorized, wantJSON: true},
+		{name: "bare chat completions reaches relay auth", path: "/chat/completions", wantStatus: http.StatusUnauthorized, wantJSON: true},
+		{name: "prefixed responses is unchanged", path: "/v1/responses", wantStatus: http.StatusUnauthorized, wantJSON: true},
+		{name: "unknown root path is not rewritten", path: "/not-an-api", wantStatus: http.StatusNotFound, wantJSON: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader("{}"))
+			request.Header.Set("Content-Type", "application/json")
+
+			handler.ServeHTTP(recorder, request)
+
+			require.Equal(t, test.wantStatus, recorder.Code)
+			if test.wantJSON {
+				var payload map[string]any
+				require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+				assert.Contains(t, payload, "error")
+			}
+		})
+	}
+}
+
 func setupRelayRouterTestDB(t *testing.T) {
 	t.Helper()
 
