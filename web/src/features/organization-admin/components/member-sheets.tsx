@@ -81,6 +81,11 @@ type CreateMemberSheetProps = SheetProps & {
 
 const MEMBER_ROLE_OPTIONS: OrganizationRole[] = ['member', 'admin']
 
+// Group names can be long, so the trigger spans the field and items wrap instead
+// of being clipped by the popup's fixed-width overflow handling.
+const groupSelectItemClass =
+  'items-start py-2 [&_[data-slot=select-item-text]]:min-w-0 [&_[data-slot=select-item-text]]:shrink [&_[data-slot=select-item-text]]:whitespace-normal'
+
 export function CreateMemberSheet(props: CreateMemberSheetProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -206,15 +211,24 @@ export function CreateMemberSheet(props: CreateMemberSheetProps) {
                       value={field.value}
                     >
                       <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder={t('Select a group')} />
+                        <SelectTrigger className='w-full max-w-full'>
+                          <SelectValue
+                            className='min-w-0 truncate'
+                            placeholder={t('Select a group')}
+                          />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent alignItemWithTrigger={false}>
                         <SelectGroup>
                           {groups.map((group) => (
-                            <SelectItem key={group} value={group}>
-                              {group}
+                            <SelectItem
+                              key={group}
+                              value={group}
+                              className={groupSelectItemClass}
+                            >
+                              <span className='min-w-0 leading-snug break-words whitespace-normal'>
+                                {group}
+                              </span>
                             </SelectItem>
                           ))}
                         </SelectGroup>
@@ -243,8 +257,8 @@ export function CreateMemberSheet(props: CreateMemberSheetProps) {
                       value={field.value}
                     >
                       <FormControl>
-                        <SelectTrigger>
-                          <SelectValue />
+                        <SelectTrigger className='w-full max-w-full'>
+                          <SelectValue className='min-w-0 truncate' />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent alignItemWithTrigger={false}>

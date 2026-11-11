@@ -181,3 +181,19 @@ describe('CreateMemberSheet without options', () => {
     })
   })
 })
+
+describe('CreateMemberSheet group selector layout', () => {
+  it('spans the field width and wraps long group names instead of clipping them', async () => {
+    const longGroup = 'SUP-STDG-PVACP001-华东区域超长分组名称示例'
+    mockedUsableGroups.mockResolvedValue([longGroup])
+    const user = userEvent.setup()
+    renderSheet({ withGroupOption: true })
+
+    const trigger = await screen.findByRole('combobox', { name: 'User group' })
+    expect(trigger).toHaveClass('w-full')
+
+    await user.click(trigger)
+    const optionText = await screen.findByText(longGroup)
+    expect(optionText).toHaveClass('break-words', 'whitespace-normal')
+  })
+})
