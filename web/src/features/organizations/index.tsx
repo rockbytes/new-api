@@ -16,6 +16,8 @@ import {
 } from '@/components/quota-adjust-dialog'
 import { StatusBadge, statusPresets } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { useDebounce } from '@/hooks'
 import { formatQuotaWithCurrency } from '@/lib/currency'
 import { formatTimestamp } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
@@ -45,10 +47,12 @@ export function Organizations() {
   const [deleteTarget, setDeleteTarget] = useState<OrganizationSummary | null>(
     null
   )
+  const [nameQuery, setNameQuery] = useState('')
+  const nameKeyword = useDebounce(nameQuery.trim(), 300)
 
   const listQuery = useQuery({
-    queryKey: ['organizations', PAGE_SIZE],
-    queryFn: () => getOrganizations(1, PAGE_SIZE),
+    queryKey: ['organizations', PAGE_SIZE, nameKeyword],
+    queryFn: () => getOrganizations(1, PAGE_SIZE, nameKeyword || undefined),
   })
 
   const refresh = () => {
@@ -195,6 +199,14 @@ export function Organizations() {
           </Button>
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
+          <Input
+            type='search'
+            aria-label={t('Search by organization name')}
+            placeholder={t('Search by organization name')}
+            value={nameQuery}
+            onChange={(event) => setNameQuery(event.target.value)}
+            className='mb-3 w-full sm:w-64'
+          />
           <StaticDataTable
             columns={columns}
             data={listQuery.data?.items ?? []}

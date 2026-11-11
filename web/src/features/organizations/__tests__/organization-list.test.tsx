@@ -113,6 +113,34 @@ describe('organization list', () => {
     expect(mockedAdjust).not.toHaveBeenCalled()
   })
 
+  it('searches organizations by name through the server and clears back to the unfiltered list', async () => {
+    const user = userEvent.setup()
+    mockedList.mockResolvedValue({
+      page: 1,
+      page_size: 100,
+      total: 1,
+      items: [organization({})],
+    })
+
+    renderList()
+
+    await screen.findByRole('row', { name: /Acme Labs/ })
+    expect(mockedList).toHaveBeenLastCalledWith(1, 100, undefined)
+
+    const search = screen.getByRole('searchbox', {
+      name: 'Search by organization name',
+    })
+    await user.type(search, 'acme')
+    await waitFor(() =>
+      expect(mockedList).toHaveBeenLastCalledWith(1, 100, 'acme')
+    )
+
+    await user.clear(search)
+    await waitFor(() =>
+      expect(mockedList).toHaveBeenLastCalledWith(1, 100, undefined)
+    )
+  })
+
   it('asks before suspending an active organization and resumes a suspended one directly', async () => {
     const user = userEvent.setup()
     mockedList.mockResolvedValue({

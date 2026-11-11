@@ -159,7 +159,7 @@ func organizationInitialPasswordValid(password string) bool {
 
 func GetOrganizations(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
-	organizations, total, err := model.ListOrganizationSummaries(pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	organizations, total, err := model.ListOrganizationSummaries(pageInfo.GetStartIdx(), pageInfo.GetPageSize(), strings.TrimSpace(c.Query("keyword")))
 	if err != nil {
 		respondOrganizationError(c, err)
 		return

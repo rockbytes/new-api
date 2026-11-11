@@ -408,7 +408,7 @@ func TestOrganizationDeletionSoftDeletesAClearedOrganization(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, OrganizationStatusDeleted, organization.Status)
 
-	listed, total, err := ListOrganizations(0, 20)
+	listed, total, err := ListOrganizations(0, 20, "")
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), total)
 	assert.Empty(t, listed, "deleted organizations are hidden from the default list")
@@ -486,7 +486,7 @@ func TestOrganizationSummariesCountActiveMembersAndMatchReconciliation(t *testin
 	require.NoError(t, err)
 	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 300, 2))
 
-	summaries, total, err := ListOrganizationSummaries(0, 10)
+	summaries, total, err := ListOrganizationSummaries(0, 10, "")
 	require.NoError(t, err)
 	require.Equal(t, int64(2), total)
 	byId := map[int]OrganizationSummary{}

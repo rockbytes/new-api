@@ -255,13 +255,22 @@ func GetOrganizationById(id int) (*Organization, error) {
 	return &organization, nil
 }
 
-func ListOrganizations(startIdx int, pageSize int) ([]*Organization, int64, error) {
+// ListOrganizations returns one page of organizations. A non-empty keyword
+// filters by organization name and matches a literal, case-insensitive
+// substring: LIKE metacharacters are escaped instead of acting as wildcards,
+// and both sides are lowered because PostgreSQL LIKE is case-sensitive.
+func ListOrganizations(startIdx int, pageSize int, keyword string) ([]*Organization, int64, error) {
+	query := DB.Model(&Organization{}).Where("status <> ?", OrganizationStatusDeleted)
+	if keyword != "" {
+		escaped := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(keyword)
+		query = query.Where("LOWER(name) LIKE LOWER(?) ESCAPE '!'", "%"+escaped+"%")
+	}
 	var total int64
-	if err := DB.Model(&Organization{}).Where("status <> ?", OrganizationStatusDeleted).Count(&total).Error; err != nil {
+	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	var organizations []*Organization
-	err := DB.Where("status <> ?", OrganizationStatusDeleted).Order("id desc").Limit(pageSize).Offset(startIdx).Find(&organizations).Error
+	err := query.Order("id desc").Limit(pageSize).Offset(startIdx).Find(&organizations).Error
 	return organizations, total, err
 }
 
@@ -279,8 +288,8 @@ type OrganizationSummary struct {
 
 // ListOrganizationSummaries returns one page of organizations with the figures in OrganizationSummary.
 // Each figure comes from one grouped query for the page, so the list does not query per organization.
-func ListOrganizationSummaries(startIdx int, pageSize int) ([]OrganizationSummary, int64, error) {
-	organizations, total, err := ListOrganizations(startIdx, pageSize)
+func ListOrganizationSummaries(startIdx int, pageSize int, keyword string) ([]OrganizationSummary, int64, error) {
+	organizations, total, err := ListOrganizations(startIdx, pageSize, keyword)
 	if err != nil {
 		return nil, 0, err
 	}

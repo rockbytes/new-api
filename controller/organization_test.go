@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -745,4 +746,51 @@ func TestOrganizationAdminMemberGroupMustBeUsableByAdmin(t *testing.T) {
 			assert.Zero(t, count)
 		})
 	}
+}
+
+// The organization list can be filtered by name. The keyword matches a literal
+// substring, so LIKE metacharacters in it are escaped rather than acting as wildcards.
+func TestOrganizationListSearchFiltersByName(t *testing.T) {
+	db := setupOrganizationTestDB(t)
+	createOrganizationTestUser(t, db, "root", common.UserStatusEnabled)
+	createOrganizationWithAdmin(t, "Northwind Trading", "alice")
+	createOrganizationWithAdmin(t, "Northwind Logistics", "bob")
+	createOrganizationWithAdmin(t, "Contoso Labs", "carol")
+
+	search := func(keyword string) ([]string, int) {
+		t.Helper()
+		recorder := doOrganizationRequest(t, organizationTestRootId, http.MethodGet,
+			"/api/organization/?keyword="+url.QueryEscape(keyword), "")
+		require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+		data, _ := organizationResponseData(t, recorder)
+		var page struct {
+			Total int `json:"total"`
+			Items []struct {
+				Name string `json:"name"`
+			} `json:"items"`
+		}
+		require.NoError(t, common.Unmarshal(data, &page))
+		names := make([]string, 0, len(page.Items))
+		for _, item := range page.Items {
+			names = append(names, item.Name)
+		}
+		return names, page.Total
+	}
+
+	names, total := search("northwind")
+	assert.Equal(t, 2, total)
+	assert.ElementsMatch(t, []string{"Northwind Logistics", "Northwind Trading"}, names)
+
+	names, total = search("Contoso")
+	assert.Equal(t, 1, total)
+	assert.Equal(t, []string{"Contoso Labs"}, names)
+
+	names, total = search("missing")
+	assert.Equal(t, 0, total)
+	assert.Empty(t, names)
+
+	// A LIKE wildcard is matched literally instead of matching every organization.
+	names, total = search("%")
+	assert.Equal(t, 0, total)
+	assert.Empty(t, names)
 }

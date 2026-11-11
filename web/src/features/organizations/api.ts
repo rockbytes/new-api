@@ -16,10 +16,11 @@ import type {
 
 export async function getOrganizations(
   page: number,
-  pageSize: number
+  pageSize: number,
+  keyword?: string
 ): Promise<OrganizationPage> {
   const res = await api.get('/api/organization/', {
-    params: { p: page, page_size: pageSize },
+    params: { p: page, page_size: pageSize, keyword },
   })
   return requireServerSuccess(res.data).data
 }
