@@ -239,7 +239,9 @@ func registerMjRouterGroup(relayMjRouter *gin.RouterGroup) {
 }
 
 // openAIRootPaths are OpenAI-compatible endpoints that clients may call without
-// the /v1 prefix when their base_url is the bare host.
+// the /v1 prefix when their base_url is the bare host. /models stays out of this
+// list: the dashboard serves its own /models page, so that bare path needs the
+// credential check in OpenAIRootPathAlias.
 var openAIRootPaths = []string{
 	"/responses",
 	"/chat/completions",
@@ -256,15 +258,30 @@ var openAIRootPaths = []string{
 // OpenAIRootPathAlias rewrites a bare OpenAI endpoint path (for example
 // /responses) to its /v1 form before gin routes the request. Routing, token
 // auth, and channel path filters then see the same path as a /v1 request.
+//
+// /models is both an OpenAI endpoint and a dashboard page, so its bare path is
+// rewritten only for API requests, which authenticate with an API credential.
+// A browser opening /models still gets the dashboard.
 func OpenAIRootPathAlias(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		rewrite := false
+		if path == "/models" || strings.HasPrefix(path, "/models/") {
+			rewrite = r.Header.Get("Authorization") != "" ||
+				r.Header.Get("x-api-key") != "" ||
+				r.Header.Get("x-goog-api-key") != "" ||
+				r.URL.Query().Get("key") != ""
+		}
 		for _, root := range openAIRootPaths {
-			if r.URL.Path == root || strings.HasPrefix(r.URL.Path, root+"/") {
-				r.URL.Path = "/v1" + r.URL.Path
-				r.URL.RawPath = ""
-				r.RequestURI = "/v1" + r.RequestURI
+			if path == root || strings.HasPrefix(path, root+"/") {
+				rewrite = true
 				break
 			}
+		}
+		if rewrite {
+			r.URL.Path = "/v1" + r.URL.Path
+			r.URL.RawPath = ""
+			r.RequestURI = "/v1" + r.RequestURI
 		}
 		next.ServeHTTP(w, r)
 	})

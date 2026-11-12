@@ -127,6 +127,99 @@ func TestOpenAIRootPathAliasReachesRelayRoutes(t *testing.T) {
 	}
 }
 
+// The bare /models path is also a dashboard page, so OpenAIRootPathAlias rewrites
+// it only for API requests: one carrying an API credential reaches the model list,
+// while a request without a credential keeps the dashboard path.
+func TestOpenAIRootPathAliasServesBareModelsOnlyToAPIRequests(t *testing.T) {
+	setupRelayRouterTestDB(t)
+
+	user := model.User{
+		Username: "bare-models-user",
+		Status:   common.UserStatusEnabled,
+		Group:    "default",
+		Quota:    100,
+	}
+	require.NoError(t, model.DB.Create(&user).Error)
+	require.NoError(t, model.DB.Create(&model.Token{
+		UserId:         user.Id,
+		Key:            "baremodelskey",
+		Status:         common.TokenStatusEnabled,
+		ExpiredTime:    -1,
+		UnlimitedQuota: true,
+	}).Error)
+
+	engine := gin.New()
+	SetRelayRouter(engine)
+	handler := OpenAIRootPathAlias(engine)
+
+	tests := []struct {
+		name          string
+		path          string
+		headers       map[string]string
+		expectedField string
+	}{
+		{
+			name:          "bearer token lists models",
+			path:          "/models",
+			headers:       map[string]string{"Authorization": "Bearer baremodelskey"},
+			expectedField: "data",
+		},
+		{
+			name:          "anthropic api key header lists models",
+			path:          "/models",
+			headers:       map[string]string{"x-api-key": "baremodelskey", "anthropic-version": "2023-06-01"},
+			expectedField: "data",
+		},
+		{
+			name:          "gemini query key lists models",
+			path:          "/models?key=baremodelskey",
+			expectedField: "models",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, test.path, nil)
+			for name, value := range test.headers {
+				request.Header.Set(name, value)
+			}
+
+			handler.ServeHTTP(recorder, request)
+
+			require.Equal(t, http.StatusOK, recorder.Code)
+			var payload map[string]any
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+			assert.Contains(t, payload, test.expectedField)
+			assert.NotContains(t, payload, "error")
+		})
+	}
+
+	t.Run("single model path reaches the model route", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/models/not-a-real-model", nil)
+		request.Header.Set("Authorization", "Bearer baremodelskey")
+
+		handler.ServeHTTP(recorder, request)
+
+		// The model does not exist, so the route answers with the OpenAI
+		// model_not_found error rather than the dashboard.
+		require.Equal(t, http.StatusOK, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "model_not_found")
+	})
+
+	t.Run("request without a credential keeps the dashboard path", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/models", nil)
+
+		handler.ServeHTTP(recorder, request)
+
+		// SetWebRouter serves the dashboard page for /models; this engine has no
+		// web router, so an unrewritten request stays unrouted.
+		assert.Equal(t, http.StatusNotFound, recorder.Code)
+	})
+}
+
 func setupRelayRouterTestDB(t *testing.T) {
 	t.Helper()
 
