@@ -240,7 +240,6 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
         open={addMemberOpen}
         onOpenChange={setAddMemberOpen}
         withGroupOption
-        groupScope='all'
         withRoleOption
         submit={(values) =>
           createOrganizationMemberForAdmin(organizationId ?? 0, values)

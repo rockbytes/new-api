@@ -299,11 +299,9 @@ export function OrganizationAdmin() {
         minimumQuota={allocationTarget?.used_quota ?? 0}
         onConfirm={handleAllocate}
       />
-      <CreateMemberSheet
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        withGroupOption
-      />
+      {/* Organization admins do not choose the member's user group: the account
+          inherits the admin's own group on the server. */}
+      <CreateMemberSheet open={createOpen} onOpenChange={setCreateOpen} />
       <ResetMemberPasswordSheet
         open={resetTarget !== null}
         member={resetTarget}

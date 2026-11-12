@@ -47,7 +47,6 @@ import { requireServerSuccess } from '@/lib/server-error-message'
 
 import {
   createOrganizationMember,
-  getUsableGroupNames,
   resetOrganizationMemberPassword,
 } from '../api'
 import type { OrganizationMemberRow, OrganizationRole } from '../types'
@@ -69,11 +68,9 @@ type CreateMemberSheetProps = SheetProps & {
   // Creates the account. Organization admins create it in their own organization, which is the default.
   // Platform administrators pass the organization they are viewing.
   submit?: (values: CreateMemberValues) => Promise<void>
-  // Shows the user group picker. Options come from groupScope.
+  // Shows the user group picker with every configured group. Used by platform
+  // administrators; organization admins create members in their own group.
   withGroupOption?: boolean
-  // 'all' lists every configured group (platform administrators); 'usable' lists only
-  // the groups the signed-in user may select (organization admins).
-  groupScope?: 'all' | 'usable'
   // Platform administrators also choose the organization role.
   withRoleOption?: boolean
   onCreated?: () => void
@@ -91,7 +88,6 @@ export function CreateMemberSheet(props: CreateMemberSheetProps) {
   const queryClient = useQueryClient()
   const showGroup = props.withGroupOption === true
   const showRole = props.withRoleOption === true
-  const groupScope = props.groupScope ?? 'usable'
 
   const schema = useMemo(
     () =>
@@ -113,20 +109,12 @@ export function CreateMemberSheet(props: CreateMemberSheetProps) {
     defaultValues: { username: '', password: '', group: '', role: 'member' },
   })
 
-  const allGroupsQuery = useQuery({
+  const groupsQuery = useQuery({
     queryKey: ['groups'],
     queryFn: async () => requireServerSuccess(await getGroups()),
-    enabled: showGroup && groupScope === 'all',
+    enabled: showGroup,
   })
-  const usableGroupsQuery = useQuery({
-    queryKey: ['organization-usable-groups'],
-    queryFn: getUsableGroupNames,
-    enabled: showGroup && groupScope === 'usable',
-  })
-  const groups =
-    groupScope === 'all'
-      ? (allGroupsQuery.data?.data ?? [])
-      : (usableGroupsQuery.data ?? [])
+  const groups = groupsQuery.data?.data ?? []
 
   const mutation = useMutation({
     mutationFn: (values: CreateMemberValues) => {

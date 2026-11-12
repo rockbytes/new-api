@@ -88,9 +88,13 @@ func organizationTestEngine(userId int, role int) *gin.Engine {
 	engine.Use(func(c *gin.Context) {
 		c.Set("id", userId)
 		c.Set("role", role)
-		// Production sets the caller's user group from the account; the test
-		// accounts all belong to the default user group.
-		common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
+		// Production sets the caller's user group from the signed-in account.
+		var caller model.User
+		group := ""
+		if err := model.DB.Where("id = ?", userId).First(&caller).Error; err == nil {
+			group = caller.Group
+		}
+		common.SetContextKey(c, constant.ContextKeyUserGroup, group)
 		c.Next()
 	})
 	root := engine.Group("/api/organization")
@@ -699,53 +703,28 @@ func TestRootCreateOrganizationMemberChoosesGroupAndRole(t *testing.T) {
 	})
 }
 
-// An organization admin may give a new member only a user group that the admin's
-// own user group can select. Omitting the group keeps the default group.
-func TestOrganizationAdminMemberGroupMustBeUsableByAdmin(t *testing.T) {
+// A member created by an organization admin joins the admin's own user group, so
+// it inherits the same multipliers and visibility rules. A group sent by the client
+// is ignored rather than granting a group the admin could not otherwise choose.
+func TestOrganizationAdminMemberInheritsAdminGroup(t *testing.T) {
 	db := setupOrganizationTestDB(t)
 	createOrganizationWithAdmin(t, "Ops", "alice")
 	alice := userByName(t, db, "alice")
+	require.NoError(t, db.Model(&model.User{}).Where("id = ?", alice.Id).Update("group", "vip").Error)
 
-	originalRatios := ratio_setting.GroupRatio2JSONString()
-	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":1,"hidden":1}`))
-	specialGroups := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup
-	originalSpecialGroups := specialGroups.ReadAll()
-	specialGroups.Clear()
-	specialGroups.Set("default", map[string]string{"+:default": "默认分组", "+:vip": "VIP 分组"})
-	t.Cleanup(func() {
-		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
-		specialGroups.Clear()
-		specialGroups.AddAll(originalSpecialGroups)
-	})
-
-	t.Run("usable group is stored on the new member", func(t *testing.T) {
+	t.Run("new member joins the admin's group", func(t *testing.T) {
 		_, status := organizationResponseData(t, doOrganizationRequest(t, alice.Id, http.MethodPost, "/api/organization/self/members",
-			`{"username":"carol","password":"`+organizationTestPass+`","group":"vip"}`))
+			`{"username":"carol","password":"`+organizationTestPass+`"}`))
 		require.Equal(t, http.StatusOK, status)
 		assert.Equal(t, "vip", userByName(t, db, "carol").Group)
 	})
 
-	t.Run("omitted group keeps the default group", func(t *testing.T) {
+	t.Run("a group in the request does not override the admin's group", func(t *testing.T) {
 		_, status := organizationResponseData(t, doOrganizationRequest(t, alice.Id, http.MethodPost, "/api/organization/self/members",
-			`{"username":"dave","password":"`+organizationTestPass+`"}`))
+			`{"username":"dave","password":"`+organizationTestPass+`","group":"default"}`))
 		require.Equal(t, http.StatusOK, status)
-		assert.Equal(t, "default", userByName(t, db, "dave").Group)
+		assert.Equal(t, "vip", userByName(t, db, "dave").Group)
 	})
-
-	for _, tc := range []struct{ name, username, group string }{
-		{"configured group outside the admin's usable groups is rejected", "erin", "hidden"},
-		{"unknown group is rejected", "frank", "missing"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			recorder := doOrganizationRequest(t, alice.Id, http.MethodPost, "/api/organization/self/members",
-				fmt.Sprintf(`{"username":%q,"password":%q,"group":%q}`, tc.username, organizationTestPass, tc.group))
-			assert.Equal(t, http.StatusBadRequest, recorder.Code)
-			assert.Equal(t, "ORGANIZATION_INVALID_GROUP", organizationErrorCode(t, recorder))
-			var count int64
-			require.NoError(t, db.Model(&model.User{}).Where("username = ?", tc.username).Count(&count).Error)
-			assert.Zero(t, count)
-		})
-	}
 }
 
 // The organization list can be filtered by name. The keyword matches a literal

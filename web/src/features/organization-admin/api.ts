@@ -66,10 +66,3 @@ export async function setOwnMemberAllocation(
   })
   requireServerSuccess(res.data)
 }
-
-// Names of the user groups the signed-in user may select. The server only lists
-// groups granted to the user's own group, so an organization admin cannot pick others.
-export async function getUsableGroupNames(): Promise<string[]> {
-  const res = await api.get('/api/user/self/groups')
-  return Object.keys(requireServerSuccess(res.data).data ?? {})
-}

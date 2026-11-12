@@ -10,7 +10,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
@@ -35,12 +34,11 @@ type organizationStatusRequest struct {
 	Status string `json:"status"`
 }
 
+// organizationMemberCreateRequest carries only credentials: a member created by an
+// organization admin always joins the admin's own user group.
 type organizationMemberCreateRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
-	// Group is optional. When set, it must be a user group the caller's own user
-	// group may select, so an organization admin cannot grant access beyond their own.
-	Group string `json:"group"`
 }
 
 // organizationRootMemberCreateRequest is used by platform administrators, who
@@ -329,14 +327,11 @@ func CreateOrganizationMember(c *gin.Context) {
 		writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_PASSWORD_INVALID", "Password must be 8 to 128 characters")
 		return
 	}
-	group := strings.TrimSpace(request.Group)
-	if group != "" {
-		callerGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
-		if !ratio_setting.ContainsGroupRatio(group) || !service.GroupInUserUsableGroups(callerGroup, group) {
-			writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_INVALID_GROUP", "User group is not available to you")
-			return
-		}
-	}
+	// New members always join the creating admin's own user group, so they inherit the
+	// same group multipliers and visibility rules. An admin cannot pick another group,
+	// because the group picker only offered the groups their group may select, which
+	// usually are the channel groups rather than the admin's own group.
+	group := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 	if err := model.CreateOrganizationMemberAccount(organization.Id, username, request.Password, group, model.OrganizationRoleMember, c.GetInt("id"), common.GetTimestamp()); err != nil {
 		respondOrganizationError(c, err)
 		return
