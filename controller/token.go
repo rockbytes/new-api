@@ -117,7 +117,7 @@ func setTokenAutoGroups(c *gin.Context, token *model.Token, groups []string) boo
 			return false
 		}
 		seen[group] = struct{}{}
-		if !service.IsUserSelectableGroup(userGroup, group) {
+		if !service.IsUserSelectableGroup(userGroup, group, c.GetInt("role")) {
 			common.ApiErrorT(c, "Auto group {{group}} is unavailable or unauthorized", map[string]any{"group": group})
 			return false
 		}
@@ -183,7 +183,7 @@ func GetTokenAutoGroups(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{
-		"groups":    service.GetUserAutoGroup(userGroup),
+		"groups":    service.GetUserAutoGroup(userGroup, c.GetInt("role")),
 		"max_count": setting.GetMaxTokenAutoGroups(),
 	})
 }

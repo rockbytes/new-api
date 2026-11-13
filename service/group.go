@@ -11,12 +11,24 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GetUserUsableGroups returns the groups a user group may select, mapped to their
-// descriptions. Nothing is visible unless the user group's rules grant it: each
-// "+:<group>" rule makes one group visible. "-:" rules from earlier configurations
-// are ignored, so they can never widen access.
-func GetUserUsableGroups(userGroup string) map[string]string {
+// GetUserUsableGroups returns the groups a user may select, mapped to their
+// descriptions. Administrators author the visibility rules, so the rules do not
+// bind them: role >= RoleAdminUser sees every group in the pricing table, plus
+// Auto while Auto groups are configured. For everyone else nothing is visible
+// unless the user group's rules grant it: each "+:<group>" rule makes one group
+// visible. "-:" rules from earlier configurations are ignored, so they can never
+// widen access.
+func GetUserUsableGroups(userGroup string, role int) map[string]string {
 	usableGroups := make(map[string]string)
+	if role >= common.RoleAdminUser {
+		for groupName := range ratio_setting.GetGroupRatioCopy() {
+			usableGroups[groupName] = ""
+		}
+		if len(setting.GetAutoGroups()) > 0 {
+			usableGroups["auto"] = ""
+		}
+		return usableGroups
+	}
 	if userGroup == "" {
 		return usableGroups
 	}
@@ -32,24 +44,24 @@ func GetUserUsableGroups(userGroup string) map[string]string {
 	return usableGroups
 }
 
-func GroupInUserUsableGroups(userGroup, groupName string) bool {
-	_, ok := GetUserUsableGroups(userGroup)[groupName]
+func GroupInUserUsableGroups(userGroup, groupName string, role int) bool {
+	_, ok := GetUserUsableGroups(userGroup, role)[groupName]
 	return ok
 }
 
-func IsUserSelectableGroup(userGroup, groupName string) bool {
+func IsUserSelectableGroup(userGroup, groupName string, role int) bool {
 	if groupName == "" || groupName == "auto" {
 		return false
 	}
-	return GroupInUserUsableGroups(userGroup, groupName) && ratio_setting.ContainsGroupRatio(groupName)
+	return GroupInUserUsableGroups(userGroup, groupName, role) && ratio_setting.ContainsGroupRatio(groupName)
 }
 
 // GetUserAutoGroup 根据用户分组获取自动分组设置
-func GetUserAutoGroup(userGroup string) []string {
+func GetUserAutoGroup(userGroup string, role int) []string {
 	autoGroups := make([]string, 0)
 	seen := make(map[string]struct{})
 	for _, group := range setting.GetAutoGroups() {
-		if !IsUserSelectableGroup(userGroup, group) {
+		if !IsUserSelectableGroup(userGroup, group, role) {
 			continue
 		}
 		if _, ok := seen[group]; ok {
@@ -63,12 +75,12 @@ func GetUserAutoGroup(userGroup string) []string {
 
 // FilterUserTokenAutoGroups applies current permissions before the current
 // per-token limit. It intentionally does not fall back to the global Auto list.
-func FilterUserTokenAutoGroups(userGroup string, groups []string) []string {
+func FilterUserTokenAutoGroups(userGroup string, groups []string, role int) []string {
 	maxCount := setting.GetMaxTokenAutoGroups()
 	filtered := make([]string, 0, min(len(groups), maxCount))
 	seen := make(map[string]struct{})
 	for _, group := range groups {
-		if !IsUserSelectableGroup(userGroup, group) {
+		if !IsUserSelectableGroup(userGroup, group, role) {
 			continue
 		}
 		if _, ok := seen[group]; ok {
@@ -87,15 +99,16 @@ func FilterUserTokenAutoGroups(userGroup string, groups []string) []string {
 // The absence of the context value means that the token inherits the complete
 // global Auto list; a present (even empty) value is an explicit token snapshot.
 func GetRequestAutoGroups(c *gin.Context, userGroup string) []string {
+	role := common.GetContextKeyInt(c, constant.ContextKeyUserRole)
 	value, ok := common.GetContextKey(c, constant.ContextKeyTokenAutoGroups)
 	if !ok {
-		return GetUserAutoGroup(userGroup)
+		return GetUserAutoGroup(userGroup, role)
 	}
 	groups, ok := value.([]string)
 	if !ok {
 		return []string{}
 	}
-	return FilterUserTokenAutoGroups(userGroup, groups)
+	return FilterUserTokenAutoGroups(userGroup, groups, role)
 }
 
 // GetGroupsEnabledModels 按 groups 顺序获取各分组启用的模型并去重

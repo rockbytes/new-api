@@ -27,8 +27,8 @@ func GetUserGroups(c *gin.Context) {
 	userGroup := ""
 	userId := c.GetInt("id")
 	userGroup, _ = model.GetUserGroup(userId, false)
-	userUsableGroups := service.GetUserUsableGroups(userGroup)
-	for groupName, _ := range ratio_setting.GetGroupRatioCopy() {
+	userUsableGroups := service.GetUserUsableGroups(userGroup, c.GetInt("role"))
+	for groupName := range ratio_setting.GetGroupRatioCopy() {
 		// userUsableGroups holds the groups granted to this user group
 		if desc, ok := userUsableGroups[groupName]; ok {
 			usableGroups[groupName] = map[string]any{

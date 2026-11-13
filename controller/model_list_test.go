@@ -216,6 +216,33 @@ func TestGetUserModelsFiltersByRequestedGroup(t *testing.T) {
 	require.Empty(t, decodeUserModelsResponse(t, vipRecorder))
 }
 
+func TestGetUserModelsLetsAdministratorsUseAnyGroup(t *testing.T) {
+	// The administrator's own user group has no visibility rules, so only the
+	// administrator role can make this group's models reachable.
+	setUserGroupVisibleGroups(t, "ops", map[string]string{})
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&model.User{
+		Id:       1004,
+		Username: "ops-model-user",
+		Password: "password",
+		Group:    "ops",
+		Role:     common.RoleAdminUser,
+		Status:   common.UserStatusEnabled,
+	}).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group: "vip", Model: "zz-ops-vip-model", ChannelId: 1, Enabled: true,
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/api/user/models?group=vip", nil)
+	context.Set("id", 1004)
+
+	GetUserModels(context)
+
+	require.ElementsMatch(t, []string{"zz-ops-vip-model"}, decodeUserModelsResponse(t, recorder))
+}
+
 func TestGetUserModelsExpandsAutoGroupsInConfiguredOrder(t *testing.T) {
 	originalAutoGroups := setting.AutoGroups2JsonString()
 	originalSpecialGroups := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup.ReadAll()

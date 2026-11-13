@@ -101,9 +101,37 @@ func TestGetUserUsableGroupsGrantsOnlyExplicitRules(t *testing.T) {
 	})
 	specialGroups.Set("team-c", map[string]string{"+:supplier": "Supplier"})
 
-	assert.Empty(t, GetUserUsableGroups("team-b"), "a user group without rules sees nothing, not even its own group")
-	assert.Empty(t, GetUserUsableGroups(""))
-	assert.Equal(t, map[string]string{"team-a": "Team A", "supplier": "Supplier"}, GetUserUsableGroups("team-a"))
-	assert.Equal(t, map[string]string{"supplier": "Supplier"}, GetUserUsableGroups("team-c"), "own group is not added unless granted")
-	assert.False(t, GroupInUserUsableGroups("team-a", "other"), "a removal rule never widens access")
+	assert.Empty(t, GetUserUsableGroups("team-b", common.RoleCommonUser), "a user group without rules sees nothing, not even its own group")
+	assert.Empty(t, GetUserUsableGroups("", common.RoleCommonUser))
+	assert.Equal(t, map[string]string{"team-a": "Team A", "supplier": "Supplier"}, GetUserUsableGroups("team-a", common.RoleCommonUser))
+	assert.Equal(t, map[string]string{"supplier": "Supplier"}, GetUserUsableGroups("team-c", common.RoleCommonUser), "own group is not added unless granted")
+	assert.False(t, GroupInUserUsableGroups("team-a", "other", common.RoleCommonUser), "a removal rule never widens access")
+}
+
+func TestGetUserUsableGroupsAdministratorsAreNotBoundByRules(t *testing.T) {
+	specialGroups := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup
+	originalSpecialGroups := specialGroups.ReadAll()
+	originalAutoGroups := setting.AutoGroups2JsonString()
+	originalRatios := ratio_setting.GroupRatio2JSONString()
+	t.Cleanup(func() {
+		specialGroups.Clear()
+		specialGroups.AddAll(originalSpecialGroups)
+		require.NoError(t, setting.UpdateAutoGroupsByJsonString(originalAutoGroups))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
+	})
+	// "ops" grants only a group outside the pricing table, and "team" has no rules.
+	specialGroups.Clear()
+	specialGroups.Set("ops", map[string]string{"+:ghost": "Not in the pricing table"})
+	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["vip"]`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":1}`))
+
+	// Administrators author the rules, so they see the whole pricing table plus
+	// Auto, and never a rule key that is missing from it.
+	expected := map[string]string{"default": "", "vip": "", "auto": ""}
+	assert.Equal(t, expected, GetUserUsableGroups("ops", common.RoleAdminUser))
+	assert.Equal(t, expected, GetUserUsableGroups("ops", common.RoleRootUser))
+	assert.Empty(t, GetUserUsableGroups("team", common.RoleCommonUser), "the rules still bind non-administrators")
+	assert.True(t, IsUserSelectableGroup("ops", "vip", common.RoleAdminUser))
+	assert.Equal(t, []string{"vip"}, GetUserAutoGroup("ops", common.RoleAdminUser))
+	assert.Equal(t, []string{"vip"}, FilterUserTokenAutoGroups("ops", []string{"vip", "ghost"}, common.RoleAdminUser))
 }
