@@ -467,6 +467,7 @@
     "Allocated quota": "Выделенная квота",
     "Allocated to members": "Выделено участникам",
     "Allocation cannot be below the usage already recorded.": "Выделение не может быть меньше уже учтённого использования.",
+    "Allocation cannot exceed the organization's remaining quota.": "Выделение не может превышать остаток квоты организации.",
     "Allocation updated.": "Выделение обновлено.",
     "Allow accountFilter parameter": "Разрешить параметр accountFilter",
     "Allow balance redemption": "Разрешить оплату балансом",

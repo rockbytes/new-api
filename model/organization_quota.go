@@ -30,12 +30,14 @@ var (
 	ErrOrganizationMemberQuotaBelowUsage   = errors.New("member allocation cannot be below the usage already recorded")
 	ErrOrganizationMemberRoleNotAllowed    = errors.New("organization admins can only set the allocation of ordinary members and their own")
 	ErrOrganizationQuotaOverflow           = errors.New("organization quota total would overflow")
+	ErrOrganizationAllocationExceedsPool   = errors.New("member allocation exceeds the organization's remaining quota")
 	ErrOrganizationLedgerRefInvalid        = errors.New("organization ledger reference is invalid")
 )
 
 // OrganizationQuotaAccount is the organization's quota. The organization's remaining
-// quota is GrantedQuota minus ConsumedQuota. Allocations are limits and are not
-// subtracted from it, so they may sum to more than the remaining quota.
+// quota is GrantedQuota minus ConsumedQuota. Each member's allocation is that member's
+// share of it, so the members' unspent allocations never add up to more than the
+// remaining quota.
 type OrganizationQuotaAccount struct {
 	OrganizationId int   `json:"organization_id" gorm:"primaryKey"`
 	GrantedQuota   int64 `json:"granted_quota" gorm:"bigint;not null;default:0"`
@@ -186,12 +188,9 @@ func GrantOrganizationQuota(organizationId int, amount int64, actorUserId int, r
 	return applied, err
 }
 
-// SetOrganizationMemberAllocation sets a member's allocation. It is a limit, not a
-// transfer, so it does not move quota and it may exceed the organization's remaining
-// quota (B). It cannot go below the usage the member has already recorded. When
-// membersOnly is set, the target must be an ordinary member, which is how organization
-// admins are limited (they cannot set their own or other admins' allocations).
-// SetOrganizationMemberAllocation sets any membership's allocation. Root uses it.
+// SetOrganizationMemberAllocation sets a member's allocation, which is the member's share
+// of the organization's remaining quota. It does not move quota, and it cannot go below the
+// usage the member has already recorded. Root may set any membership's allocation.
 func SetOrganizationMemberAllocation(organizationId int, userId int, allocated int64, now int64) error {
 	return setOrganizationMemberAllocation(organizationId, userId, allocated, nil, now)
 }
@@ -226,6 +225,27 @@ func setOrganizationMemberAllocation(organizationId int, userId int, allocated i
 		if allocated < row.UsedQuota {
 			return ErrOrganizationMemberQuotaBelowUsage
 		}
+		// The unspent allocations of all members, this one included, must fit in the
+		// organization's remaining quota. Only an increase can break that, so an allocation
+		// left over from before this rule can still be lowered or left unchanged until the
+		// organization is back within its remaining quota.
+		if allocated > row.AllocatedQuota {
+			account, err := lockOrganizationQuotaAccount(tx, organizationId, now)
+			if err != nil {
+				return err
+			}
+			var held int64
+			if err := tx.Model(&OrganizationMemberQuota{}).
+				Select("COALESCE(SUM(allocated_quota - used_quota), 0)").
+				Where("organization_id = ?", organizationId).
+				Scan(&held).Error; err != nil {
+				return err
+			}
+			heldAfter := held - (row.AllocatedQuota - row.UsedQuota) + (allocated - row.UsedQuota)
+			if account.GrantedQuota-account.ConsumedQuota-heldAfter < 0 {
+				return ErrOrganizationAllocationExceedsPool
+			}
+		}
 		return tx.Model(&OrganizationMemberQuota{}).Where("organization_id = ? AND user_id = ?", organizationId, userId).Updates(map[string]any{
 			"allocated_quota": allocated,
 			"updated_time":    now,
@@ -257,7 +277,8 @@ func GetOrganizationQuotaReconciliation(organizationId int) (*OrganizationQuotaR
 		MemberUsed:     memberUsed,
 		Allocated:      allocated,
 		Unallocated:    remaining - (allocated - memberUsed),
-		Balanced:       account.ConsumedQuota == memberUsed && account.GrantedQuota >= account.ConsumedQuota,
+		Balanced: account.ConsumedQuota == memberUsed && account.GrantedQuota >= account.ConsumedQuota &&
+			remaining-(allocated-memberUsed) >= 0,
 	}, nil
 }
 

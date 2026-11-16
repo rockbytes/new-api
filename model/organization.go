@@ -632,6 +632,17 @@ func ResetOrganizationMemberPassword(organizationId int, userId int, password st
 	return nil
 }
 
+// releaseOrganizationMemberAllocationTx returns a departing member's unspent allocation to the
+// organization's unallocated quota (D4). The usage the member already recorded stays attributed,
+// so the allocation drops to that usage instead of disappearing. Without this, the leftover
+// allocation would keep occupying the organization's remaining quota and no one could lower it,
+// because the member is no longer there to be allocated to.
+func releaseOrganizationMemberAllocationTx(tx *gorm.DB, organizationId int, userId int, now int64) error {
+	return tx.Model(&OrganizationMemberQuota{}).
+		Where("organization_id = ? AND user_id = ? AND allocated_quota > used_quota", organizationId, userId).
+		Updates(map[string]any{"allocated_quota": gorm.Expr("used_quota"), "updated_time": now}).Error
+}
+
 // DeleteOrganizationMember deletes a member's account and membership in one
 // transaction. This is the only way a member leaves an organization (D12); the
 // member's historical usage keeps its consumption-time organization snapshot.
@@ -660,6 +671,9 @@ func DeleteOrganizationMember(organizationId int, userId int) error {
 			return err
 		}
 		disabledKeys = keys
+		if err := releaseOrganizationMemberAllocationTx(tx, organizationId, userId, common.GetTimestamp()); err != nil {
+			return err
+		}
 		if err := tx.Delete(&OrganizationMembership{}, membership.Id).Error; err != nil {
 			return err
 		}
@@ -707,6 +721,9 @@ func removeUserOrganizationMembershipsTx(tx *gorm.DB, userId int) ([]string, err
 			return nil, err
 		}
 		disabledKeys = append(disabledKeys, keys...)
+		if err := releaseOrganizationMemberAllocationTx(tx, membership.OrganizationId, userId, common.GetTimestamp()); err != nil {
+			return nil, err
+		}
 	}
 	if len(memberships) > 0 {
 		if err := tx.Where("user_id = ?", userId).Delete(&OrganizationMembership{}).Error; err != nil {

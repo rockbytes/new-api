@@ -467,6 +467,7 @@
     "Allocated quota": "Allocated quota",
     "Allocated to members": "Allocated to members",
     "Allocation cannot be below the usage already recorded.": "Allocation cannot be below the usage already recorded.",
+    "Allocation cannot exceed the organization's remaining quota.": "Allocation cannot exceed the organization's remaining quota.",
     "Allocation updated.": "Allocation updated.",
     "Allow accountFilter parameter": "Allow accountFilter parameter",
     "Allow balance redemption": "Allow balance redemption",

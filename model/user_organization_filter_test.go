@@ -15,7 +15,7 @@ func TestUserListFiltersByOrganizationAndReportsItsName(t *testing.T) {
 	organizationId, memberId := setupOrganizationQuotaTestDB(t)
 	_, err := GrantOrganizationQuota(organizationId, 1000, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
-	require.NoError(t, SetOrganizationMemberAllocation(organizationId, memberId, 5000, 2))
+	require.NoError(t, SetOrganizationMemberAllocation(organizationId, memberId, 900, 2))
 	require.NoError(t, ConsumeOrganizationQuota(organizationId, memberId, "req-1", 1, 300, 3))
 
 	other := &Organization{Name: "Other Co", Status: OrganizationStatusActive, CreatedTime: 1, UpdatedTime: 1}
@@ -47,7 +47,7 @@ func TestUserListFiltersByOrganizationAndReportsItsName(t *testing.T) {
 	require.NotNil(t, all["quota-member"].Organization)
 	assert.Equal(t, organizationId, all["quota-member"].Organization.Id)
 	assert.Equal(t, "Quota Co", all["quota-member"].Organization.Name)
-	assert.Equal(t, int64(5000), all["quota-member"].Organization.AllocatedQuota)
+	assert.Equal(t, int64(900), all["quota-member"].Organization.AllocatedQuota)
 	assert.Equal(t, int64(300), all["quota-member"].Organization.UsedQuota)
 	assert.Nil(t, all["plain-user"].Organization)
 	assert.Nil(t, all["departed-user"].Organization, "a user in a deleted organization reports no organization")

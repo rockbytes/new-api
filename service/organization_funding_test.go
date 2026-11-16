@@ -80,18 +80,18 @@ func TestOrganizationQuotaFundingRejectsByOrganizationLimit(t *testing.T) {
 	orgId, userId := setupOrganizationFundingTest(t)
 	_, err := model.GrantOrganizationQuota(orgId, 50, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
-	require.NoError(t, model.SetOrganizationMemberAllocation(orgId, userId, 500, 2))
+	require.NoError(t, model.SetOrganizationMemberAllocation(orgId, userId, 50, 2))
 	funding := &OrganizationQuotaFunding{organizationId: orgId, userId: userId, requestId: "req-b"}
 
 	require.NoError(t, funding.PreConsume(40))
-	assert.ErrorIs(t, funding.PreConsume(20), ErrInsufficientOrganizationQuota, "the organization has 10 left")
+	assert.ErrorIs(t, funding.PreConsume(20), ErrInsufficientMemberQuota, "the member has 10 of the allocation left")
 }
 
 func TestOrganizationQuotaFundingSettlesCappedAndRefundsOnce(t *testing.T) {
 	orgId, userId := setupOrganizationFundingTest(t)
 	_, err := model.GrantOrganizationQuota(orgId, 100, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
-	require.NoError(t, model.SetOrganizationMemberAllocation(orgId, userId, 200, 2))
+	require.NoError(t, model.SetOrganizationMemberAllocation(orgId, userId, 100, 2))
 	funding := &OrganizationQuotaFunding{organizationId: orgId, userId: userId, requestId: "req-c"}
 
 	require.NoError(t, funding.PreConsume(60))

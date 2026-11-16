@@ -467,6 +467,7 @@
     "Allocated quota": "Hạn mức đã phân bổ",
     "Allocated to members": "Đã phân bổ cho thành viên",
     "Allocation cannot be below the usage already recorded.": "Hạn mức phân bổ không được thấp hơn mức đã sử dụng.",
+    "Allocation cannot exceed the organization's remaining quota.": "Hạn mức phân bổ không được vượt quá hạn mức còn lại của tổ chức.",
     "Allocation updated.": "Đã cập nhật hạn mức phân bổ.",
     "Allow accountFilter parameter": "Cho phép tham số accountFilter",
     "Allow balance redemption": "Cho phép thanh toán bằng số dư",

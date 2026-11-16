@@ -122,18 +122,89 @@ func reconciliationOf(t *testing.T, organizationId int) *OrganizationQuotaReconc
 	return reconciliation
 }
 
-func TestOrganizationQuotaAllocationIsALimitAndMayExceedRemaining(t *testing.T) {
+// Allocations are each member's share of the organization's remaining quota, so they may
+// not add up to more than it. Otherwise the organization balance would go negative and a
+// member's remaining allocation could not actually be spent.
+func TestOrganizationQuotaAllocationCannotExceedOrganizationRemaining(t *testing.T) {
 	orgId, memberId := setupOrganizationQuotaTestDB(t)
 	_, err := GrantOrganizationQuota(orgId, 1000, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
 
-	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 5000, 2))
+	assert.ErrorIs(t, SetOrganizationMemberAllocation(orgId, memberId, 5000, 2), ErrOrganizationAllocationExceedsPool,
+		"an allocation cannot exceed the organization's remaining quota")
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 1000, 3), "the allocation may equal the remaining quota")
 
 	reconciliation := reconciliationOf(t, orgId)
 	assert.Equal(t, int64(1000), reconciliation.GrantedQuota)
 	assert.Equal(t, int64(1000), reconciliation.RemainingQuota)
-	assert.Equal(t, int64(5000), reconciliation.Allocated, "allocations are limits, so they may sum above the remaining quota")
+	assert.Equal(t, int64(1000), reconciliation.Allocated)
+	assert.Equal(t, int64(0), reconciliation.Unallocated)
 	assert.True(t, reconciliation.Balanced)
+
+	// A second member shares the same remaining quota, so the two allocations must fit together.
+	secondMemberId := 11
+	require.NoError(t, DB.Create(&User{Id: secondMemberId, Username: "quota-member-2", Password: "not-a-real-password",
+		Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AffCode: "aff-quota-member-2"}).Error)
+	require.NoError(t, DB.Create(&OrganizationMembership{OrganizationId: orgId, UserId: secondMemberId,
+		Role: OrganizationRoleMember, Status: OrganizationMembershipActive, CreatedTime: 1, UpdatedTime: 1}).Error)
+	assert.ErrorIs(t, SetOrganizationMemberAllocation(orgId, secondMemberId, 1, 4), ErrOrganizationAllocationExceedsPool,
+		"the first member already holds the whole remaining quota")
+
+	// Lowering the first allocation frees room for the second.
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 400, 5))
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, secondMemberId, 600, 6))
+	assert.Equal(t, int64(0), reconciliationOf(t, orgId).Unallocated)
+}
+
+// The unallocated balance is the granted quota minus the allocations, because a member
+// spending its allocation shrinks the remaining quota and its held share alike. Only a
+// grant raises the ceiling, and only lowering an allocation frees room for another member.
+func TestOrganizationQuotaUnallocatedTracksGrantsAndAllocations(t *testing.T) {
+	orgId, memberId := setupOrganizationQuotaTestDB(t)
+	_, err := GrantOrganizationQuota(orgId, 100, 1, "grant", "grant-1", 1)
+	require.NoError(t, err)
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 100, 2))
+	require.NoError(t, ConsumeOrganizationQuota(orgId, memberId, "req-1", 1, 60, 3))
+
+	assert.ErrorIs(t, SetOrganizationMemberAllocation(orgId, memberId, 101, 4), ErrOrganizationAllocationExceedsPool,
+		"spending does not free allocation room while the remaining quota shrinks with it")
+	assert.Equal(t, int64(0), reconciliationOf(t, orgId).Unallocated)
+
+	grown, err := AdjustOrganizationUnallocatedQuota(orgId, OrganizationAdjustAdd, 50, 1, "top up", "adjust-grow", 5)
+	require.NoError(t, err)
+	assert.Equal(t, int64(50), grown.Unallocated, "a grant is what raises the allocation ceiling")
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 150, 6))
+
+	reconciliation := reconciliationOf(t, orgId)
+	assert.Equal(t, int64(90), reconciliation.RemainingQuota)
+	assert.Equal(t, int64(150), reconciliation.Allocated)
+	assert.Equal(t, int64(0), reconciliation.Unallocated)
+	assert.True(t, reconciliation.Balanced)
+}
+
+// Allocations left over from before the cap was enforced may exceed the remaining quota.
+// They stay spendable only up to what the organization actually has left, and lowering them
+// is still allowed, so an operator can bring the organization back in range.
+func TestOrganizationQuotaLegacyOverAllocationIsBoundedByOrganizationRemaining(t *testing.T) {
+	orgId, memberId := setupOrganizationQuotaTestDB(t)
+	_, err := GrantOrganizationQuota(orgId, 100, 1, "grant", "grant-1", 1)
+	require.NoError(t, err)
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 100, 2))
+	// A row written before the cap existed: the member holds 5000 against a 100 quota.
+	require.NoError(t, DB.Model(&OrganizationMemberQuota{}).Where("organization_id = ? AND user_id = ?", orgId, memberId).
+		Update("allocated_quota", 5000).Error)
+
+	reconciliation := reconciliationOf(t, orgId)
+	assert.Equal(t, int64(5000), reconciliation.Allocated)
+	assert.Equal(t, int64(-4900), reconciliation.Unallocated)
+	assert.False(t, reconciliation.Balanced, "an over-allocated organization is out of balance")
+
+	err = ConsumeOrganizationQuota(orgId, memberId, "req-1", 1, 200, 3)
+	assert.ErrorIs(t, err, ErrOrganizationQuotaInsufficient, "the organization's own remaining quota still bounds spending")
+	require.NoError(t, ConsumeOrganizationQuota(orgId, memberId, "req-1", 1, 100, 4), "the organization has 100 left")
+
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 100, 5), "an operator may bring it back in range")
+	assert.Equal(t, int64(0), reconciliationOf(t, orgId).Unallocated)
 }
 
 func TestOrganizationQuotaConsumeChecksMemberAndOrganizationLimits(t *testing.T) {
@@ -146,9 +217,9 @@ func TestOrganizationQuotaConsumeChecksMemberAndOrganizationLimits(t *testing.T)
 	err = ConsumeOrganizationQuota(orgId, memberId, "req-2", 1, 20, 4)
 	assert.ErrorIs(t, err, ErrOrganizationMemberQuotaInsufficient, "the member's allocation has 10 left")
 
-	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 500, 5))
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 100, 5), "the member may hold the rest of the 100 quota")
 	err = ConsumeOrganizationQuota(orgId, memberId, "req-3", 1, 80, 6)
-	assert.ErrorIs(t, err, ErrOrganizationQuotaInsufficient, "the organization has 60 left")
+	assert.ErrorIs(t, err, ErrOrganizationMemberQuotaInsufficient, "the member has 60 of the allocation left")
 
 	reconciliation := reconciliationOf(t, orgId)
 	assert.Equal(t, int64(40), reconciliation.ConsumedQuota)
@@ -160,7 +231,7 @@ func TestOrganizationQuotaSettleCapsAndRecordsShortfall(t *testing.T) {
 	orgId, memberId := setupOrganizationQuotaTestDB(t)
 	_, err := GrantOrganizationQuota(orgId, 100, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
-	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 200, 2))
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 100, 2))
 	require.NoError(t, ConsumeOrganizationQuota(orgId, memberId, "req-1", 1, 60, 3))
 
 	// The organization has 40 left, so settling 50 more charges 40 and records 10 as shortfall.
@@ -347,7 +418,7 @@ func TestOrganizationQuotaConcurrentConsumeNeverOverdrawsOrganization(t *testing
 	orgId, memberId := setupOrganizationQuotaTestDB(t)
 	_, err := GrantOrganizationQuota(orgId, 100, 1, "grant", "grant-1", 1)
 	require.NoError(t, err)
-	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 1000, 2))
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 100, 2))
 
 	const attempts = 20
 	var wg sync.WaitGroup
@@ -390,6 +461,37 @@ func TestOrganizationDeletionReportsBlockersUntilDependenciesAreCleared(t *testi
 	assert.Equal(t, int64(300), impact.AllocatedQuota)
 	assert.Equal(t, int64(700), impact.UnallocatedQuota)
 	assert.ElementsMatch(t, []string{"members_remaining"}, impact.Blockers, "a leftover balance does not block deletion")
+}
+
+// Removing a member returns the allocation it had not spent to the organization, so the
+// quota can be allocated to someone else. The usage it already recorded stays attributed.
+func TestOrganizationMemberRemovalReleasesUnspentAllocation(t *testing.T) {
+	orgId, memberId := setupOrganizationQuotaTestDB(t)
+	useLogDatabaseForDeletion(t)
+
+	_, err := GrantOrganizationQuota(orgId, 1000, 1, "grant", "grant-removal", 1)
+	require.NoError(t, err)
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 700, 2))
+	require.NoError(t, ConsumeOrganizationQuota(orgId, memberId, "req-1", 1, 200, 3))
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 600, 4))
+	assert.Equal(t, int64(400), reconciliationOf(t, orgId).Unallocated, "400 of the 1000 quota is not allocated")
+
+	require.NoError(t, DeleteOrganizationMember(orgId, memberId))
+
+	reconciliation := reconciliationOf(t, orgId)
+	assert.Equal(t, int64(200), reconciliation.Allocated, "the departing member keeps only what it spent")
+	assert.Equal(t, int64(200), reconciliation.ConsumedQuota)
+	assert.Equal(t, int64(800), reconciliation.Unallocated, "the unspent 400 returns to the pool")
+	assert.True(t, reconciliation.Balanced)
+
+	// The freed quota can now be allocated to a remaining member.
+	remaining := &User{Id: 21, Username: "quota-remaining", Password: "not-a-real-password", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, AffCode: "aff-quota-remaining"}
+	require.NoError(t, DB.Create(remaining).Error)
+	require.NoError(t, DB.Create(&OrganizationMembership{OrganizationId: orgId, UserId: remaining.Id,
+		Role: OrganizationRoleMember, Status: OrganizationMembershipActive, CreatedTime: 1, UpdatedTime: 1}).Error)
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, remaining.Id, 800, 5))
+	assert.Equal(t, int64(0), reconciliationOf(t, orgId).Unallocated)
 }
 
 func TestOrganizationDeletionSoftDeletesAClearedOrganization(t *testing.T) {

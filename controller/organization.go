@@ -111,6 +111,8 @@ func respondOrganizationError(c *gin.Context, err error) {
 		writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_REFERENCE_INVALID", "Invalid quota reference")
 	case errors.Is(err, model.ErrOrganizationMemberQuotaBelowUsage):
 		writeOrganizationError(c, http.StatusConflict, "ORGANIZATION_QUOTA_BELOW_USAGE", "Allocation cannot be below the usage already recorded")
+	case errors.Is(err, model.ErrOrganizationAllocationExceedsPool):
+		writeOrganizationError(c, http.StatusConflict, "ORGANIZATION_ALLOCATION_EXCEEDS_POOL", "Allocation cannot exceed the organization's remaining quota")
 	case errors.Is(err, model.ErrOrganizationMemberRoleNotAllowed):
 		writeOrganizationError(c, http.StatusForbidden, "ORGANIZATION_PERMISSION_DENIED", "You do not have permission to perform this action")
 	case errors.Is(err, model.ErrOrganizationRefundExceeded):

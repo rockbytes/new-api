@@ -56,8 +56,8 @@ func setupTokenBillingTest(t *testing.T) (activeOrgId int, suspendedOrgId int, d
 			_ = sqlDB.Close()
 		}
 	})
-	require.NoError(t, db.AutoMigrate(&User{}, &Token{}, &Organization{}, &OrganizationMembership{}, &Log{}, &Task{},
-		&UserSession{}, &UserAccessToken{}, &AuthFlow{}, &PasskeyCredential{}, &TwoFA{}, &TwoFABackupCode{},
+	require.NoError(t, db.AutoMigrate(&User{}, &Token{}, &Organization{}, &OrganizationMembership{}, &OrganizationMemberQuota{},
+		&Log{}, &Task{}, &UserSession{}, &UserAccessToken{}, &AuthFlow{}, &PasskeyCredential{}, &TwoFA{}, &TwoFABackupCode{},
 		&ExternalIdentityClaim{}, &UserOAuthBinding{}))
 	for _, id := range []int{10, 11, 12} {
 		require.NoError(t, db.Create(&User{Id: id, Username: fmt.Sprintf("token-billing-%d", id), Password: "not-a-real-password",

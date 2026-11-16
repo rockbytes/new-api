@@ -99,6 +99,8 @@ const serverErrorMessageKeys = {
   ORGANIZATION_REFERENCE_INVALID: 'Invalid quota reference.',
   ORGANIZATION_QUOTA_BELOW_USAGE:
     'Allocation cannot be below the usage already recorded.',
+  ORGANIZATION_ALLOCATION_EXCEEDS_POOL:
+    "Allocation cannot exceed the organization's remaining quota.",
   ORGANIZATION_REFUND_EXCEEDED:
     'Refund exceeds the settled quota of the request.',
   ORGANIZATION_REQUEST_NOT_FOUND: 'No quota was charged for this request.',

@@ -467,6 +467,7 @@
     "Allocated quota": "Quota alloué",
     "Allocated to members": "Alloué aux membres",
     "Allocation cannot be below the usage already recorded.": "L'allocation ne peut pas être inférieure à l'usage déjà enregistré.",
+    "Allocation cannot exceed the organization's remaining quota.": "L'allocation ne peut pas dépasser le quota restant de l'organisation.",
     "Allocation updated.": "Allocation mise à jour.",
     "Allow accountFilter parameter": "Autoriser le paramètre accountFilter",
     "Allow balance redemption": "Autoriser le paiement avec le solde",

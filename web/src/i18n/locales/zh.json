@@ -467,6 +467,7 @@
     "Allocated quota": "已分配额度",
     "Allocated to members": "已分配给成员",
     "Allocation cannot be below the usage already recorded.": "分配额度不能低于已记录的用量。",
+    "Allocation cannot exceed the organization's remaining quota.": "分配额度不能超过组织的剩余额度。",
     "Allocation updated.": "分配额度已更新。",
     "Allow accountFilter parameter": "允许 accountFilter 参数",
     "Allow balance redemption": "允许余额兑换",

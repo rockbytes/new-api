@@ -467,6 +467,7 @@
     "Allocated quota": "割当額",
     "Allocated to members": "メンバーへの割当額",
     "Allocation cannot be below the usage already recorded.": "割当額は既に記録されている使用量を下回れません。",
+    "Allocation cannot exceed the organization's remaining quota.": "割当額は組織の残りクォータを超えられません。",
     "Allocation updated.": "割当額を更新しました。",
     "Allow accountFilter parameter": "accountFilter パラメータを許可",
     "Allow balance redemption": "残高での交換を許可",
