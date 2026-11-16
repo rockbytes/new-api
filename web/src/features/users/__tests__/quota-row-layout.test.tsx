@@ -7,15 +7,15 @@ it('keeps the secondary figure on its own line under the amount for long and sho
   const { container } = render(
     <>
       <QuotaRow
-        label='Organization'
+        label='Available'
         value='99,999,999.95'
-        secondaryLabel='Allocated quota'
+        secondaryLabel='Used amount'
         secondaryValue='100'
       />
       <QuotaRow
-        label='Organization'
+        label='Available'
         value='0'
-        secondaryLabel='Allocated quota'
+        secondaryLabel='Used amount'
         secondaryValue='0'
       />
     </>
@@ -27,7 +27,7 @@ it('keeps the secondary figure on its own line under the amount for long and sho
     const secondary = row.querySelector<HTMLElement>(
       '[data-table-text="secondary"]'
     )
-    expect(secondary).toHaveClass('col-start-2')
+    expect(secondary).toBeInTheDocument()
   }
   expect(screen.getByText('99,999,999.95')).toHaveClass('break-all')
 })

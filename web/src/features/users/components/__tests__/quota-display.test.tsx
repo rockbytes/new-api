@@ -166,7 +166,7 @@ it.each([0, 500000])(
     )
     if (used === 0) {
       expect(screen.getAllByRole('cell')[0]).toHaveTextContent(
-        /^PersonalNo Quota$/
+        /^No Quota$/
       )
       expect(screen.queryByText('Used amount')).not.toBeInTheDocument()
       await userEvent.click(screen.getByRole('button', { name: 'No Quota' }))

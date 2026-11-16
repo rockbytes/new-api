@@ -56,7 +56,7 @@ export function UserOrganizationQuotaCell(
       ]}
     >
       <QuotaRow
-        label={t('Organization')}
+        label={t('Available')}
         value={formattedSpendable}
         valueClassName={cn(
           spendable < 0 && 'text-destructive',

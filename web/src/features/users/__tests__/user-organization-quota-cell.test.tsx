@@ -15,7 +15,7 @@ it('labels the organization row and its used amount as separate from the persona
   const trigger = screen.getByRole('button', {
     name: /^Organization allocation Spendable quota/,
   })
-  expect(within(trigger).getByText('Organization')).toBeInTheDocument()
+  expect(within(trigger).getByText('Available')).toBeInTheDocument()
   expect(within(trigger).getByText('Used amount')).toBeInTheDocument()
   // The allocation has $9.40 left and the organization can cover it, so that is the spendable
   // figure rather than the whole allocation.

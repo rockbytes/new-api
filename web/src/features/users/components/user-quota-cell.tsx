@@ -42,7 +42,7 @@ export function UserQuotaCell(props: UserQuotaCellProps) {
     >
       {hasQuota ? (
         <QuotaRow
-          label={t('Personal')}
+          label={t('Available')}
           value={formattedRemaining}
           valueClassName={cn(
             props.remaining < 0 && 'text-destructive',
@@ -53,7 +53,6 @@ export function UserQuotaCell(props: UserQuotaCellProps) {
         />
       ) : (
         <QuotaRow
-          label={t('Personal')}
           badge={
             <StatusBadge
               label={t('No Quota')}
