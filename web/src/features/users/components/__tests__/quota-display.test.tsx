@@ -133,9 +133,10 @@ it('shows balance above secondary usage text and opens quota details on click', 
     within(cells[0]).queryByText('Available Balance')
   ).not.toBeInTheDocument()
   expect(within(cells[0]).getByText('0.0022')).toBeInTheDocument()
-  expect(screen.getByText('Used amount').parentElement).toHaveAttribute(
-    'data-table-text',
-    'secondary'
+  // The used figure sits on its own line with the same type scale as the balance above it, so
+  // the two are distinguished by their words rather than by a secondary style.
+  expect(screen.getByText('Used amount').parentElement).not.toHaveAttribute(
+    'data-table-text'
   )
   expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   expect(screen.queryByText('0.006')).not.toBeInTheDocument()

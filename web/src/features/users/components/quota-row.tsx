@@ -15,8 +15,9 @@ type QuotaRowProps = {
 }
 
 /**
- * One balance in the users table. Both figures carry their own word, so the column holding it
- * does not need a separate label and the row stays readable at a glance.
+ * One balance in the users table. Both lines share one structure and one type scale: a muted word
+ * and a figure in the same size and weight, so an amount never looks more important than the one
+ * under it. The two lines are told apart by their words, not by their styles.
  */
 export function QuotaRow(props: QuotaRowProps) {
   return (
@@ -35,11 +36,10 @@ export function QuotaRow(props: QuotaRowProps) {
         {props.badge}
       </span>
       {props.secondaryLabel !== undefined && (
-        <span
-          data-table-text='secondary'
-          className='text-muted-foreground flex min-w-0 items-baseline gap-1.5 text-xs font-normal'
-        >
-          <span className='shrink-0'>{props.secondaryLabel}</span>
+        <span className='flex min-w-0 items-baseline gap-1.5'>
+          <span className='text-muted-foreground shrink-0 text-xs'>
+            {props.secondaryLabel}
+          </span>
           <span className='min-w-0 break-all'>{props.secondaryValue}</span>
         </span>
       )}
