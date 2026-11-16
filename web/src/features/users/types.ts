@@ -41,6 +41,7 @@ const userSchema = z.object({
       role: z.string().optional(),
       allocated_quota: z.number().optional(),
       used_quota: z.number().optional(),
+      remaining_quota: z.number().optional(),
     })
     .nullable()
     .optional(),

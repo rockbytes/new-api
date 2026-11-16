@@ -49,6 +49,8 @@ func TestUserListFiltersByOrganizationAndReportsItsName(t *testing.T) {
 	assert.Equal(t, "Quota Co", all["quota-member"].Organization.Name)
 	assert.Equal(t, int64(900), all["quota-member"].Organization.AllocatedQuota)
 	assert.Equal(t, int64(300), all["quota-member"].Organization.UsedQuota)
+	assert.Equal(t, int64(700), all["quota-member"].Organization.RemainingQuota,
+		"the user list carries the organization's own remaining quota, which bounds what the member can spend")
 	assert.Nil(t, all["plain-user"].Organization)
 	assert.Nil(t, all["departed-user"].Organization, "a user in a deleted organization reports no organization")
 

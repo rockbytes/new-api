@@ -10,11 +10,14 @@ import { QuotaRow } from './quota-row'
 type UserOrganizationQuotaCellProps = {
   allocated: number
   used: number
+  // What the organization itself can still spend. A member is bounded by both this and its
+  // own allocation, so the spendable figure is the smaller of the two.
+  organizationRemaining: number
 }
 
 /**
- * A member's organization allocation: how much the organization lets this member spend
- * through company-paid Keys. It is separate from the member's personal balance.
+ * A member's organization balance: how much the organization lets this member spend through
+ * company-paid Keys. It is separate from the member's personal balance.
  */
 export function UserOrganizationQuotaCell(
   props: UserOrganizationQuotaCellProps
@@ -24,35 +27,43 @@ export function UserOrganizationQuotaCell(
 
   const { meta: currency } = getCurrencyDisplay()
   const quotaUnit = currency.kind === 'tokens' ? t('Tokens') : currency.symbol
-  const remaining = props.allocated - props.used
-  const formattedRemaining = formatQuotaWithCurrency(remaining, {
-    showSymbol: false,
-  })
-  const formattedAllocated = formatQuotaWithCurrency(props.allocated, {
+  const allocationLeft = props.allocated - props.used
+  // The organization can run out before a member's own allocation does, and consumption is
+  // checked against both, so report the limit that actually applies.
+  const spendable = Math.min(allocationLeft, props.organizationRemaining)
+  const formattedSpendable = formatQuotaWithCurrency(spendable, {
     showSymbol: false,
   })
   const formattedUsed = formatQuotaWithCurrency(props.used, {
+    showSymbol: false,
+  })
+  const formattedAllocated = formatQuotaWithCurrency(props.allocated, {
     showSymbol: false,
   })
 
   return (
     <QuotaDetailsPopover
       title={`${t('Organization allocation')} (${quotaUnit})`}
-      triggerLabel={`${t('Organization allocation')} ${t('Remaining')} ${formattedRemaining}`}
+      triggerLabel={`${t('Organization allocation')} ${t('Spendable quota')} ${formattedSpendable}`}
       details={[
         { label: t('Allocated quota'), value: formattedAllocated },
         { label: t('Total Used'), value: formattedUsed },
+        { label: t('Spendable quota'), value: formattedSpendable },
+        {
+          label: t('Organization'),
+          value: formatQuotaWithCurrency(props.organizationRemaining),
+        },
       ]}
     >
       <QuotaRow
         label={t('Organization')}
-        value={formattedRemaining}
+        value={formattedSpendable}
         valueClassName={cn(
-          remaining < 0 && 'text-destructive',
-          remaining === 0 && 'text-muted-foreground'
+          spendable < 0 && 'text-destructive',
+          spendable === 0 && 'text-muted-foreground'
         )}
-        secondaryLabel={t('Allocated quota')}
-        secondaryValue={formattedAllocated}
+        secondaryLabel={t('Used amount')}
+        secondaryValue={formattedUsed}
       />
     </QuotaDetailsPopover>
   )

@@ -166,28 +166,41 @@ export function useUsersColumns(): ColumnDef<User>[] {
         meta: { mobileBadge: true },
       },
       {
+        // The wallet and the organization allocation are two separate sources of money, so
+        // each gets its own column instead of sharing one cell behind a text label.
         id: 'quota',
         accessorKey: 'quota',
         header: `${t('Personal Balance')} (${quotaUnit})`,
         cell: ({ row }) => {
           const user = row.original
           return (
-            <div className='grid min-w-0 gap-2'>
-              <UserQuotaCell remaining={user.quota} used={user.used_quota} />
-              {user.organization ? (
-                <div className='border-border/60 border-t pt-2'>
-                  <UserOrganizationQuotaCell
-                    allocated={user.organization.allocated_quota ?? 0}
-                    used={user.organization.used_quota ?? 0}
-                  />
-                </div>
-              ) : null}
-            </div>
+            <UserQuotaCell remaining={user.quota} used={user.used_quota} />
           )
         },
-        size: 200,
-        minSize: 180,
+        size: 150,
+        minSize: 130,
         meta: { mobileOrder: 40 },
+      },
+      {
+        id: 'organization_quota',
+        // Sorting stays on the personal wallet, which is the only balance the server can order
+        // by, so this column must not offer a sort control that would do nothing.
+        enableSorting: false,
+        header: `${t('Organization Balance')} (${quotaUnit})`,
+        cell: ({ row }) => {
+          const organization = row.original.organization
+          if (!organization) return <span className='text-muted-foreground'>-</span>
+          return (
+            <UserOrganizationQuotaCell
+              allocated={organization.allocated_quota ?? 0}
+              used={organization.used_quota ?? 0}
+              organizationRemaining={organization.remaining_quota ?? 0}
+            />
+          )
+        },
+        size: 150,
+        minSize: 130,
+        meta: { mobileOrder: 45 },
       },
       {
         accessorKey: 'group',

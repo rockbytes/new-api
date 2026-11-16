@@ -33,6 +33,10 @@ type UserOrganization struct {
 	// separate from the user's personal wallet balance.
 	AllocatedQuota int64 `json:"allocated_quota"`
 	UsedQuota      int64 `json:"used_quota"`
+	// RemainingQuota is what the organization itself can still spend. A member can only spend
+	// up to this even when its own allocation has more left, because consumption is checked
+	// against both limits.
+	RemainingQuota int64 `json:"remaining_quota"`
 }
 
 var userSortColumns = map[string]string{
@@ -473,6 +477,23 @@ func attachUserOrganizations(db *gorm.DB, users []*User) error {
 	if err := db.Where("user_id IN ?", userIds).Find(&quotas).Error; err != nil {
 		return err
 	}
+
+	// The organization's own remaining quota bounds what any member can spend, so read the
+	// accounts of the organizations these memberships belong to.
+	organizationIds := make([]int, 0, len(rows))
+	for _, row := range rows {
+		organizationIds = append(organizationIds, row.Id)
+	}
+	remainingByOrganization := make(map[int]int64, len(organizationIds))
+	if len(organizationIds) > 0 {
+		var accounts []OrganizationQuotaAccount
+		if err := db.Where("organization_id IN ?", organizationIds).Find(&accounts).Error; err != nil {
+			return err
+		}
+		for _, account := range accounts {
+			remainingByOrganization[account.OrganizationId] = account.GrantedQuota - account.ConsumedQuota
+		}
+	}
 	type membershipKey struct {
 		organizationId int
 		userId         int
@@ -484,7 +505,12 @@ func attachUserOrganizations(db *gorm.DB, users []*User) error {
 
 	byUser := make(map[int]*UserOrganization, len(rows))
 	for _, row := range rows {
-		organization := &UserOrganization{Id: row.Id, Name: row.Name, Role: row.Role}
+		organization := &UserOrganization{
+			Id:             row.Id,
+			Name:           row.Name,
+			Role:           row.Role,
+			RemainingQuota: remainingByOrganization[row.Id],
+		}
 		if quota, ok := quotaByMembership[membershipKey{organizationId: row.Id, userId: row.UserId}]; ok {
 			organization.AllocatedQuota = quota.AllocatedQuota
 			organization.UsedQuota = quota.UsedQuota
