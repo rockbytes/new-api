@@ -58,8 +58,8 @@ function mockOrganizationApi(role: 'admin' | 'member') {
             role: 'member',
             status: 'active',
             created_time: 1700000000,
-            allocated_quota: 0,
-            used_quota: 0,
+            allocated_quota: 3_000_000,
+            used_quota: 1_000_000,
           },
           {
             user_id: 3,
@@ -304,4 +304,20 @@ it('does not offer the override mode when adjusting a member allocation', async 
   expect(
     within(dialog).queryByRole('button', { name: 'Override' })
   ).not.toBeInTheDocument()
+})
+
+// A member can spend its own allocation only as far as the organization can still cover it, so
+// the column reports the smaller of the two.
+it('reports each member spendable quota as the smaller of the allocation left and the organization remaining', async () => {
+  mockOrganizationApi('admin')
+
+  renderPage()
+
+  const bobRow = within(await screen.findByRole('row', { name: /bob/ }))
+  // bob holds 3,000,000 and has used 1,000,000, so 2,000,000 ($4) is left of its own
+  // allocation, and the organization still has 8,000,000 ($16) left. The column reports the
+  // smaller bound, which here is the member's own remainder.
+  expect(bobRow.getByText('$4')).toBeInTheDocument()
+  expect(bobRow.getByText('$6')).toBeInTheDocument()
+  expect(bobRow.getByText('$2')).toBeInTheDocument()
 })

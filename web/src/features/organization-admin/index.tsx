@@ -206,6 +206,24 @@ export function OrganizationAdmin() {
       cell: (row) => formatQuotaWithCurrency(row.used_quota),
     },
     {
+      // What this member can actually spend: the allocation left, bounded by what the
+      // organization itself still has. The two are usually the same, and differ once the
+      // organization's remaining quota runs lower than a member's own allocation.
+      id: 'spendable',
+      header: t('Spendable quota'),
+      cell: (row) => {
+        const allocationLeft = row.allocated_quota - row.used_quota
+        const organizationLeft = quotaQuery.data?.remaining_quota
+        // Before the organization figure arrives, show the member's own remainder rather
+        // than a misleading zero.
+        const spendable =
+          organizationLeft === undefined
+            ? allocationLeft
+            : Math.min(allocationLeft, organizationLeft)
+        return formatQuotaWithCurrency(spendable)
+      },
+    },
+    {
       id: 'actions',
       header: '',
       cell: (row) => (
