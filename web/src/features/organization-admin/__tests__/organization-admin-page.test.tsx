@@ -33,6 +33,20 @@ function mockOrganizationApi(role: 'admin' | 'member') {
         },
       })
     }
+    if (url === '/api/organization/self/quota') {
+      return response({
+        success: true,
+        data: {
+          granted_quota: 10_000_000,
+          consumed_quota: 2_000_000,
+          remaining_quota: 8_000_000,
+          member_used: 2_000_000,
+          allocated: 10_000_000,
+          unallocated: 0,
+          balanced: true,
+        },
+      })
+    }
     if (url === '/api/organization/self/members') {
       return response({
         success: true,
@@ -237,5 +251,57 @@ it('offers quota allocation on the admin own row but not on another admin row', 
   await screen.findByRole('menuitem', { name: 'Make member' })
   expect(
     screen.queryByRole('menuitem', { name: 'Allocate quota' })
+  ).not.toBeInTheDocument()
+})
+
+// An allocation is a limit, so the allocatable figure and the spendable figure differ: the
+// first is what is still free to hand out, the second is what the organization can still spend.
+it('shows allocatable, spendable and used quota as separate figures for an admin', async () => {
+  mockOrganizationApi('admin')
+
+  renderPage()
+
+  await screen.findByText('bob')
+
+  // Read each figure from its own card, so the assertions do not depend on how the amounts
+  // happen to collide with the member rows.
+  // "Used quota" is also a member table column header, so scope the lookup to the cards only.
+  const allocatable = screen
+    .getByText('Allocatable quota')
+    .closest('[data-slot="card"]') as HTMLElement
+  const grid = allocatable.parentElement as HTMLElement
+  const spendable = within(grid)
+    .getByText('Spendable quota')
+    .closest('[data-slot="card"]') as HTMLElement
+  const used = within(grid)
+    .getByText('Used quota')
+    .closest('[data-slot="card"]') as HTMLElement
+  // The organization is fully allocated (unallocated 0) yet still has quota it can spend.
+  expect(within(allocatable as HTMLElement).getByText('$0')).toBeInTheDocument()
+  expect(within(spendable as HTMLElement).getByText('$16')).toBeInTheDocument()
+  expect(within(used as HTMLElement).getByText('$4')).toBeInTheDocument()
+})
+
+// An override hides the target behind a single number, which reads as a balance even though a
+// member allocation is a limit, so the member allocation dialog does not offer it.
+it('does not offer the override mode when adjusting a member allocation', async () => {
+  mockOrganizationApi('admin')
+  const user = userEvent.setup()
+
+  renderPage()
+
+  const bobRow = within(await screen.findByRole('row', { name: /bob/ }))
+  await user.click(bobRow.getByRole('button', { name: 'Member actions' }))
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Allocate quota' })
+  )
+
+  const dialog = await screen.findByRole('dialog', { name: 'Adjust Quota' })
+  expect(within(dialog).getByRole('button', { name: 'Add' })).toBeInTheDocument()
+  expect(
+    within(dialog).getByRole('button', { name: 'Subtract' })
+  ).toBeInTheDocument()
+  expect(
+    within(dialog).queryByRole('button', { name: 'Override' })
   ).not.toBeInTheDocument()
 })

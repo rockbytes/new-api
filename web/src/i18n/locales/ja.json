@@ -5287,6 +5287,8 @@
     "Remaining": "残り",
     "Remaining percentage": "残りの割合",
     "Remaining quota": "残りクォータ",
+    "Allocatable quota": "割当可能なクォータ",
+    "Spendable quota": "利用可能な残高",
     "Remaining Quota ({{currency}})": "残りのクォータ ({{currency}})",
     "Remaining quota units": "残りクォータ単位",
     "Remaining:": "残り:",

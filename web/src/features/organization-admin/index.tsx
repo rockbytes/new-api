@@ -19,6 +19,7 @@ import {
 } from '@/components/quota-adjust-dialog'
 import { StatusBadge, statusPresets } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   DropdownMenuItem,
   DropdownMenuShortcut,
@@ -275,11 +276,48 @@ export function OrganizationAdmin() {
           </Button>
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
-          <div className='mb-3 flex flex-wrap items-center justify-between gap-3'>
-            <p className='text-muted-foreground text-sm'>
-              {t('Remaining quota')}:{' '}
-              {formatQuotaWithCurrency(quotaQuery.data?.remaining_quota)}
-            </p>
+          {/* The three figures an organization admin needs to read the pool: what is still
+              theirs to hand out, what the organization can still spend, and what it has spent.
+              They differ because an allocation is a limit and does not move quota. */}
+          <div className='mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3'>
+            <Card size='sm'>
+              <CardHeader>
+                <CardTitle className='text-muted-foreground text-sm font-medium'>
+                  {t('Allocatable quota')}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className='text-xl font-semibold tabular-nums'>
+                  {formatQuotaWithCurrency(quotaQuery.data?.unallocated)}
+                </p>
+              </CardContent>
+            </Card>
+            <Card size='sm'>
+              <CardHeader>
+                <CardTitle className='text-muted-foreground text-sm font-medium'>
+                  {t('Spendable quota')}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className='text-xl font-semibold tabular-nums'>
+                  {formatQuotaWithCurrency(quotaQuery.data?.remaining_quota)}
+                </p>
+              </CardContent>
+            </Card>
+            <Card size='sm'>
+              <CardHeader>
+                <CardTitle className='text-muted-foreground text-sm font-medium'>
+                  {t('Used quota')}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className='text-xl font-semibold tabular-nums'>
+                  {formatQuotaWithCurrency(quotaQuery.data?.consumed_quota)}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+          <div className='mb-3 flex justify-end'>
             <Input
               type='search'
               aria-label={t('Search by username')}
@@ -297,6 +335,7 @@ export function OrganizationAdmin() {
         onOpenChange={(open) => !open && setAllocationTarget(null)}
         currentQuota={allocationTarget?.allocated_quota ?? 0}
         minimumQuota={allocationTarget?.used_quota ?? 0}
+        allowOverride={false}
         onConfirm={handleAllocate}
       />
       {/* Organization admins do not choose the member's user group: the account

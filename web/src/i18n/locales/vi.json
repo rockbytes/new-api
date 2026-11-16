@@ -5287,6 +5287,8 @@
     "Remaining": "Còn lại",
     "Remaining percentage": "Tỷ lệ còn lại",
     "Remaining quota": "Hạn ngạch còn lại",
+    "Allocatable quota": "Hạn mức có thể phân bổ",
+    "Spendable quota": "Số dư khả dụng",
     "Remaining Quota ({{currency}})": "Hạn mức còn lại ({{currency}})",
     "Remaining quota units": "Đơn vị hạn ngạch còn lại",
     "Remaining:": "Còn lại:",

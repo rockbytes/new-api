@@ -17,6 +17,9 @@ interface QuotaAdjustDialogProps {
   currentQuota: number
   // When set, a change that would leave the balance below this value is refused in the dialog.
   minimumQuota?: number
+  // Overrides hide the target value behind one number, which reads as a plain balance when it is
+  // actually a limit. Callers whose balance is a limit rather than a spendable amount turn it off.
+  allowOverride?: boolean
   // Receives the mode and the quota value: the amount for add and subtract, the target for override.
   // Resolves to true when the change was applied, which closes the dialog.
   onConfirm: (mode: QuotaAdjustMode, value: number) => Promise<boolean>
@@ -24,8 +27,12 @@ interface QuotaAdjustDialogProps {
 
 // Adds, subtracts, or overrides a quota balance. The caller decides what the balance is and
 // how the change is sent.
+const ALL_ADJUST_MODES = ['add', 'subtract', 'override'] as const
+const ADD_SUBTRACT_MODES = ['add', 'subtract'] as const
+
 export function QuotaAdjustDialog(props: QuotaAdjustDialogProps) {
   const { t } = useTranslation()
+  const modes = props.allowOverride === false ? ADD_SUBTRACT_MODES : ALL_ADJUST_MODES
   const [mode, setMode] = useState<QuotaAdjustMode>('add')
   const [amount, setAmount] = useState('')
   const [loading, setLoading] = useState(false)
@@ -128,7 +135,7 @@ export function QuotaAdjustDialog(props: QuotaAdjustDialogProps) {
         <div className='space-y-2'>
           <Label>{t('Mode')}</Label>
           <div className='flex gap-1'>
-            {(['add', 'subtract', 'override'] as const).map((m) => (
+            {modes.map((m) => (
               <Button
                 key={m}
                 type='button'

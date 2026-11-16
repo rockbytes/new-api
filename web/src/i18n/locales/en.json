@@ -5287,6 +5287,8 @@
     "Remaining": "Remaining",
     "Remaining percentage": "Remaining percentage",
     "Remaining quota": "Remaining quota",
+    "Allocatable quota": "Allocatable quota",
+    "Spendable quota": "Spendable quota",
     "Remaining Quota ({{currency}})": "Remaining Quota ({{currency}})",
     "Remaining quota units": "Remaining quota units",
     "Remaining:": "Remaining:",

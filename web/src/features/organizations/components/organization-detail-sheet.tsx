@@ -251,6 +251,7 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
         onOpenChange={(open) => !open && setAllocationTarget(null)}
         currentQuota={allocationTarget?.allocated_quota ?? 0}
         minimumQuota={allocationTarget?.used_quota ?? 0}
+        allowOverride={false}
         onConfirm={handleAllocate}
       />
     </>

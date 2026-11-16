@@ -5287,6 +5287,8 @@
     "Remaining": "剩餘",
     "Remaining percentage": "剩餘比例",
     "Remaining quota": "剩餘配額",
+    "Allocatable quota": "可分配額度",
+    "Spendable quota": "可消費餘額",
     "Remaining Quota ({{currency}})": "剩餘額度 ({{currency}})",
     "Remaining quota units": "剩餘配額單位",
     "Remaining:": "剩餘：",

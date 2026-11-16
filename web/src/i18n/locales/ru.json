@@ -5287,6 +5287,8 @@
     "Remaining": "Остаток",
     "Remaining percentage": "Оставшаяся доля",
     "Remaining quota": "Остаток квоты",
+    "Allocatable quota": "Квота для распределения",
+    "Spendable quota": "Доступный остаток",
     "Remaining Quota ({{currency}})": "Остаток квоты ({{currency}})",
     "Remaining quota units": "Остаток единиц квоты",
     "Remaining:": "Осталось:",
