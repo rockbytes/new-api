@@ -2,7 +2,9 @@ import { useTranslation } from 'react-i18next'
 
 import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
 
+import { useExpandableRows } from '../lib/use-expandable-rows'
 import type { UsageTrendPoint } from '../types'
+import { ExpandRowsButton } from './expand-rows-button'
 
 // Bars share one scale, so a day's width is its share of the largest day.
 export function UsageTrendBars(props: {
@@ -11,6 +13,9 @@ export function UsageTrendBars(props: {
 }) {
   const { t } = useTranslation()
   const max = Math.max(1, ...props.points.map((point) => point.consume_quota))
+  const { visible, hasMore, hiddenCount, expanded, toggle } = useExpandableRows(
+    props.points
+  )
   if (props.points.length === 0) {
     return (
       <p className='text-muted-foreground text-sm'>
@@ -19,26 +24,38 @@ export function UsageTrendBars(props: {
     )
   }
   return (
-    <ul className='flex flex-col gap-2' aria-label={t('Daily net consumption')}>
-      {props.points.map((point) => (
-        <li
-          key={point.day_start}
-          className='grid grid-cols-[6rem_1fr_6rem] items-center gap-3 text-sm'
-        >
-          <span className='text-muted-foreground tabular-nums'>
-            {formatTimestampToDate(point.day_start)}
-          </span>
-          <span className='bg-muted h-3 overflow-hidden rounded'>
-            <span
-              className='bg-primary block h-full rounded'
-              style={{ width: `${(point.consume_quota / max) * 100}%` }}
-            />
-          </span>
-          <span className='text-right tabular-nums'>
-            {formatLogQuota(point.consume_quota)}
-          </span>
-        </li>
-      ))}
-    </ul>
+    <div className='flex flex-col'>
+      <ul
+        className='flex flex-col gap-2'
+        aria-label={t('Daily net consumption')}
+      >
+        {visible.map((point) => (
+          <li
+            key={point.day_start}
+            className='grid grid-cols-[6rem_1fr_6rem] items-center gap-3 text-sm'
+          >
+            <span className='text-muted-foreground tabular-nums'>
+              {formatTimestampToDate(point.day_start)}
+            </span>
+            <span className='bg-muted h-3 overflow-hidden rounded'>
+              <span
+                className='bg-primary block h-full rounded'
+                style={{ width: `${(point.consume_quota / max) * 100}%` }}
+              />
+            </span>
+            <span className='text-right tabular-nums'>
+              {formatLogQuota(point.consume_quota)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {hasMore && (
+        <ExpandRowsButton
+          expanded={expanded}
+          hiddenCount={hiddenCount}
+          onToggle={toggle}
+        />
+      )}
+    </div>
   )
 }

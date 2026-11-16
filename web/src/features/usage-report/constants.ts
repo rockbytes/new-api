@@ -8,6 +8,9 @@ export const USAGE_RANK_BY_LABEL_KEYS: Record<UsageRankBy, string> = {
 export const USAGE_PERSONAL_BILLING_KEY =
   'Personal billing (not in an organization)'
 
+// The Trend, Models, and Ranking lists each show this many rows before an expand toggle appears.
+export const USAGE_DEFAULT_VISIBLE_ROWS = 10
+
 export interface UsageExportOption {
   key: 'records' | 'summary' | 'workbook'
   labelKey: string
