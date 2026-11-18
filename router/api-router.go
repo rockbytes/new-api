@@ -430,7 +430,6 @@ func SetApiRouter(router *gin.Engine) {
 			organizationAdminRoute.POST("/:id/quota/grant", controller.RootGrantOrganizationQuota)
 			organizationAdminRoute.POST("/:id/quota/adjust", controller.RootAdjustOrganizationQuota)
 			organizationAdminRoute.PUT("/:id/members/:user_id/quota", controller.RootSetOrganizationMemberAllocation)
-			organizationAdminRoute.POST("/:id/requests/:request_id/refund", controller.RootRefundOrganizationRequest)
 		}
 
 		// Company-side routes resolve the organization from the caller's membership.

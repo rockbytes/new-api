@@ -103,7 +103,6 @@ const serverErrorMessageKeys = {
     "Allocation cannot exceed the organization's remaining quota.",
   ORGANIZATION_REFUND_EXCEEDED:
     'Refund exceeds the settled quota of the request.',
-  ORGANIZATION_REQUEST_NOT_FOUND: 'No quota was charged for this request.',
   ORGANIZATION_QUOTA_OVERFLOW: 'Quota total would overflow.',
   ORGANIZATION_ADMIN_NOT_ELIGIBLE:
     'This user cannot be the first organization admin.',

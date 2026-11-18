@@ -21,11 +21,6 @@ type organizationAllocationRequest struct {
 	Allocated int64 `json:"allocated"`
 }
 
-type organizationRefundRequest struct {
-	Amount    int64  `json:"amount"`
-	Reference string `json:"reference"`
-}
-
 // RootGetOrganizationQuota returns the quota totals and the reconciliation of an organization.
 func RootGetOrganizationQuota(c *gin.Context) {
 	id, ok := organizationIdParam(c)
@@ -79,26 +74,6 @@ func RootSetOrganizationMemberAllocation(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, nil)
-}
-
-// RootRefundOrganizationRequest is the manual refund of a settled request (D10). Root only.
-func RootRefundOrganizationRequest(c *gin.Context) {
-	id, ok := organizationIdParam(c)
-	if !ok {
-		return
-	}
-	requestId := c.Param("request_id")
-	var req organizationRefundRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		writeOrganizationError(c, http.StatusBadRequest, "ORGANIZATION_INVALID_REQUEST", "Invalid request")
-		return
-	}
-	applied, err := model.RefundOrganizationRequest(id, requestId, req.Amount, c.GetInt("id"), req.Reference, common.GetTimestamp())
-	if err != nil {
-		respondOrganizationError(c, err)
-		return
-	}
-	common.ApiSuccess(c, gin.H{"applied": applied})
 }
 
 // GetOwnOrganizationQuota returns the organization's quota totals to its members.

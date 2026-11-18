@@ -117,8 +117,6 @@ func respondOrganizationError(c *gin.Context, err error) {
 		writeOrganizationError(c, http.StatusForbidden, "ORGANIZATION_PERMISSION_DENIED", "You do not have permission to perform this action")
 	case errors.Is(err, model.ErrOrganizationRefundExceeded):
 		writeOrganizationError(c, http.StatusConflict, "ORGANIZATION_REFUND_EXCEEDED", "Refund exceeds the settled quota of the request")
-	case errors.Is(err, model.ErrOrganizationRequestUnknown):
-		writeOrganizationError(c, http.StatusNotFound, "ORGANIZATION_REQUEST_NOT_FOUND", "No quota was charged for this request")
 	case errors.Is(err, model.ErrOrganizationQuotaOverflow):
 		writeOrganizationError(c, http.StatusConflict, "ORGANIZATION_QUOTA_OVERFLOW", "Quota total would overflow")
 	default:

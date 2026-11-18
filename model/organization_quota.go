@@ -161,7 +161,7 @@ func GrantOrganizationQuota(organizationId int, amount int64, actorUserId int, r
 	}
 	applied := false
 	err = DB.Transaction(func(tx *gorm.DB) error {
-		if _, err := lockOrganization(tx, organizationId); err != nil {
+		if _, err := lockActiveOrganization(tx, organizationId); err != nil {
 			return err
 		}
 		account, err := lockOrganizationQuotaAccount(tx, organizationId, now)
@@ -208,7 +208,7 @@ func setOrganizationMemberAllocation(organizationId int, userId int, allocated i
 		return ErrOrganizationQuotaInvalidAmount
 	}
 	return DB.Transaction(func(tx *gorm.DB) error {
-		if _, err := lockOrganization(tx, organizationId); err != nil {
+		if _, err := lockActiveOrganization(tx, organizationId); err != nil {
 			return err
 		}
 		membership, err := getOrganizationMemberTx(tx, organizationId, userId)
@@ -315,7 +315,7 @@ func AdjustOrganizationUnallocatedQuota(organizationId int, mode string, amount 
 	}
 	var result OrganizationQuotaAdjustment
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		if _, err := lockOrganization(tx, organizationId); err != nil {
+		if _, err := lockActiveOrganization(tx, organizationId); err != nil {
 			return err
 		}
 		account, err := lockOrganizationQuotaAccount(tx, organizationId, now)

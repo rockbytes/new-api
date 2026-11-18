@@ -103,6 +103,29 @@ func lockOrganization(tx *gorm.DB, organizationId int) (*Organization, error) {
 	return &organization, nil
 }
 
+// lockActiveOrganization takes the organization lock for a change that a suspended
+// organization must not accept. Suspending freezes an organization: its members, their
+// allocations and its quota stay as they were until it is resumed. The check sits under the
+// lock rather than in the handler, so an organization cannot be suspended between the check
+// and the write.
+//
+// Three groups of writes deliberately keep plain lockOrganization instead:
+//   - resuming or deleting the organization itself, which only a suspended one allows;
+//   - settlement and refunds of requests that were already charged, because money a request
+//     holds must still be able to come back after the organization is suspended;
+//   - removing a member, because deletion requires a suspended organization with no ordinary
+//     members left, so winding one down has to stay possible.
+func lockActiveOrganization(tx *gorm.DB, organizationId int) (*Organization, error) {
+	organization, err := lockOrganization(tx, organizationId)
+	if err != nil {
+		return nil, err
+	}
+	if organization.Status != OrganizationStatusActive {
+		return nil, ErrOrganizationNotActive
+	}
+	return organization, nil
+}
+
 func countActiveOrganizationAdmins(tx *gorm.DB, organizationId int) (int64, error) {
 	var count int64
 	err := tx.Model(&OrganizationMembership{}).
@@ -480,12 +503,8 @@ func CreateOrganizationMemberAccount(organizationId int, username string, passwo
 		return ErrOrganizationInvalidRole
 	}
 	return DB.Transaction(func(tx *gorm.DB) error {
-		organization, err := lockOrganization(tx, organizationId)
-		if err != nil {
+		if _, err := lockActiveOrganization(tx, organizationId); err != nil {
 			return err
-		}
-		if organization.Status != OrganizationStatusActive {
-			return ErrOrganizationNotActive
 		}
 		member, err := createOrganizationAccountWithTx(tx, username, password, group)
 		if err != nil {
@@ -522,12 +541,8 @@ func UpdateOrganizationMember(organizationId int, userId int, role *string, stat
 	var update *userAuthUpdate
 	var disabledKeys []string
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		organization, err := lockOrganization(tx, organizationId)
-		if err != nil {
+		if _, err := lockActiveOrganization(tx, organizationId); err != nil {
 			return err
-		}
-		if organization.Status != OrganizationStatusActive {
-			return ErrOrganizationNotActive
 		}
 		membership, err := getOrganizationMemberTx(tx, organizationId, userId)
 		if err != nil {
@@ -602,7 +617,7 @@ func UpdateOrganizationMember(organizationId int, userId int, role *string, stat
 func ResetOrganizationMemberPassword(organizationId int, userId int, password string, now int64) error {
 	var update *userAuthUpdate
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		if _, err := lockOrganization(tx, organizationId); err != nil {
+		if _, err := lockActiveOrganization(tx, organizationId); err != nil {
 			return err
 		}
 		if _, err := getOrganizationMemberTx(tx, organizationId, userId); err != nil {
@@ -752,6 +767,10 @@ func SetUserOrganizationWithTx(tx *gorm.DB, userId int, organizationId int, role
 	if organization.Status == OrganizationStatusDeleted {
 		return nil, ErrOrganizationNotFound
 	}
+	// A suspended organization takes no new or changed memberships. The check sits below the
+	// membership lookup so that re-saving a user whose membership already matches stays a
+	// no-op, which is what the user editor sends when it leaves the organization untouched.
+	refuseChange := organization.Status != OrganizationStatusActive
 
 	var current []OrganizationMembership
 	if err := tx.Where("user_id = ?", userId).Find(&current).Error; err != nil {
@@ -767,6 +786,9 @@ func SetUserOrganizationWithTx(tx *gorm.DB, userId int, organizationId int, role
 		if membership.Role == role && membership.Status == OrganizationMembershipActive {
 			return nil, nil
 		}
+		if refuseChange {
+			return nil, ErrOrganizationNotActive
+		}
 		return nil, tx.Model(&OrganizationMembership{}).Where("id = ?", membership.Id).Updates(map[string]any{
 			"role":         role,
 			"status":       OrganizationMembershipActive,
@@ -774,6 +796,9 @@ func SetUserOrganizationWithTx(tx *gorm.DB, userId int, organizationId int, role
 		}).Error
 	}
 
+	if refuseChange {
+		return nil, ErrOrganizationNotActive
+	}
 	if role == "" {
 		role = OrganizationRoleMember
 	}

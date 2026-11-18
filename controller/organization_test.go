@@ -107,7 +107,6 @@ func organizationTestEngine(userId int, role int) *gin.Engine {
 	root.POST("/:id/quota/grant", RootGrantOrganizationQuota)
 	root.POST("/:id/quota/adjust", RootAdjustOrganizationQuota)
 	root.PUT("/:id/members/:user_id/quota", RootSetOrganizationMemberAllocation)
-	root.POST("/:id/requests/:request_id/refund", RootRefundOrganizationRequest)
 	root.GET("/:id/deletion-impact", GetOrganizationDeletionImpact)
 	root.DELETE("/:id", DeleteOrganization)
 
@@ -573,12 +572,20 @@ func TestOrganizationDeleteEndpointBlocksUntilClearedThenSoftDeletes(t *testing.
 	assert.Equal(t, http.StatusConflict, recorder.Code)
 	assert.Equal(t, "ORGANIZATION_DELETE_NOT_SUSPENDED", organizationErrorCode(t, recorder), "an active organization cannot be deleted")
 
+	// The grant happens while the organization is still active, because a suspended
+	// organization refuses quota changes. What this case protects is the leftover balance at
+	// deletion time, not the moment it was granted.
+	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodPost, path+"/quota/grant",
+		`{"amount":1000,"reason":"initial","reference":"grant-delete-blocked"}`)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+
 	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodPut, path+"/status", `{"status":"suspended"}`)
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 
 	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodPost, path+"/quota/grant",
-		`{"amount":1000,"reason":"initial","reference":"grant-delete-blocked"}`)
-	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+		`{"amount":500,"reason":"after suspension","reference":"grant-while-suspended"}`)
+	assert.Equal(t, http.StatusConflict, recorder.Code)
+	assert.Equal(t, "ORGANIZATION_NOT_ACTIVE", organizationErrorCode(t, recorder), "a suspended organization refuses quota changes")
 
 	recorder = doOrganizationRequest(t, organizationTestRootId, http.MethodGet, path+"/deletion-impact", "")
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())

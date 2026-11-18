@@ -8,7 +8,6 @@ import (
 )
 
 var (
-	ErrOrganizationRequestUnknown = errors.New("organization request has no pre-consumed quota")
 	ErrOrganizationRefundExceeded = errors.New("refund exceeds the settled quota of the request")
 )
 
@@ -44,12 +43,8 @@ func ConsumeOrganizationQuota(organizationId int, userId int, requestId string, 
 		return err
 	}
 	return DB.Transaction(func(tx *gorm.DB) error {
-		organization, err := lockOrganization(tx, organizationId)
-		if err != nil {
+		if _, err := lockActiveOrganization(tx, organizationId); err != nil {
 			return err
-		}
-		if organization.Status != OrganizationStatusActive {
-			return ErrOrganizationNotActive
 		}
 		membership, err := getOrganizationMemberTx(tx, organizationId, userId)
 		if err != nil {
@@ -256,53 +251,6 @@ func RefundOrganizationPreConsume(organizationId int, userId int, requestId stri
 		}
 		return refundOrganizationQuotaTx(tx, organizationId, userId, amount, key, requestId, 0, now)
 	})
-}
-
-// RefundOrganizationRequest is the manual refund of a settled request (D10). It is
-// limited to the quota the request still holds, returns to the member who consumed it,
-// and is idempotent for the reference. Callers must restrict it to Root.
-func RefundOrganizationRequest(organizationId int, requestId string, amount int64, actorUserId int, ref string, now int64) (bool, error) {
-	if amount <= 0 {
-		return false, ErrOrganizationQuotaInvalidAmount
-	}
-	if requestId == "" {
-		return false, ErrOrganizationLedgerRefInvalid
-	}
-	key, err := organizationLedgerKey(OrganizationLedgerRefund, organizationId, "manual:"+ref)
-	if err != nil {
-		return false, err
-	}
-	applied := false
-	err = DB.Transaction(func(tx *gorm.DB) error {
-		if _, err := lockOrganization(tx, organizationId); err != nil {
-			return err
-		}
-		var replayed int64
-		if err := tx.Model(&OrganizationQuotaLedgerEntry{}).Where("idempotency_key = ?", key).Count(&replayed).Error; err != nil {
-			return err
-		}
-		if replayed > 0 {
-			return nil
-		}
-		var preConsume OrganizationQuotaLedgerEntry
-		if err := tx.Where("organization_id = ? AND request_id = ? AND event_type = ?", organizationId, requestId, OrganizationLedgerPreConsume).
-			Order("id").First(&preConsume).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrOrganizationRequestUnknown
-			}
-			return err
-		}
-		net, err := organizationRequestNetCharged(tx, organizationId, requestId)
-		if err != nil {
-			return err
-		}
-		if amount > net {
-			return ErrOrganizationRefundExceeded
-		}
-		applied = true
-		return refundOrganizationQuotaTx(tx, organizationId, preConsume.TargetUserId, amount, key, requestId, actorUserId, now)
-	})
-	return applied, err
 }
 
 // organizationRequestNetCharged sums the quota charged to a request, minus the quota

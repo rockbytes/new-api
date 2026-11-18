@@ -257,33 +257,6 @@ func TestOrganizationQuotaAllocationCannotDropBelowUsage(t *testing.T) {
 	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 60, 5), "the allocation may equal the usage")
 }
 
-func TestOrganizationQuotaManualRefundIsCappedAndIdempotent(t *testing.T) {
-	orgId, memberId := setupOrganizationQuotaTestDB(t)
-	_, err := GrantOrganizationQuota(orgId, 1000, 1, "grant", "grant-1", 1)
-	require.NoError(t, err)
-	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 300, 2))
-	require.NoError(t, ConsumeOrganizationQuota(orgId, memberId, "req-3", 1, 100, 3))
-	_, _, err = SettleOrganizationQuota(orgId, memberId, "req-3", 2, -40, 4)
-	require.NoError(t, err)
-
-	// Net charged to the request is 60: 100 pre-consumed, 40 settled back.
-	applied, err := RefundOrganizationRequest(orgId, "req-3", 70, 1, "refund-over", 5)
-	assert.ErrorIs(t, err, ErrOrganizationRefundExceeded)
-	assert.False(t, applied)
-
-	applied, err = RefundOrganizationRequest(orgId, "req-3", 60, 1, "refund-1", 6)
-	require.NoError(t, err)
-	assert.True(t, applied)
-	applied, err = RefundOrganizationRequest(orgId, "req-3", 60, 1, "refund-1", 7)
-	require.NoError(t, err)
-	assert.False(t, applied, "replaying the same manual refund must not refund twice")
-
-	reconciliation := reconciliationOf(t, orgId)
-	assert.Equal(t, int64(0), reconciliation.ConsumedQuota)
-	assert.Equal(t, int64(0), reconciliation.MemberUsed)
-	assert.True(t, reconciliation.Balanced)
-}
-
 func TestOrganizationRequestSettlesToTargetThroughLedger(t *testing.T) {
 	orgId, memberId := setupOrganizationQuotaTestDB(t)
 	_, err := GrantOrganizationQuota(orgId, 1000, 1, "grant", "grant-task", 1)
@@ -374,7 +347,8 @@ func TestOrganizationQuotaLedgerMatchesSnapshotUnderMixedWorkload(t *testing.T) 
 	wg.Wait()
 	require.NotEmpty(t, succeeded)
 
-	// Settle every other request up or down, then refund part of a few requests manually.
+	// Settle every other request up or down, then settle a few of them all the way back, so the
+	// run still exercises refunds alongside charges.
 	for index, requestId := range succeeded {
 		member := members[index%len(members)]
 		delta := int64(50)
@@ -384,10 +358,10 @@ func TestOrganizationQuotaLedgerMatchesSnapshotUnderMixedWorkload(t *testing.T) 
 		_, _, err := SettleOrganizationQuota(orgId, member, requestId, 2, delta, 4)
 		require.NoError(t, err)
 	}
-	for _, requestId := range succeeded[:3] {
-		applied, err := RefundOrganizationRequest(orgId, requestId, 10, 1, "refund-"+requestId, 5)
+	for index, requestId := range succeeded[:3] {
+		member := members[index%len(members)]
+		_, _, err := SettleOrganizationRequestTo(orgId, member, requestId, 0, 5)
 		require.NoError(t, err)
-		assert.True(t, applied)
 	}
 	disabled := OrganizationMembershipDisabled
 	require.NoError(t, UpdateOrganizationMember(orgId, members[1], nil, &disabled, 6))
@@ -441,6 +415,68 @@ func TestOrganizationQuotaConcurrentConsumeNeverOverdrawsOrganization(t *testing
 	reconciliation := reconciliationOf(t, orgId)
 	assert.Equal(t, int64(0), reconciliation.RemainingQuota)
 	assert.True(t, reconciliation.Balanced)
+}
+
+// Suspending an organization freezes it: its members, their allocations and its quota stay as
+// they were until it is resumed. Two groups of writes deliberately survive the freeze, and
+// both are load-bearing: a request that already holds quota must still be able to settle and
+// give it back, and a member must still be removable, because deleting an organization
+// requires a suspended one with no ordinary members left.
+func TestSuspendedOrganizationRefusesChangesButStillSettlesAndWindsDown(t *testing.T) {
+	orgId, memberId := setupOrganizationQuotaTestDB(t)
+	useLogDatabaseForDeletion(t)
+
+	adminId := 30
+	require.NoError(t, DB.Create(&User{Id: adminId, Username: "quota-admin", Password: "not-a-real-password",
+		Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AffCode: "aff-quota-admin"}).Error)
+	require.NoError(t, DB.Create(&OrganizationMembership{OrganizationId: orgId, UserId: adminId,
+		Role: OrganizationRoleAdmin, Status: OrganizationMembershipActive, CreatedTime: 1, UpdatedTime: 1}).Error)
+
+	_, err := GrantOrganizationQuota(orgId, 1000, 1, "grant", "grant-suspend", 1)
+	require.NoError(t, err)
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 500, 2))
+	require.NoError(t, ConsumeOrganizationQuota(orgId, memberId, "req-1", 1, 200, 3))
+
+	require.NoError(t, ChangeOrganizationStatus(orgId, OrganizationStatusSuspended, 4))
+
+	_, err = GrantOrganizationQuota(orgId, 100, 1, "top up", "grant-while-suspended", 5)
+	assert.ErrorIs(t, err, ErrOrganizationNotActive)
+	_, err = AdjustOrganizationUnallocatedQuota(orgId, OrganizationAdjustAdd, 100, 1, "top up", "adjust-while-suspended", 5)
+	assert.ErrorIs(t, err, ErrOrganizationNotActive)
+	assert.ErrorIs(t, SetOrganizationMemberAllocation(orgId, memberId, 600, 5), ErrOrganizationNotActive)
+	assert.ErrorIs(t, CreateOrganizationMemberAccount(orgId, "suspended-hire", "not-a-real-password", "", OrganizationRoleMember, 1, 5),
+		ErrOrganizationNotActive)
+	disabled := OrganizationMembershipDisabled
+	assert.ErrorIs(t, UpdateOrganizationMember(orgId, memberId, nil, &disabled, 5), ErrOrganizationNotActive)
+	assert.ErrorIs(t, ResetOrganizationMemberPassword(orgId, memberId, "another-not-real-password", 5), ErrOrganizationNotActive)
+	assert.ErrorIs(t, ConsumeOrganizationQuota(orgId, memberId, "req-2", 1, 10, 5), ErrOrganizationNotActive)
+
+	// None of the refused calls moved a number.
+	reconciliation := reconciliationOf(t, orgId)
+	assert.Equal(t, int64(1000), reconciliation.GrantedQuota)
+	assert.Equal(t, int64(500), reconciliation.Allocated)
+	assert.Equal(t, int64(200), reconciliation.ConsumedQuota)
+
+	// Quota the request already holds still settles and still comes back.
+	charged, shortfall, err := SettleOrganizationQuota(orgId, memberId, "req-1", 2, 50, 6)
+	require.NoError(t, err)
+	assert.Equal(t, int64(50), charged)
+	assert.Equal(t, int64(0), shortfall)
+	require.NoError(t, RefundOrganizationPreConsume(orgId, memberId, "req-1", 250, 7))
+	assert.Equal(t, int64(0), reconciliationOf(t, orgId).ConsumedQuota)
+
+	// Resuming lifts the freeze in one step, without touching any member row.
+	require.NoError(t, ChangeOrganizationStatus(orgId, OrganizationStatusActive, 8))
+	require.NoError(t, SetOrganizationMemberAllocation(orgId, memberId, 600, 9))
+	assert.Equal(t, int64(600), reconciliationOf(t, orgId).Allocated)
+
+	// Winding the organization down stays possible while it is suspended.
+	require.NoError(t, ChangeOrganizationStatus(orgId, OrganizationStatusSuspended, 10))
+	require.NoError(t, DeleteOrganizationMember(orgId, memberId))
+	impact, err := GetOrganizationDeletionImpact(orgId)
+	require.NoError(t, err)
+	assert.Empty(t, impact.Blockers, "an admin may stay behind, so only ordinary members block deletion")
+	require.NoError(t, DeleteOrganization(orgId, 11))
 }
 
 func TestOrganizationDeletionReportsBlockersUntilDependenciesAreCleared(t *testing.T) {
