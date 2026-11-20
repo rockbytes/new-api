@@ -314,8 +314,33 @@ Phase 0 已完成。Phase 1 的实施尚未开始。
 
 - 请求校验失败（`GetAndValidateRequest` 之后的 400）仍会占用渠道预算与用户准入。它不属于额度预扣范围，需单独处理。
 
-## 验收条件
+## Phase 6 实施状态（2026-11-20）
 
+实施分支：`feature/rate-limit-scope-attribution`，提交 `02747a77c`，尚未合并。
+
+**已完成：**
+
+- 限速归因（D4）：
+  - 429 的错误体带 `rate_limited_scope`：用户层为 `user`，组织层为 `org`，渠道层为 `channel`。原有的 `code` 字段保持不变。
+  - 每次拒绝写入 policy event（`rate_limited_scope`、`error_code`、`decision.reason = rate_limited`）。
+  - 用户层与组织层的拒绝现在也写入网关错误日志，与渠道层一致。
+- 验证：
+  - 单元测试 `TestModelRateLimitRefusalNamesItsLayer` 覆盖用户与组织两种作用域，同时检查错误体和 policy event。
+  - 本地后端（重新构建，`ERROR_LOG_ENABLED=true`）上，渠道预算拒绝的错误体为 `rate_limited_scope: channel`，日志接口读回的事件包含相同的作用域。
+
+**未完成：**
+
+- `x-ratelimit-*` 响应头：依赖待核实事项 8（Lua 返回剩余量），尚未决定实现方式。
+- 限速总览页（只读）：尚未开始。
+- 渠道重试路径的作用域：`controller/relay.go` 的 `getChannel` 在重试时产生的渠道拒绝，错误体还没有 `rate_limited_scope`。
+- 任务插件路由：`abortWithRateLimitedScope` 在任务插件路由上退回原有格式，因此不带作用域字段。
+
+**需要注意：**
+
+- 错误日志默认关闭（`ERROR_LOG_ENABLED=false`）。关闭时，限速拒绝的 policy event 不会被持久化。生产是否开启，需要单独确认。
+- 用户层与组织层的拒绝现在会写入错误日志，日志量与被拒请求数相同。
+
+## 验收条件
 1. 任一层拒绝时，其他层的计数全部保持不变（通过测试断言）。
 2. 渠道层拒绝时，组织、用户的预占全部释放。
 3. 在到达上游之前被拒绝的请求不计数；到达上游后失败的请求计数保留。

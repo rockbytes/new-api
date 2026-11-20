@@ -167,10 +167,10 @@ completed:
   - 1、2、3、4、9：已有单元测试覆盖（未配置或禁用时不限流、突发即时放行、同档换渠道、不消耗重试索引、pin 不换渠道）。
   - 6：只覆盖"释放预算"路径；不写亲和缓存、不触发自动禁用未单独验证。
   - 10：已验证（本次）。
-  - 5：未实现。`x-ratelimit-*` 响应头依赖待核实事项 8，属于 Phase 6。
-  - 7：未实现。限流拒绝只写入错误码与网关错误日志，没有写入 policy event 的决策与作用域名，属于 Phase 6。
+  - 7：已实现（Phase 6，分支 `feature/rate-limit-scope-attribution`）。拒绝写入 policy event，带 `rate_limited_scope: channel`、错误码 `channel_rate_limited` 与 `decision.reason: rate_limited`；在开启错误日志的本地后端上，从日志接口读回事件验证。
+  - 5：未实现。`x-ratelimit-*` 响应头依赖待核实事项 8，属于 Phase 6 的剩余部分。
   - 8：未验证。auto 分组下因限流换渠道后的跨档索引没有测试。
-  - 因 5、7、8 未完成，本文档保持 `in-progress`。
+  - 因 5、8 未完成，本文档保持 `in-progress`。
 
 ## 阻塞原因
 

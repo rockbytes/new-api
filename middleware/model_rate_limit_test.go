@@ -270,9 +270,10 @@ func TestModelMemoryRateLimitRejectionsReturnOpenAIError(t *testing.T) {
 			assert.Equal(t, http.StatusTooManyRequests, resp.Code)
 			message := i18n.Translate("", tc.messageKey, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": 1})
 			want, err := common.Marshal(gin.H{"error": gin.H{
-				"message": common.MessageWithRequestId(message, "req-limited"),
-				"type":    "rate_limit_error",
-				"code":    "",
+				"message":            common.MessageWithRequestId(message, "req-limited"),
+				"type":               "rate_limit_error",
+				"rate_limited_scope": "user",
+				"code":               "",
 			}})
 			require.NoError(t, err)
 			assert.JSONEq(t, string(want), resp.Body.String())
@@ -412,6 +413,69 @@ func TestTokenModelRefusalTakesNoAdmission(t *testing.T) {
 	assert.Equal(t, http.StatusOK, postModel("allowed-model"), "the first request takes the only admission")
 	assert.Equal(t, http.StatusForbidden, postModel("other-model"), "a model outside the token limit is refused as a model")
 	assert.Equal(t, http.StatusTooManyRequests, postModel("allowed-model"), "the refusal left the user's limit as it was")
+}
+
+// A refusal by the user or organization limit names that layer in the error body and
+// in the request's policy events, so administrators can see which limit refused it.
+func TestModelRateLimitRefusalNamesItsLayer(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	previousEnabled, previousMinutes := setting.ModelRequestRateLimitEnabled, setting.ModelRequestRateLimitDurationMinutes
+	previousTotal, previousRedisEnabled := setting.ModelRequestRateLimitCount, common.RedisEnabled
+	t.Cleanup(func() {
+		setting.ModelRequestRateLimitEnabled, setting.ModelRequestRateLimitDurationMinutes = previousEnabled, previousMinutes
+		setting.ModelRequestRateLimitCount, common.RedisEnabled = previousTotal, previousRedisEnabled
+		service.ReplaceOrganizationTotalRateLimits(nil)
+	})
+	setting.ModelRequestRateLimitDurationMinutes = 1
+	common.RedisEnabled = false
+
+	for _, tc := range []struct {
+		name      string
+		userLimit bool
+		orgLimit  int
+		wantScope string
+	}{
+		{name: "user", userLimit: true, wantScope: service.RateLimitScopeUser},
+		{name: "organization", orgLimit: 1, wantScope: service.RateLimitScopeOrganization},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setting.ModelRequestRateLimitEnabled = tc.userLimit
+			setting.ModelRequestRateLimitCount = 1
+			userID := 7600000 + int(modelRateLimitTestUsers.Add(1))
+			organizationID := 7700000 + int(modelRateLimitTestUsers.Add(1))
+			if tc.orgLimit > 0 {
+				service.ReplaceOrganizationTotalRateLimits(map[int]int{organizationID: tc.orgLimit})
+			}
+			var events []service.PolicyEvent
+			router := gin.New()
+			router.GET("/", func(c *gin.Context) {
+				c.Set("id", userID)
+				if tc.orgLimit > 0 {
+					common.SetContextKey(c, constant.ContextKeyTokenBillingOrganizationId, organizationID)
+				}
+			}, func(c *gin.Context) {
+				c.Next()
+				events = service.RequestPolicy(c).Events()
+			}, ModelRequestRateLimit(), func(c *gin.Context) {
+				c.Status(http.StatusOK)
+			})
+
+			require.Equal(t, http.StatusOK, performRateLimitRequest(router, "/", "127.0.0.1:1000").Code)
+			resp := performRateLimitRequest(router, "/", "127.0.0.1:1000")
+			require.Equal(t, http.StatusTooManyRequests, resp.Code)
+			var body struct {
+				Error struct {
+					RateLimitedScope string `json:"rate_limited_scope"`
+				} `json:"error"`
+			}
+			require.NoError(t, common.Unmarshal(resp.Body.Bytes(), &body))
+			assert.Equal(t, tc.wantScope, body.Error.RateLimitedScope)
+			require.NotEmpty(t, events)
+			last := events[len(events)-1]
+			assert.Equal(t, tc.wantScope, last.RateLimitedScope)
+			assert.Equal(t, "rate_limited", last.Decision.Reason)
+		})
+	}
 }
 
 // A request refused before its upstream, such as by quota pre-consume, gives its

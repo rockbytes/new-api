@@ -353,14 +353,19 @@ func reserveMemoryModelRequestWithOrganization(subject string, duration int64, t
 // it is an upper bound on the wait, because the counters do not report the time left.
 func abortModelRateLimited(c *gin.Context, scope modelRateLimitScope, duration int64, totalMaxCount, successMaxCount, organizationMax int) {
 	c.Header("Retry-After", strconv.FormatInt(duration, 10))
+	layer := service.RateLimitScopeUser
+	var message string
 	switch scope {
 	case modelRateLimitTotalDenied:
-		abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRateLimitTotalReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": totalMaxCount}))
+		message = i18n.T(c, i18n.MsgRateLimitTotalReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": totalMaxCount})
 	case modelRateLimitOrganizationDenied:
-		abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRateLimitOrganizationReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": organizationMax}))
+		layer = service.RateLimitScopeOrganization
+		message = i18n.T(c, i18n.MsgRateLimitOrganizationReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": organizationMax})
 	default:
-		abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRateLimitReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": successMaxCount}))
+		message = i18n.T(c, i18n.MsgRateLimitReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": successMaxCount})
 	}
+	service.RecordRateLimitRefusal(c, layer, "rate_limited", message)
+	abortWithRateLimitedScope(c, http.StatusTooManyRequests, message, "", layer)
 }
 
 // Redis限流处理器

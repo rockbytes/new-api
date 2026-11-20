@@ -111,9 +111,16 @@ func Distribute() func(c *gin.Context) {
 				} else if selectErr.MessageID != "" {
 					message = i18n.T(c, selectErr.MessageID, selectErr.Params)
 				}
+				if selectErr.FilterKind == taskdto.FilterChannelRateLimited {
+					service.RecordRateLimitRefusalEvent(c, service.RateLimitScopeChannel, selectErr.Code)
+				}
 				service.RecordGatewayErrorLog(c, types.NewErrorWithStatusCode(errors.New(message), selectErr.Code, selectErr.StatusCode))
 				if selectErr.RetryAfterSeconds > 0 {
 					c.Header("Retry-After", strconv.FormatInt(selectErr.RetryAfterSeconds, 10))
+				}
+				if selectErr.FilterKind == taskdto.FilterChannelRateLimited {
+					abortWithRateLimitedScope(c, selectErr.StatusCode, message, selectErr.Code, service.RateLimitScopeChannel)
+					return
 				}
 				abortWithOpenAiMessage(c, selectErr.StatusCode, message, selectErr.Code)
 				return

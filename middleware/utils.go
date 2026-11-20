@@ -35,6 +35,26 @@ func abortWithOpenAiMessage(c *gin.Context, statusCode int, message string, code
 	logger.LogError(c.Request.Context(), common.LogText("user %d | %s", userId, message))
 }
 
+// abortWithRateLimitedScope refuses a request with the OpenAI error body and also
+// names the rate limit layer that refused it in rate_limited_scope (design D4).
+func abortWithRateLimitedScope(c *gin.Context, statusCode int, message string, code types.ErrorCode, scope string) {
+	_, preparedPluginRoute := c.Get(pluginruntime.ContextKeyRouteRequest)
+	if preparedPluginRoute {
+		abortWithOpenAiMessage(c, statusCode, message, code)
+		return
+	}
+	c.JSON(statusCode, gin.H{
+		"error": gin.H{
+			"message":            common.MessageWithRequestId(message, c.GetString(common.RequestIdKey)),
+			"type":               types.OpenAIErrorTypeForStatus(statusCode),
+			"code":               string(code),
+			"rate_limited_scope": scope,
+		},
+	})
+	c.Abort()
+	logger.LogError(c.Request.Context(), common.LogText("user %d | %s", c.GetInt("id"), message))
+}
+
 // invalidRequestStatus is the status of a request whose body could not be
 // read or parsed: 413 when the body exceeds MAX_REQUEST_BODY_MB, else 400.
 func invalidRequestStatus(err error) int {
