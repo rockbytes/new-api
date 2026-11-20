@@ -89,3 +89,15 @@ export interface OrganizationDeletionImpact {
   tasks: number
   blockers: string[]
 }
+
+// A request-limit override set by root. total_count is the number of requests
+// the subject may make in one rate-limit window.
+export interface RateLimitOverride {
+  id: number
+  subject_type: string
+  subject_id: number
+  group_name: string
+  total_count: number
+  updated_by: number
+  updated_time: number
+}

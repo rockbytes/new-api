@@ -16,13 +16,16 @@ import type { OrganizationMember, OrganizationSummary } from '../types'
 
 vi.mock('../api', () => ({
   adjustOrganizationQuota: vi.fn(),
+  clearOrganizationRequestLimit: vi.fn(),
   createOrganizationMemberForAdmin: vi.fn(),
   createOrganization: vi.fn(),
   deleteOrganization: vi.fn(),
   getOrganizationDeletionImpact: vi.fn(),
   getOrganizationDetail: vi.fn(),
+  getOrganizationRequestLimits: vi.fn().mockResolvedValue([]),
   getOrganizations: vi.fn(),
   setOrganizationMemberAllocation: vi.fn(),
+  setOrganizationRequestLimit: vi.fn(),
   updateOrganizationName: vi.fn(),
   updateOrganizationStatus: vi.fn(),
 }))
