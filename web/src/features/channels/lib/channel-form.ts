@@ -10,6 +10,8 @@ import {
   CHANNEL_STATUS,
   ERROR_MESSAGES,
   FIELD_PASSTHROUGH_TYPES,
+  MAX_CHANNEL_RATE_LIMIT_REQUESTS,
+  MAX_CHANNEL_RATE_LIMIT_WINDOW_SECONDS,
   MODEL_FETCHABLE_TYPES,
   OPENAI_FIELD_PASSTHROUGH_TYPES,
 } from '../constants'
@@ -252,8 +254,8 @@ export const channelFormSchema = z
     http_protocol: z.enum(['auto', 'http1']).optional(),
     http2_connection_shards: z.number().int().optional(),
     tls_insecure_skip_verify: z.boolean().optional(),
-    // Request budget (stored in setting JSON). Round-tripped so saving a channel
-    // from the form does not drop a budget configured elsewhere.
+    // Request budget (stored in setting JSON). Edited by ChannelRateLimitSetting;
+    // checked in superRefine only while enabled, so a disabled budget keeps its values.
     rate_limit: z
       .object({
         enabled: z.boolean().optional(),
@@ -312,6 +314,36 @@ export const channelFormSchema = z
       !data.task_plugin_key?.trim()
     ) {
       addRequiredIssue(ctx, 'task_plugin_key', 'Task plugin is required')
+    }
+
+    const budget = data.rate_limit
+    if (budget?.enabled) {
+      const requests = budget.requests
+      if (
+        requests === undefined ||
+        !Number.isInteger(requests) ||
+        requests < 1 ||
+        requests > MAX_CHANNEL_RATE_LIMIT_REQUESTS
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['rate_limit', 'requests'],
+          message: ERROR_MESSAGES.INVALID_RATE_LIMIT_REQUESTS,
+        })
+      }
+      const windowSeconds = budget.duration_seconds
+      if (
+        windowSeconds === undefined ||
+        !Number.isInteger(windowSeconds) ||
+        windowSeconds < 1 ||
+        windowSeconds > MAX_CHANNEL_RATE_LIMIT_WINDOW_SECONDS
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['rate_limit', 'duration_seconds'],
+          message: ERROR_MESSAGES.INVALID_RATE_LIMIT_WINDOW,
+        })
+      }
     }
 
     if (data.type === CHANNEL_TYPE_ADVANCED_CUSTOM) {

@@ -158,6 +158,10 @@ completed:
 - 已修复：缓存端点预选（`PrepareTaskPluginEndpoint`）现在也经过预算闸门（提交 `05fa8c3bf`）。该修复只有代码阅读和现有 middleware/service 测试覆盖，端到端测试没有走任务插件端点。
 - Responses WebSocket：通过阅读代码确认它与 HTTP 共用 `service.SelectChannelForRequest`，并已接入 `SelectChannelWithBudget`，但没有专门的测试。
 - 已修复：任务插件端点的缓存渠道分支（`PrepareTaskPluginEndpoint`）现在也经过预算闸门。
+- 前端预算输入（2026-11-20，分支 `feature/channel-budget-ui`）：渠道编辑抽屉的「请求处理」区新增「请求预算」开关，开启后显示「每个窗口的请求数」和「窗口（秒）」。校验与后端一致：启用时要求请求数为 1 到 106751991167300 之间的整数，窗口为 1 到 86400 秒之间的整数；禁用时不校验。输入框不使用原生 `min`/`max`，避免浏览器在提交前拦截、绕过翻译后的错误文案。
+  - `bun run typecheck` 通过；改动文件 oxlint 无错误；`vitest run src/features/channels` 为 31 个文件、372 个用例，全部通过。
+  - 新增的 6 个文案键已写入七个 locale，`i18n:sync` 报告中缺失与多余键均为 0。
+  - 未做浏览器内的视觉核对。
 
 ## 阻塞原因
 
