@@ -51,10 +51,6 @@ func setupResponsesWSRequestTest(t *testing.T) (*model.User, *model.Token) {
 	previousDuration := setting.ModelRequestRateLimitDurationMinutes
 	previousTotal := setting.ModelRequestRateLimitCount
 	previousSuccess := setting.ModelRequestRateLimitSuccessCount
-	setting.ModelRequestRateLimitMutex.Lock()
-	previousGroups := setting.ModelRequestRateLimitGroup
-	setting.ModelRequestRateLimitGroup = nil
-	setting.ModelRequestRateLimitMutex.Unlock()
 	t.Setenv("SQL_DSN", os.Getenv("TEST_RESPONSES_SQL_DSN"))
 	t.Setenv("LOG_SQL_DSN", os.Getenv("TEST_RESPONSES_LOG_SQL_DSN"))
 	common.IsMasterNode, common.MemoryCacheEnabled, common.RedisEnabled = false, false, false
@@ -83,9 +79,6 @@ func setupResponsesWSRequestTest(t *testing.T) (*model.User, *model.Token) {
 		setting.ModelRequestRateLimitDurationMinutes = previousDuration
 		setting.ModelRequestRateLimitCount = previousTotal
 		setting.ModelRequestRateLimitSuccessCount = previousSuccess
-		setting.ModelRequestRateLimitMutex.Lock()
-		setting.ModelRequestRateLimitGroup = previousGroups
-		setting.ModelRequestRateLimitMutex.Unlock()
 		require.NoError(t, sqlDB.Close())
 	})
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}))

@@ -411,7 +411,7 @@ func modelRequestSucceeded(c *gin.Context) bool {
 
 // ModelRequestRateLimit 模型请求限流中间件
 //
-// It applies the user and group limits when they are enabled, and the total
+// It applies the user limits when they are enabled, and the total
 // limit of the organization that pays for the token when that organization has
 // one. The organization limit applies even when the user limits are off.
 func ModelRequestRateLimit() func(c *gin.Context) {
@@ -432,22 +432,7 @@ func ModelRequestRateLimit() func(c *gin.Context) {
 		if userLimitEnabled {
 			totalMaxCount = setting.ModelRequestRateLimitCount
 			successMaxCount = setting.ModelRequestRateLimitSuccessCount
-
-			// 获取分组
-			group := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
-			if group == "" {
-				group = common.GetContextKeyString(c, constant.ContextKeyUserGroup)
-			}
-
-			// 获取分组的限流配置。配置了独立限流的分组按用户和分组单独计数，
-			// 其余分组共用该用户的全局计数
 			subject = strconv.Itoa(c.GetInt("id"))
-			groupTotalCount, groupSuccessCount, found := setting.GetGroupRateLimit(group)
-			if found {
-				totalMaxCount = groupTotalCount
-				successMaxCount = groupSuccessCount
-				subject += ":" + group
-			}
 		}
 
 		// 根据存储类型选择并执行限流处理器

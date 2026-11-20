@@ -1,10 +1,10 @@
 ---
 title: 删除分组限速代码
-status: planned
+status: done
 created: 2026-11-20
 updated: 2026-11-20
 owner:
-completed:
+completed: 2026-11-20
 ---
 
 ## 目标
@@ -57,7 +57,22 @@ completed:
 
 ## 验证结果
 
-（尚未开始实施。）
+（2026-11-20）
+
+- 代码检索：`ModelRequestRateLimitGroup`、`GetGroupRateLimit`、`CheckModelRequestRateLimitGroup`、`UpdateModelRequestRateLimitGroupByJSONString`、`ModelRequestRateLimitMutex`、`RateLimitVisualEditor`、`rate-limit-dialog` 在代码与文档中无残留引用（已排除计划与历史文档）。
+- 后端：`go build ./...` 通过；`gofmt` 对修改文件无输出；`go vet` 对 `setting`、`model`、`controller`、`middleware` 通过。
+- 后端测试：
+  - `go test ./middleware -run 'ModelRedis|ModelMemory|ModelRate|ModelRequest|OrganizationTotal|OrganizationRefusal|TokenModel|RequestRefused|Distribute'` 通过，全局用户限额与组织总量的用例保留并通过。
+  - `go test ./setting/...` 通过。
+  - `go test ./model -run 'Option|RateLimit|Retired|Frontend'` 通过，包括新增的 `TestRetiredModelRequestRateLimitGroupOptionIsNotLoaded`（退役键加载时不进入内存选项）。
+  - `go test ./controller -run 'Option|ResponsesWebSocket|RateLimit'` 通过。
+- 前端：`bun run typecheck` 通过；`system-settings` 目录 oxlint 无 error（剩余为原有警告，不在改动文件中）；`vitest run` 覆盖 `system-settings` 与 `organizations` 共 26 个文件、238 个用例，全部通过。
+- 限速键：用户层的计数 key 不再拼接分组，`用户ID` 即为唯一主体。生产没有分组覆盖配置，计数行为与现状一致，历史计数无需迁移。
+- 数据库：不改表结构，不需要三库矩阵验证；选项加载为内存逻辑，由单元测试覆盖。
+- 未验证：
+  - 本地 E2E 与生产旧库启动演练未执行，旧库残留键的加载路径仅由单元测试覆盖。
+  - 系统设置页面不再显示分组入口，没有断言"不存在"的界面测试。
+  - locale 文件中仍保留只属于分组限额的文案键（如 `Group-based rate limits`）。i18n 规则禁止手改 locale，而 `i18n:sync` 按 `en.json` 而不是代码引用清理键，需要单独处理。
 
 ## 阻塞原因
 

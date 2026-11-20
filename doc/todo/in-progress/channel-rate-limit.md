@@ -65,7 +65,7 @@ completed:
 | 组织 | 商业合同额度 | root | 暂不做 |
 | Key | 凭据隔离 | 用户自己 | 暂不做 |
 
-- **用户层不新增**：`ModelRequestRateLimit`（`setting/rate_limit.go`、`middleware/model-rate-limit.go`）已按 `用户ID[:分组]` 计数，并支持 `ModelRequestRateLimitGroup` 分组覆盖（形如 `{"vip": [1000, 800]}`）。默认关闭（`Enabled = false`），机制完整。再新增一套会导致运维无法判断是哪一层在拦。
+- **用户层不新增**：`ModelRequestRateLimit`（`setting/rate_limit.go`、`middleware/model-rate-limit.go`）已按用户 ID 计数。分组覆盖（原 `ModelRequestRateLimitGroup`）已于 2026-11-20 取消，见 [分层限速设计 D5](rate-limit-layered-design.md)。默认关闭（`Enabled = false`），机制完整。再新增一套会导致运维无法判断是哪一层在拦。
 - **组织层暂不做**：`Organization` 结构体无 `Setting` JSON 字段，新增需加列并走三库迁移验证；且组织在本系统中是**计费主体**（`OrganizationQuotaAccount` / `OrganizationMemberQuota` 为资金账本），限额属于合同层，应等组织成为对外售卖单位时再评估。将来实现时，计数必须按实际付费方 `Token.BillingOrganizationId` 归属，而非按成员所属组织。
 - **Key 层暂不做**：`Token` 全为显式列，同样需迁移；其保护的是自助场景，优先级最低，用户建两个 token 即可低成本隔离流量。
 - **统一抽象预留**：闸门接受 `[]ScopeLimit{Scope, RateLimitSpec}`，按作用域顺序检查，任一超限即拒。`RateLimitSpec` 定义在 `service/` 内（不单独建包），待组织层落地后再考虑上移到 `pkg/`。
