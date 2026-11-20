@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -110,12 +111,14 @@ func Distribute() func(c *gin.Context) {
 				}
 			}
 			if channel == nil {
-				channel, _, selectErr = service.SelectChannelForRequest(c, modelRequest.Model, &service.RetryParam{
+				channel, _, selectErr = service.SelectChannelWithBudget(c, &service.RetryParam{
 					Ctx:         c,
 					ModelName:   modelRequest.Model,
 					TokenGroup:  usingGroup,
 					RequestPath: c.Request.URL.Path,
 					Retry:       common.GetPointer(0),
+				}, func(retry *service.RetryParam) (*model.Channel, string, *service.ChannelSelectError) {
+					return service.SelectChannelForRequest(c, modelRequest.Model, retry)
 				})
 			}
 			if selectErr != nil {
@@ -129,12 +132,17 @@ func Distribute() func(c *gin.Context) {
 					message = i18n.T(c, selectErr.MessageID, selectErr.Params)
 				}
 				service.RecordGatewayErrorLog(c, types.NewErrorWithStatusCode(errors.New(message), selectErr.Code, selectErr.StatusCode))
+				if selectErr.RetryAfterSeconds > 0 {
+					c.Header("Retry-After", strconv.FormatInt(selectErr.RetryAfterSeconds, 10))
+				}
 				abortWithOpenAiMessage(c, selectErr.StatusCode, message, selectErr.Code)
 				return
 			}
 		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
-		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
+		if setupErr := SetupContextForSelectedChannel(c, channel, modelRequest.Model); setupErr == nil {
+			MarkModelRateLimitUpstreamReached(c)
+		}
 		c.Next()
 		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest {
 			service.RecordChannelAffinity(c, channel.Id)

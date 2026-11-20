@@ -937,7 +937,9 @@ func selectResponsesWSChannel(c *gin.Context, modelName string, retryParam *serv
 	}) {
 		constraints.AddFilter(appdto.ChannelFilter{Kind: appdto.FilterResponsesWebSocket})
 	}
-	channel, _, selectErr := service.SelectChannelForRequest(c, modelName, retryParam)
+	channel, _, selectErr := service.SelectChannelWithBudget(c, retryParam, func(retry *service.RetryParam) (*appmodel.Channel, string, *service.ChannelSelectError) {
+		return service.SelectChannelForRequest(c, modelName, retry)
+	})
 	if selectErr != nil {
 		message := selectErr.Message
 		if selectErr.MessageID != "" {
@@ -952,5 +954,6 @@ func selectResponsesWSChannel(c *gin.Context, modelName string, retryParam *serv
 	if err := middleware.SetupContextForSelectedChannel(c, channel, modelName); err != nil {
 		return nil, err
 	}
+	middleware.MarkModelRateLimitUpstreamReached(c)
 	return channel, nil
 }

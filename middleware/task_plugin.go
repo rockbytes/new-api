@@ -367,9 +367,11 @@ func RouteTaskPluginEndpoint() gin.HandlerFunc {
 		constraints.AddFilter(filter)
 		constraints.AddFilter(dto.ChannelFilter{Kind: dto.FilterRequestPath, RequestPath: c.Request.URL.Path})
 		group := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
-		channel, _, selectErr := service.SelectChannelForRequest(c, request.Model, &service.RetryParam{
+		channel, _, selectErr := service.SelectChannelWithBudget(c, &service.RetryParam{
 			Ctx: c, ModelName: request.Model, TokenGroup: group,
 			RequestPath: c.Request.URL.Path, Retry: common.GetPointer(0),
+		}, func(retry *service.RetryParam) (*model.Channel, string, *service.ChannelSelectError) {
+			return service.SelectChannelForRequest(c, request.Model, retry)
 		})
 		c.Set(contextKeyTaskPluginEndpointSelection, taskPluginEndpointSelection{
 			Generation: generation, Channel: channel, Model: request.Model,

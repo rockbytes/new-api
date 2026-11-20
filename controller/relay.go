@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -316,12 +317,25 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		service.RequestPolicy(c).BeginAttempt(channel, info.UsingGroup)
 		return channel, nil
 	}
-	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
-	if err != nil {
-		return nil, types.NewError(errors.New(i18n.T(c, i18n.MsgRelayRetryGetChannelFailed, map[string]any{"Group": selectGroup, "Model": info.OriginModelName, "Error": err.Error()})), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
-	}
-	if channel == nil {
-		return nil, types.NewError(errors.New(i18n.T(c, i18n.MsgRelayRetryNoAvailableChannel, map[string]any{"Group": selectGroup, "Model": info.OriginModelName})), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+	channel, selectGroup, selectErr := service.SelectChannelWithBudget(c, retryParam, func(retry *service.RetryParam) (*model.Channel, string, *service.ChannelSelectError) {
+		channel, group, err := service.CacheGetRandomSatisfiedChannel(retry)
+		if err != nil {
+			return nil, group, &service.ChannelSelectError{Message: err.Error()}
+		}
+		if channel == nil {
+			return nil, group, &service.ChannelSelectError{NoAvailableChannel: true}
+		}
+		return channel, group, nil
+	})
+	if selectErr != nil {
+		if selectErr.RetryAfterSeconds > 0 {
+			c.Header("Retry-After", strconv.FormatInt(selectErr.RetryAfterSeconds, 10))
+			return nil, types.NewErrorWithStatusCode(errors.New(i18n.T(c, selectErr.MessageID, selectErr.Params)), selectErr.Code, selectErr.StatusCode, types.ErrOptionWithSkipRetry())
+		}
+		if selectErr.NoAvailableChannel {
+			return nil, types.NewError(errors.New(i18n.T(c, i18n.MsgRelayRetryNoAvailableChannel, map[string]any{"Group": selectGroup, "Model": info.OriginModelName})), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
+		return nil, types.NewError(errors.New(i18n.T(c, i18n.MsgRelayRetryGetChannelFailed, map[string]any{"Group": selectGroup, "Model": info.OriginModelName, "Error": selectErr.Message})), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)

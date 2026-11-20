@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/common/limiter"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -22,113 +21,275 @@ import (
 const (
 	ModelRequestRateLimitCountMark        = "MRRL"
 	ModelRequestRateLimitSuccessCountMark = "MRRLS"
-	modelRateLimitTimeFormat              = "2006-01-02T15:04:05.000Z"
+
+	// modelRateLimitUpstreamReachedKey marks a request that passed channel
+	// selection. Its admission counts against the total limit even when the
+	// upstream fails. A request rejected before this point releases its slots.
+	modelRateLimitUpstreamReachedKey = "model_rate_limit_upstream_reached"
+
+	// modelRateLimitInflightTTLSeconds bounds how long an in-flight reservation
+	// holds a slot. A process that dies mid-request therefore cannot block the
+	// user past this time.
+	modelRateLimitInflightTTLSeconds = 15 * 60
 )
 
-// 检查Redis中的请求限制
-func checkRedisRateLimit(ctx context.Context, rdb *redis.Client, key string, maxCount int, duration int64) (bool, error) {
-	// 如果maxCount为0，表示不限制
-	if maxCount == 0 {
-		return true, nil
-	}
+// modelRateLimitReserveScript admits one request atomically. It checks the
+// success limit (recorded successes plus in-flight reservations) and the total
+// token bucket, and reserves both only when both pass. A refusal writes nothing.
+//
+// KEYS[1] success records (sorted set, score = completion time in seconds)
+// KEYS[2] in-flight reservations (sorted set, score = reservation time)
+// KEYS[3] total admission bucket (hash: tokens, last_time)
+// ARGV[1] now  ARGV[2] window  ARGV[3] success max (0 = off)
+// ARGV[4] total max (0 = off)  ARGV[5] bucket capacity  ARGV[6] bucket rate
+// ARGV[7] requested tokens     ARGV[8] reservation id   ARGV[9] in-flight TTL
+// Returns {allowed, scope}: scope 1 = success limit, 2 = total limit.
+const modelRateLimitReserveScript = `
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local successMax = tonumber(ARGV[3])
+local totalMax = tonumber(ARGV[4])
+local capacity = tonumber(ARGV[5])
+local rate = tonumber(ARGV[6])
+local requested = tonumber(ARGV[7])
+local id = ARGV[8]
+local inflightTTL = tonumber(ARGV[9])
 
-	// 获取当前计数
-	length, err := rdb.LLen(ctx, key).Result()
-	if err != nil {
-		return false, err
-	}
+redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now - inflightTTL)
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - window)
 
-	// 如果未达到限制，允许请求
-	if length < int64(maxCount) {
-		return true, nil
-	}
+if successMax > 0 and redis.call('ZCARD', KEYS[1]) + redis.call('ZCARD', KEYS[2]) >= successMax then
+  return {0, 1}
+end
 
-	// 检查时间窗口
-	oldTimeStr, _ := rdb.LIndex(ctx, key, -1).Result()
-	oldTime, err := time.Parse(modelRateLimitTimeFormat, oldTimeStr)
-	if err != nil {
-		return false, err
-	}
+if totalMax > 0 then
+  local tokens = capacity
+  local bucket = redis.call('HMGET', KEYS[3], 'tokens', 'last_time')
+  if bucket[1] and bucket[2] then
+    tokens = math.min(capacity, tonumber(bucket[1]) + (now - tonumber(bucket[2])) * rate)
+  end
+  if tokens < requested then
+    return {0, 2}
+  end
+  redis.call('HMSET', KEYS[3], 'tokens', tokens - requested, 'last_time', now)
+  redis.call('EXPIRE', KEYS[3], math.ceil(capacity / rate) + 60)
+end
 
-	nowTimeStr := time.Now().UTC().Format(modelRateLimitTimeFormat)
-	nowTime, err := time.Parse(modelRateLimitTimeFormat, nowTimeStr)
-	if err != nil {
-		return false, err
-	}
-	// 如果在时间窗口内已达到限制，拒绝请求
-	subTime := nowTime.Sub(oldTime).Seconds()
-	if int64(subTime) < duration {
-		rdb.Expire(ctx, key, time.Duration(setting.ModelRequestRateLimitDurationMinutes)*time.Minute)
-		return false, nil
-	}
+redis.call('ZADD', KEYS[2], now, id)
+redis.call('EXPIRE', KEYS[2], inflightTTL)
+return {1, 0}
+`
 
-	return true, nil
+// modelRateLimitSettleScript ends a reservation. It always removes the
+// in-flight slot. A success is recorded only when requested. A release
+// returns the admission token that the reservation took.
+//
+// KEYS as in the reserve script.
+// ARGV[1] now  ARGV[2] window  ARGV[3] reservation id
+// ARGV[4] record success ('1'/'0')  ARGV[5] refund admission ('1'/'0')
+// ARGV[6] bucket capacity  ARGV[7] requested tokens
+const modelRateLimitSettleScript = `
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+
+redis.call('ZREM', KEYS[2], ARGV[3])
+if ARGV[4] == '1' then
+  redis.call('ZADD', KEYS[1], now, ARGV[3])
+  redis.call('EXPIRE', KEYS[1], math.ceil(window) + 60)
+end
+if ARGV[5] == '1' then
+  local bucket = redis.call('HMGET', KEYS[3], 'tokens')
+  if bucket[1] then
+    redis.call('HSET', KEYS[3], 'tokens', math.min(tonumber(ARGV[6]), tonumber(bucket[1]) + tonumber(ARGV[7])))
+  end
+end
+return 1
+`
+
+// modelRateLimitScope names the limit that refused a request.
+type modelRateLimitScope int
+
+const (
+	modelRateLimitAllowed modelRateLimitScope = iota
+	modelRateLimitSuccessDenied
+	modelRateLimitTotalDenied
+)
+
+// modelRateLimitReservation holds the slots of one admitted request until its
+// outcome is known.
+type modelRateLimitReservation interface {
+	// commit ends the request after it reached the upstream or completed.
+	// The admission stays counted. succeeded adds the request to the success count.
+	commit(succeeded bool)
+	// release ends a request that never reached the upstream. Every slot it took is returned.
+	release()
 }
 
-// 记录Redis请求
-func recordRedisRequest(ctx context.Context, rdb *redis.Client, key string, maxCount int) {
-	// 如果maxCount为0，不记录请求
-	if maxCount == 0 {
+// settleModelRateLimitReservation decides the outcome from the response. It is
+// deferred around the downstream handlers, so it runs for every admitted request.
+func settleModelRateLimitReservation(c *gin.Context, reservation modelRateLimitReservation) {
+	switch {
+	case c.Writer.Status() < http.StatusBadRequest:
+		reservation.commit(modelRequestSucceeded(c))
+	case c.GetBool(modelRateLimitUpstreamReachedKey):
+		reservation.commit(false)
+	default:
+		reservation.release()
+	}
+}
+
+// MarkModelRateLimitUpstreamReached records that the request passed channel
+// selection. Call it after the channel is set up for the request.
+func MarkModelRateLimitUpstreamReached(c *gin.Context) {
+	c.Set(modelRateLimitUpstreamReachedKey, true)
+}
+
+type redisModelRateLimitReservation struct {
+	rdb          *redis.Client
+	successKey   string
+	inflightKey  string
+	totalKey     string
+	id           string
+	window       int64
+	capacity     int64
+	requested    int64
+	totalEnabled bool
+}
+
+func (r *redisModelRateLimitReservation) settle(record bool, refund bool) {
+	err := r.rdb.Eval(context.Background(), modelRateLimitSettleScript,
+		[]string{r.successKey, r.inflightKey, r.totalKey},
+		float64(time.Now().UnixNano())/1e9,
+		r.window, r.id, boolFlag(record), boolFlag(refund && r.totalEnabled), r.capacity, r.requested,
+	).Err()
+	if err != nil {
+		// The in-flight slot expires on its own after modelRateLimitInflightTTLSeconds.
+		fmt.Println(common.LogText("model rate limit settle failed: %s", err.Error()))
+	}
+}
+
+func (r *redisModelRateLimitReservation) commit(succeeded bool) {
+	r.settle(succeeded, false)
+}
+
+func (r *redisModelRateLimitReservation) release() {
+	r.settle(false, true)
+}
+
+func boolFlag(value bool) string {
+	if value {
+		return "1"
+	}
+	return "0"
+}
+
+// reserveRedisModelRequest admits one request against the Redis counters.
+func reserveRedisModelRequest(rdb *redis.Client, subject string, duration int64, totalMaxCount, successMaxCount int, now time.Time) (*redisModelRateLimitReservation, modelRateLimitScope, error) {
+	reservation := &redisModelRateLimitReservation{
+		rdb:          rdb,
+		successKey:   fmt.Sprintf("rateLimit:v3:model:success:%s", subject),
+		inflightKey:  fmt.Sprintf("rateLimit:v3:model:inflight:%s", subject),
+		totalKey:     fmt.Sprintf("rateLimit:v3:model:total:%s", subject),
+		id:           common.GetUUID(),
+		window:       duration,
+		requested:    duration,
+		totalEnabled: totalMaxCount > 0,
+	}
+	reservation.capacity = rateLimitCapacity(totalMaxCount, duration)
+	rate := int64(totalMaxCount)
+	result, err := rdb.Eval(context.Background(), modelRateLimitReserveScript,
+		[]string{reservation.successKey, reservation.inflightKey, reservation.totalKey},
+		float64(now.UnixNano())/1e9,
+		duration, successMaxCount, totalMaxCount, reservation.capacity, rate, reservation.requested,
+		reservation.id, modelRateLimitInflightTTLSeconds,
+	).Slice()
+	if err != nil {
+		return nil, modelRateLimitAllowed, err
+	}
+	if len(result) != 2 {
+		return nil, modelRateLimitAllowed, fmt.Errorf("unexpected model rate limit reply length %d", len(result))
+	}
+	allowed, err := redisReplyInteger(result[0])
+	if err != nil {
+		return nil, modelRateLimitAllowed, err
+	}
+	if allowed == 1 {
+		return reservation, modelRateLimitAllowed, nil
+	}
+	scope, err := redisReplyInteger(result[1])
+	if err != nil {
+		return nil, modelRateLimitAllowed, err
+	}
+	if scope == 2 {
+		return nil, modelRateLimitTotalDenied, nil
+	}
+	return nil, modelRateLimitSuccessDenied, nil
+}
+
+type memoryModelRateLimitReservation struct {
+	success *common.RateLimitReservation
+	total   *common.RateLimitReservation
+}
+
+func (r *memoryModelRateLimitReservation) commit(succeeded bool) {
+	// The admission is recorded now. Until this call, the reservation counted as in flight.
+	r.total.Complete(true)
+	r.success.Complete(succeeded)
+}
+
+func (r *memoryModelRateLimitReservation) release() {
+	r.total.Complete(false)
+	r.success.Complete(false)
+}
+
+// reserveMemoryModelRequest admits one request against the in-process limiter.
+// Both reservations count toward their limits while the request runs. If the
+// total is refused, the success reservation is released in the same call.
+func reserveMemoryModelRequest(subject string, duration int64, totalMaxCount, successMaxCount int) (*memoryModelRateLimitReservation, modelRateLimitScope) {
+	totalKey := ModelRequestRateLimitCountMark + subject
+	successKey := ModelRequestRateLimitSuccessCountMark + subject
+
+	var success *common.RateLimitReservation
+	if successMaxCount > 0 {
+		success = inMemoryRateLimiter.Reserve(successKey, successMaxCount, duration)
+		if success == nil {
+			return nil, modelRateLimitSuccessDenied
+		}
+	}
+	var total *common.RateLimitReservation
+	if totalMaxCount > 0 {
+		total = inMemoryRateLimiter.Reserve(totalKey, totalMaxCount, duration)
+		if total == nil {
+			success.Complete(false)
+			return nil, modelRateLimitTotalDenied
+		}
+	}
+	return &memoryModelRateLimitReservation{success: success, total: total}, modelRateLimitAllowed
+}
+
+func abortModelRateLimited(c *gin.Context, scope modelRateLimitScope, totalMaxCount, successMaxCount int) {
+	if scope == modelRateLimitTotalDenied {
+		abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRateLimitTotalReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": totalMaxCount}))
 		return
 	}
-
-	now := time.Now().UTC().Format(modelRateLimitTimeFormat)
-	rdb.LPush(ctx, key, now)
-	rdb.LTrim(ctx, key, 0, int64(maxCount-1))
-	rdb.Expire(ctx, key, time.Duration(setting.ModelRequestRateLimitDurationMinutes)*time.Minute)
+	abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRateLimitReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": successMaxCount}))
 }
 
 // Redis限流处理器
 func redisRateLimitHandler(subject string, duration int64, totalMaxCount, successMaxCount int) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ctx := context.Background()
-		rdb := common.RDB
-
-		// 1. 检查成功请求数限制
-		successKey := fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitSuccessCountMark, subject)
-		allowed, err := checkRedisRateLimit(ctx, rdb, successKey, successMaxCount, duration)
+		reservation, scope, err := reserveRedisModelRequest(common.RDB, subject, duration, totalMaxCount, successMaxCount, time.Now())
 		if err != nil {
-			fmt.Println(common.LogText("failed to check the successful request limit: %s", err.Error()))
+			fmt.Println(common.LogText("failed to reserve the model request limit: %s", err.Error()))
 			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
 			return
 		}
-		if !allowed {
-			abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRateLimitReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": successMaxCount}))
+		if scope != modelRateLimitAllowed {
+			abortModelRateLimited(c, scope, totalMaxCount, successMaxCount)
 			return
 		}
-
-		//2.检查总请求数限制并记录总请求（当totalMaxCount为0时会自动跳过，使用令牌桶限流器
-		if totalMaxCount > 0 {
-			totalKey := fmt.Sprintf("rateLimit:%s", subject)
-			// 初始化
-			tb := limiter.New(ctx, rdb)
-			allowed, err = tb.Allow(
-				ctx,
-				totalKey,
-				limiter.WithCapacity(rateLimitCapacity(totalMaxCount, duration)),
-				limiter.WithRate(int64(totalMaxCount)),
-				limiter.WithRequested(duration),
-			)
-
-			if err != nil {
-				fmt.Println(common.LogText("failed to check the total request limit: %s", err.Error()))
-				abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
-				return
-			}
-
-			if !allowed {
-				abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRateLimitTotalReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": totalMaxCount}))
-				return
-			}
-		}
-
-		// 4. 处理请求
+		defer settleModelRateLimitReservation(c, reservation)
 		c.Next()
-
-		// 5. 如果请求成功，记录成功请求
-		if modelRequestSucceeded(c) {
-			recordRedisRequest(ctx, rdb, successKey, successMaxCount)
-		}
 	}
 }
 
@@ -137,30 +298,13 @@ func memoryRateLimitHandler(subject string, duration int64, totalMaxCount, succe
 	inMemoryRateLimiter.Init(time.Duration(setting.ModelRequestRateLimitDurationMinutes) * time.Minute)
 
 	return func(c *gin.Context) {
-		totalKey := ModelRequestRateLimitCountMark + subject
-		successKey := ModelRequestRateLimitSuccessCountMark + subject
-
-		// 1. 检查总请求数限制（当totalMaxCount为0时跳过）
-		if totalMaxCount > 0 && !inMemoryRateLimiter.Request(totalKey, totalMaxCount, duration) {
-			abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRateLimitTotalReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": totalMaxCount}))
+		reservation, scope := reserveMemoryModelRequest(subject, duration, totalMaxCount, successMaxCount)
+		if scope != modelRateLimitAllowed {
+			abortModelRateLimited(c, scope, totalMaxCount, successMaxCount)
 			return
 		}
-
-		var reservation *common.RateLimitReservation
-		if successMaxCount > 0 {
-			reservation = inMemoryRateLimiter.Reserve(successKey, successMaxCount, duration)
-			if reservation == nil {
-				abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRateLimitReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": successMaxCount}))
-				return
-			}
-			defer reservation.Complete(false)
-		}
-
-		// 3. 处理请求
+		defer settleModelRateLimitReservation(c, reservation)
 		c.Next()
-
-		// 4. 如果请求成功，记录到实际的成功请求计数中
-		reservation.Complete(modelRequestSucceeded(c))
 	}
 }
 

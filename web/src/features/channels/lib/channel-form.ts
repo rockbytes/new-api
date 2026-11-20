@@ -252,6 +252,15 @@ export const channelFormSchema = z
     http_protocol: z.enum(['auto', 'http1']).optional(),
     http2_connection_shards: z.number().int().optional(),
     tls_insecure_skip_verify: z.boolean().optional(),
+    // Request budget (stored in setting JSON). Round-tripped so saving a channel
+    // from the form does not drop a budget configured elsewhere.
+    rate_limit: z
+      .object({
+        enabled: z.boolean().optional(),
+        requests: z.number().int().optional(),
+        duration_seconds: z.number().int().optional(),
+      })
+      .optional(),
     pass_through_body_enabled: z.boolean().optional(),
     responses_websocket_enabled: z.boolean().optional(),
     system_prompt: z.string().optional(),
@@ -497,6 +506,7 @@ export function transformChannelToFormDefaults(
     responses_websocket_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
+    rate_limit: undefined as ChannelRateLimitSetting | undefined,
   }
 
   if (channel.setting) {
@@ -520,6 +530,7 @@ export function transformChannelToFormDefaults(
           parsed.responses_websocket_enabled === true,
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
+        rate_limit: parsed.rate_limit as ChannelRateLimitSetting | undefined,
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -635,6 +646,12 @@ export function transformChannelToFormDefaults(
   }
 }
 
+type ChannelRateLimitSetting = {
+  enabled?: boolean
+  requests?: number
+  duration_seconds?: number
+}
+
 /**
  * Build the setting JSON string from form extra settings
  */
@@ -658,6 +675,7 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
       formData.responses_websocket_enabled === true,
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
+    rate_limit: formData.rate_limit,
   }
 
   const protocol = normalizeHttpProtocol(formData.http_protocol)

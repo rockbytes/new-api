@@ -12,6 +12,9 @@ var filterEvalOrder = []dto.ChannelFilterKind{
 	dto.FilterTaskPluginEndpoint,
 	dto.FilterTaskPluginIdentity,
 	dto.FilterResponsesWebSocket,
+	// Evaluated last so a channel rejected by both a hard constraint and a
+	// temporary budget exclusion is reported against the hard constraint.
+	dto.FilterChannelRateLimited,
 }
 
 // ChannelSatisfiesFilters reports whether ch passes every filter.
@@ -137,6 +140,8 @@ func channelMatchesFilter(ch *Channel, modelName string, filter dto.ChannelFilte
 		default:
 			return false
 		}
+	case dto.FilterChannelRateLimited:
+		return !slices.Contains(filter.ExcludeChannelIDs, ch.Id)
 	default:
 		return true
 	}
