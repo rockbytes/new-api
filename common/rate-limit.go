@@ -59,6 +59,25 @@ func (q *rateLimitQueue) clear() {
 	q.length = 0
 }
 
+// removeLast drops the most recent admission. The queue is singly linked, so
+// the walk runs from the head; a refund is rare, so this is acceptable.
+func (q *rateLimitQueue) removeLast() {
+	if q.tail == nil {
+		return
+	}
+	if q.head == q.tail {
+		q.clear()
+		return
+	}
+	previous := q.head
+	for previous.next != q.tail {
+		previous = previous.next
+	}
+	previous.next = nil
+	q.tail = previous
+	q.length--
+}
+
 // rateLimitEntry is both a rate-limit bucket and a node in the key-level LRU.
 type rateLimitEntry struct {
 	lastActive time.Time
@@ -146,6 +165,19 @@ func (l *InMemoryRateLimiter) touchEntry(key string, now time.Time) *rateLimitEn
 	entry.lastActive = now
 	l.lru.MoveToFront(entry.element)
 	return entry
+}
+
+// Refund returns the most recent admission for key. It is for a request that was
+// admitted but never reached the upstream, so it must not count against the window.
+func (l *InMemoryRateLimiter) Refund(key string) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	entry, ok := l.store[key]
+	if !ok {
+		return
+	}
+	entry.requests.removeLast()
 }
 
 // Request parameter duration's unit is seconds

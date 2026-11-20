@@ -160,6 +160,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	if newAPIError = relay.PrepareRequestBilling(c, relayInfo); newAPIError != nil {
+		// Quota pre-consume refused the request before the upstream. Return its
+		// channel budget and its user and organization admissions.
+		service.ReleaseChannelBudget(c)
+		middleware.ClearModelRateLimitUpstreamReached(c)
 		service.RecordGatewayErrorLog(c, newAPIError)
 		return
 	}

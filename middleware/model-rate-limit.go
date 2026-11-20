@@ -181,6 +181,13 @@ func MarkModelRateLimitUpstreamReached(c *gin.Context) {
 	c.Set(modelRateLimitUpstreamReachedKey, true)
 }
 
+// ClearModelRateLimitUpstreamReached undoes MarkModelRateLimitUpstreamReached for
+// a request refused before its upstream was reached, such as by quota pre-consume.
+// Its settlement then releases the slots instead of counting the request.
+func ClearModelRateLimitUpstreamReached(c *gin.Context) {
+	c.Set(modelRateLimitUpstreamReachedKey, false)
+}
+
 type redisModelRateLimitReservation struct {
 	rdb          *redis.Client
 	successKey   string

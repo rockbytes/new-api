@@ -141,6 +141,26 @@ func TestChannelBudgetAdmitsConfiguredRequestsPerWindow(t *testing.T) {
 	}
 }
 
+// ReleaseChannelBudget returns the admission of a request that never reached the
+// upstream, once. A second release has nothing left to return.
+func TestReleaseChannelBudgetReturnsAdmissionOnce(t *testing.T) {
+	c, restore := newBudgetTestContext(t)
+	defer restore()
+
+	channel := budgetTestChannel(9403, 1, 1, 60)
+	allowed, _ := AcquireChannelBudget(c, channel)
+	require.True(t, allowed)
+	allowed, _ = AcquireChannelBudget(c, channel)
+	require.False(t, allowed)
+
+	ReleaseChannelBudget(c)
+	ReleaseChannelBudget(c)
+	allowed, _ = AcquireChannelBudget(c, channel)
+	assert.True(t, allowed, "the released admission is available to the next request")
+	allowed, _ = AcquireChannelBudget(c, channel)
+	assert.False(t, allowed, "the second release must not return a second admission")
+}
+
 // TestChannelBudgetRedisPathAgainstRealRedis runs the token-bucket script on a
 // real Redis server. It is skipped unless NEW_API_TEST_REDIS_ADDR names one.
 // The test uses database 15 and flushes only that database.

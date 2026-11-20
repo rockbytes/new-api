@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -61,7 +62,8 @@ func AcquireChannelBudget(c *gin.Context, channel *model.Channel) (bool, int64) 
 	key := fmt.Sprintf("rateLimit:channel:%d", channel.Id)
 
 	var allowed bool
-	if common.RedisEnabled && common.RDB != nil {
+	redisBackend := common.RedisEnabled && common.RDB != nil
+	if redisBackend {
 		ctx := c.Request.Context()
 		var err error
 		// A token bucket where each request costs one window of tokens and the
@@ -81,9 +83,60 @@ func AcquireChannelBudget(c *gin.Context, channel *model.Channel) (bool, int64) 
 		allowed = channelBudgetMemoryLimiter.Request(key, int(requests), window)
 	}
 	if allowed {
+		c.Set(channelBudgetHeldKey, channelBudgetHold{
+			key:       key,
+			redis:     redisBackend,
+			capacity:  requests * window,
+			requested: window,
+		})
 		return true, 0
 	}
 	return false, channelBudgetRetryAfter(channel)
+}
+
+// channelBudgetHeldKey is the gin context key of the admission the request holds
+// on its channel budget, so that it can be returned if the request never reaches
+// the upstream.
+const channelBudgetHeldKey = "channel_budget_hold"
+
+type channelBudgetHold struct {
+	key       string
+	redis     bool
+	capacity  int64
+	requested int64
+}
+
+// channelBudgetRefundScript gives one admission back to a token bucket, capped at
+// its capacity. It leaves the bucket untouched when the bucket is absent.
+const channelBudgetRefundScript = `
+local bucket = redis.call('HMGET', KEYS[1], 'tokens')
+if bucket[1] then
+  redis.call('HSET', KEYS[1], 'tokens', math.min(tonumber(ARGV[1]), tonumber(bucket[1]) + tonumber(ARGV[2])))
+end
+return 1
+`
+
+// ReleaseChannelBudget returns the channel admission the request holds. Call it
+// when the request fails before it reaches the upstream, such as when the quota
+// pre-consume refuses it, so a refused request does not use up the channel's budget.
+func ReleaseChannelBudget(c *gin.Context) {
+	value, exists := c.Get(channelBudgetHeldKey)
+	if !exists {
+		return
+	}
+	hold, ok := value.(channelBudgetHold)
+	if !ok {
+		return
+	}
+	c.Set(channelBudgetHeldKey, nil)
+	if !hold.redis {
+		channelBudgetMemoryLimiter.Refund(hold.key)
+		return
+	}
+	if err := common.RDB.Eval(context.Background(), channelBudgetRefundScript, []string{hold.key},
+		hold.capacity, hold.requested).Err(); err != nil {
+		logger.LogError(context.Background(), common.LogText("channel budget release failed (key=%s): %v", hold.key, err))
+	}
 }
 
 // channelBudgetExhaustedError is the 429 returned when no channel can take the

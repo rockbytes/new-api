@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -374,6 +375,74 @@ func TestOrganizationRefusalLeavesUserTotalUntouched(t *testing.T) {
 	first.release()
 	assert.Equal(t, "60", client.HGet(ctx, first.orgKey, "tokens").Val(), "releasing returns the organization token")
 	assert.Equal(t, "300", client.HGet(ctx, first.totalKey, "tokens").Val(), "releasing returns the user token")
+}
+
+// A request whose token may not use the model is refused with 403 even when the
+// user's limit is already spent. The refusal takes no admission and is reported
+// as a model refusal, not as a rate limit.
+func TestTokenModelRefusalTakesNoAdmission(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	previousEnabled, previousMinutes := setting.ModelRequestRateLimitEnabled, setting.ModelRequestRateLimitDurationMinutes
+	previousTotal, previousRedisEnabled := setting.ModelRequestRateLimitCount, common.RedisEnabled
+	t.Cleanup(func() {
+		setting.ModelRequestRateLimitEnabled, setting.ModelRequestRateLimitDurationMinutes = previousEnabled, previousMinutes
+		setting.ModelRequestRateLimitCount, common.RedisEnabled = previousTotal, previousRedisEnabled
+	})
+	setting.ModelRequestRateLimitEnabled, setting.ModelRequestRateLimitDurationMinutes, setting.ModelRequestRateLimitCount = true, 1, 1
+	common.RedisEnabled = false
+
+	userID := 7500000 + int(modelRateLimitTestUsers.Add(1))
+	router := gin.New()
+	router.POST("/v1/chat/completions", func(c *gin.Context) {
+		c.Set("id", userID)
+		common.SetContextKey(c, constant.ContextKeyTokenModelLimitEnabled, true)
+		common.SetContextKey(c, constant.ContextKeyTokenModelLimit, map[string]bool{"allowed-model": true})
+	}, TokenModelAccess(), ModelRequestRateLimit(), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+	postModel := func(model string) int {
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"`+model+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "127.0.0.1:1000"
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		return resp.Code
+	}
+
+	assert.Equal(t, http.StatusOK, postModel("allowed-model"), "the first request takes the only admission")
+	assert.Equal(t, http.StatusForbidden, postModel("other-model"), "a model outside the token limit is refused as a model")
+	assert.Equal(t, http.StatusTooManyRequests, postModel("allowed-model"), "the refusal left the user's limit as it was")
+}
+
+// A request refused before its upstream, such as by quota pre-consume, gives its
+// admission back. Otherwise the refused request would count toward the total limit.
+func TestRequestRefusedBeforeUpstreamReleasesAdmission(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	previousEnabled, previousMinutes := setting.ModelRequestRateLimitEnabled, setting.ModelRequestRateLimitDurationMinutes
+	previousTotal, previousRedisEnabled := setting.ModelRequestRateLimitCount, common.RedisEnabled
+	t.Cleanup(func() {
+		setting.ModelRequestRateLimitEnabled, setting.ModelRequestRateLimitDurationMinutes = previousEnabled, previousMinutes
+		setting.ModelRequestRateLimitCount, common.RedisEnabled = previousTotal, previousRedisEnabled
+	})
+	setting.ModelRequestRateLimitEnabled, setting.ModelRequestRateLimitDurationMinutes, setting.ModelRequestRateLimitCount = true, 1, 1
+	common.RedisEnabled = false
+
+	userID := 7500000 + int(modelRateLimitTestUsers.Add(1))
+	router := gin.New()
+	router.GET("/", func(c *gin.Context) {
+		c.Set("id", userID)
+	}, ModelRequestRateLimit(), func(c *gin.Context) {
+		MarkModelRateLimitUpstreamReached(c)
+		if c.Query("refuse") == "1" {
+			ClearModelRateLimitUpstreamReached(c)
+			c.Status(http.StatusPaymentRequired)
+			return
+		}
+		c.Status(http.StatusOK)
+	})
+
+	assert.Equal(t, http.StatusPaymentRequired, performRateLimitRequest(router, "/?refuse=1", "127.0.0.1:1000").Code)
+	assert.Equal(t, http.StatusOK, performRateLimitRequest(router, "/", "127.0.0.1:1000").Code, "the refused request released the only admission")
 }
 
 // A group with its own limit counts each user's requests on its own; groups
