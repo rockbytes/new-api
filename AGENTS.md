@@ -151,6 +151,13 @@ Tasks that touch none of these (for example unrelated frontend work, authenticat
 - Do NOT add new files under `docs/` or any of its subdirectories unless the user explicitly requests it.
 - Do NOT create or generate documentation files in this repository's plugin directories under `plugins/`, including `plugins/tasks/<plugin>/` and their subdirectories. This includes README files, changelogs, usage guides, and other documentation files, regardless of format.
 
+## Local Debugging Credentials
+
+- For debugging the local backend against the local E2E database, log in with the root account from two user environment variables: `NEWAPI_LOCAL_DEBUG_ROOT_USER` (username) and `NEWAPI_LOCAL_DEBUG_ROOT_PASSWORD` (password). They are stored in the Windows user environment (`HKCU\Environment`), not the machine-wide one.
+- Read the values from the environment when they are needed. Never write the username or password values into code, docs, commits, logs, PR text, or command output.
+- A shell or IDE started before the variables were set does not see them. Read them from the User scope, for example PowerShell `[Environment]::GetEnvironmentVariable('NEWAPI_LOCAL_DEBUG_ROOT_PASSWORD', 'User')`, or restart the shell.
+- Use these credentials only for local debugging against the local backend. Do not use them against a shared, staging, or production host.
+
 ## Documentation Lifecycle
 
 Workspace plans are stored under `doc/` in this Git repository.
