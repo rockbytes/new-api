@@ -244,6 +244,15 @@ func SetApiRouter(router *gin.Engine) {
 			customOAuthRoute.PUT("/:id", controller.UpdateCustomOAuthProvider)
 			customOAuthRoute.DELETE("/:id", controller.DeleteCustomOAuthProvider)
 		}
+
+		// Request-limit overrides, such as an organization's total limit (root only)
+		rateLimitOverrideRoute := apiRouter.Group("/rate-limit-overrides")
+		rateLimitOverrideRoute.Use(middleware.RootAuth())
+		{
+			rateLimitOverrideRoute.GET("/", controller.GetRateLimitOverrides)
+			rateLimitOverrideRoute.PUT("/", controller.UpdateRateLimitOverride)
+			rateLimitOverrideRoute.DELETE("/:subject_type/:subject_id", controller.DeleteRateLimitOverride)
+		}
 		performanceRoute := apiRouter.Group("/performance")
 		performanceRoute.Use(middleware.RootAuth())
 		{

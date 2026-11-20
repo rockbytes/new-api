@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
@@ -312,6 +313,66 @@ func TestModelRateLimitSettlementDecision(t *testing.T) {
 			assert.Equal(t, tc.wantNext, next)
 		})
 	}
+}
+
+// An organization's total limit applies even when the user limits are off, and
+// a request refused by it is reported with the organization message.
+func TestOrganizationTotalLimitAppliesWithoutUserLimits(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	previousEnabled, previousRedis := setting.ModelRequestRateLimitEnabled, common.RedisEnabled
+	t.Cleanup(func() {
+		setting.ModelRequestRateLimitEnabled, common.RedisEnabled = previousEnabled, previousRedis
+		service.ReplaceOrganizationTotalRateLimits(nil)
+	})
+	setting.ModelRequestRateLimitEnabled = false
+
+	for _, backend := range []string{"memory", "redis"} {
+		t.Run(backend, func(t *testing.T) {
+			if backend == "redis" {
+				useRateLimitMiniRedis(t)
+			} else {
+				common.RedisEnabled = false
+			}
+			organizationId := 7300000 + int(modelRateLimitTestUsers.Add(1))
+			service.ReplaceOrganizationTotalRateLimits(map[int]int{organizationId: 2})
+			router := gin.New()
+			router.GET("/", func(c *gin.Context) {
+				common.SetContextKey(c, constant.ContextKeyTokenBillingOrganizationId, organizationId)
+			}, ModelRequestRateLimit(), func(c *gin.Context) {
+				c.Status(http.StatusOK)
+			})
+
+			assert.Equal(t, http.StatusOK, performRateLimitRequest(router, "/", "127.0.0.1:1000").Code)
+			assert.Equal(t, http.StatusOK, performRateLimitRequest(router, "/", "127.0.0.1:1000").Code)
+			resp := performRateLimitRequest(router, "/", "127.0.0.1:1000")
+			assert.Equal(t, http.StatusTooManyRequests, resp.Code)
+			assert.Contains(t, resp.Body.String(), "organization", "the refusal must name the organization limit")
+		})
+	}
+}
+
+// A refused organization limit must not consume the user's total admission, and
+// releasing the admission must give the organization its token back.
+func TestOrganizationRefusalLeavesUserTotalUntouched(t *testing.T) {
+	_, client := useRateLimitMiniRedis(t)
+	organizationId := 7400000 + int(modelRateLimitTestUsers.Add(1))
+	now := time.Now()
+	ctx := context.Background()
+
+	first, scope, err := reserveRedisModelRequestWithOrganization(client, "org-atomic", 60, 5, 0, organizationId, 1, now)
+	require.NoError(t, err)
+	require.Equal(t, modelRateLimitAllowed, scope)
+	assert.Equal(t, "240", client.HGet(ctx, first.totalKey, "tokens").Val(), "one admission leaves 4 of 5 user tokens")
+	assert.Equal(t, "0", client.HGet(ctx, first.orgKey, "tokens").Val(), "the organization's one token is spent")
+
+	_, scope, err = reserveRedisModelRequestWithOrganization(client, "org-atomic", 60, 5, 0, organizationId, 1, now)
+	require.NoError(t, err)
+	assert.Equal(t, modelRateLimitOrganizationDenied, scope)
+	assert.Equal(t, "240", client.HGet(ctx, first.totalKey, "tokens").Val(), "a refused organization limit must not spend a user token")
+
+	first.release()
+	assert.Equal(t, "60", client.HGet(ctx, first.orgKey, "tokens").Val(), "releasing returns the organization token")
+	assert.Equal(t, "300", client.HGet(ctx, first.totalKey, "tokens").Val(), "releasing returns the user token")
 }
 
 // A group with its own limit counts each user's requests on its own; groups
