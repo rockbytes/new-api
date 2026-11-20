@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -779,4 +780,36 @@ func TestOrganizationListSearchFiltersByName(t *testing.T) {
 	names, total = search("%")
 	assert.Equal(t, 0, total)
 	assert.Empty(t, names)
+}
+
+// The organization's total request limit is visible to its administrators only.
+// Members get 0, so the contract limit is not exposed to every account.
+func TestOrganizationSelfExposesRequestLimitOnlyToAdministrators(t *testing.T) {
+	db := setupOrganizationTestDB(t)
+	createOrganizationTestUser(t, db, "root", common.UserStatusEnabled)
+	orgId := createOrganizationWithAdmin(t, "Limit Co", "limit-admin")
+	memberId := createOrganizationTestUser(t, db, "limit-member", common.UserStatusEnabled)
+	require.NoError(t, db.Create(&model.OrganizationMembership{
+		OrganizationId: orgId,
+		UserId:         memberId,
+		Role:           model.OrganizationRoleMember,
+		Status:         model.OrganizationMembershipActive,
+	}).Error)
+	adminId := userByName(t, db, "limit-admin").Id
+
+	service.ReplaceOrganizationTotalRateLimits(map[int]int{orgId: 7})
+	t.Cleanup(func() { service.ReplaceOrganizationTotalRateLimits(nil) })
+
+	requestLimitFor := func(userId int) int {
+		recorder := doOrganizationRequest(t, userId, http.MethodGet, "/api/organization/self", "")
+		data, status := organizationResponseData(t, recorder)
+		require.Equal(t, http.StatusOK, status, recorder.Body.String())
+		var self struct {
+			RequestLimit int `json:"request_limit"`
+		}
+		require.NoError(t, common.Unmarshal(data, &self))
+		return self.RequestLimit
+	}
+	assert.Equal(t, 7, requestLimitFor(adminId), "an organization administrator sees the limit")
+	assert.Equal(t, 0, requestLimitFor(memberId), "a member does not see the limit")
 }

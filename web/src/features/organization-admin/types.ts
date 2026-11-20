@@ -10,6 +10,8 @@ export interface OrganizationSelf {
   role: OrganizationRole
   status: string
   permissions: string[]
+  // Set for organization administrators only. 0 means no request limit.
+  request_limit: number
 }
 
 export interface OrganizationMemberRow {

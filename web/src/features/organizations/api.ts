@@ -12,6 +12,7 @@ import type {
   OrganizationQuotaAdjustPayload,
   OrganizationQuotaAdjustment,
   OrganizationStatus,
+  RateLimitOverride,
 } from './types'
 
 export async function getOrganizations(
@@ -99,5 +100,35 @@ export async function createOrganizationMemberForAdmin(
   payload: CreateOrganizationMemberPayload
 ): Promise<void> {
   const res = await api.post(`/api/organization/${id}/members`, payload)
+  requireServerSuccess(res.data)
+}
+
+export async function getOrganizationRequestLimits(): Promise<
+  RateLimitOverride[]
+> {
+  const res = await api.get('/api/rate-limit-overrides/', {
+    params: { subject_type: 'organization' },
+  })
+  return requireServerSuccess(res.data).data ?? []
+}
+
+export async function setOrganizationRequestLimit(
+  organizationId: number,
+  totalCount: number
+): Promise<RateLimitOverride> {
+  const res = await api.put('/api/rate-limit-overrides/', {
+    subject_type: 'organization',
+    subject_id: organizationId,
+    total_count: totalCount,
+  })
+  return requireServerSuccess(res.data).data
+}
+
+export async function clearOrganizationRequestLimit(
+  organizationId: number
+): Promise<void> {
+  const res = await api.delete(
+    `/api/rate-limit-overrides/organization/${organizationId}`
+  )
   requireServerSuccess(res.data)
 }

@@ -294,6 +294,15 @@ export function OrganizationAdmin() {
           </Button>
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
+          {selfQuery.data?.role === 'admin' ? (
+            <p className='text-muted-foreground mb-3 text-sm'>
+              {selfQuery.data.request_limit > 0
+                ? t('Current limit: {{count}} requests per window.', {
+                    count: selfQuery.data.request_limit,
+                  })
+                : t('No request limit is set for this organization.')}
+            </p>
+          ) : null}
           {/* The three figures an organization admin needs to read the pool: what is still
               theirs to hand out, what the organization can still spend, and what it has spent.
               They differ because an allocation is a limit and does not move quota. */}
