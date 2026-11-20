@@ -342,7 +342,10 @@ func reserveMemoryModelRequestWithOrganization(subject string, duration int64, t
 	return &memoryModelRateLimitReservation{success: success, total: total, org: org}, modelRateLimitAllowed
 }
 
-func abortModelRateLimited(c *gin.Context, scope modelRateLimitScope, totalMaxCount, successMaxCount, organizationMax int) {
+// abortModelRateLimited rejects a request refused by a limit. The window is the Retry-After hint:
+// it is an upper bound on the wait, because the counters do not report the time left.
+func abortModelRateLimited(c *gin.Context, scope modelRateLimitScope, duration int64, totalMaxCount, successMaxCount, organizationMax int) {
+	c.Header("Retry-After", strconv.FormatInt(duration, 10))
 	switch scope {
 	case modelRateLimitTotalDenied:
 		abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRateLimitTotalReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": totalMaxCount}))
@@ -367,7 +370,7 @@ func redisModelRateLimitHandler(subject string, duration int64, totalMaxCount, s
 			return
 		}
 		if scope != modelRateLimitAllowed {
-			abortModelRateLimited(c, scope, totalMaxCount, successMaxCount, organizationMax)
+			abortModelRateLimited(c, scope, duration, totalMaxCount, successMaxCount, organizationMax)
 			return
 		}
 		defer settleModelRateLimitReservation(c, reservation)
@@ -386,7 +389,7 @@ func memoryModelRateLimitHandler(subject string, duration int64, totalMaxCount, 
 	return func(c *gin.Context) {
 		reservation, scope := reserveMemoryModelRequestWithOrganization(subject, duration, totalMaxCount, successMaxCount, organizationId, organizationMax)
 		if scope != modelRateLimitAllowed {
-			abortModelRateLimited(c, scope, totalMaxCount, successMaxCount, organizationMax)
+			abortModelRateLimited(c, scope, duration, totalMaxCount, successMaxCount, organizationMax)
 			return
 		}
 		defer settleModelRateLimitReservation(c, reservation)

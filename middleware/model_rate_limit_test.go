@@ -347,6 +347,7 @@ func TestOrganizationTotalLimitAppliesWithoutUserLimits(t *testing.T) {
 			resp := performRateLimitRequest(router, "/", "127.0.0.1:1000")
 			assert.Equal(t, http.StatusTooManyRequests, resp.Code)
 			assert.Contains(t, resp.Body.String(), "organization", "the refusal must name the organization limit")
+			assert.Equal(t, "60", resp.Header().Get("Retry-After"), "a refusal carries the window as its Retry-After")
 		})
 	}
 }
