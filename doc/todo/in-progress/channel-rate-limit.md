@@ -162,6 +162,15 @@ completed:
   - `bun run typecheck` 通过；改动文件 oxlint 无错误；`vitest run src/features/channels` 为 31 个文件、372 个用例，全部通过。
   - 新增的 6 个文案键已写入七个 locale，`i18n:sync` 报告中缺失与多余键均为 0。
   - 未做浏览器内的视觉核对。
+- Redis 故障放行（2026-11-20，分支 `feature/channel-budget-fail-open`）：新增 `TestChannelBudgetFailsOpenWhenRedisIsUnreachable`。Redis 地址不可达时，三次准入全部放行、没有 `Retry-After`，释放不 panic，并记录错误日志。真实 Redis 回归 `TestChannelBudgetRedisPathAgainstRealRedis`（DB 15）通过。`relaykit` 独立构建通过（验收 11）。
+- 验收条件逐项状态（2026-11-20）：
+  - 1、2、3、4、9：已有单元测试覆盖（未配置或禁用时不限流、突发即时放行、同档换渠道、不消耗重试索引、pin 不换渠道）。
+  - 6：只覆盖"释放预算"路径；不写亲和缓存、不触发自动禁用未单独验证。
+  - 10：已验证（本次）。
+  - 5：未实现。`x-ratelimit-*` 响应头依赖待核实事项 8，属于 Phase 6。
+  - 7：未实现。限流拒绝只写入错误码与网关错误日志，没有写入 policy event 的决策与作用域名，属于 Phase 6。
+  - 8：未验证。auto 分组下因限流换渠道后的跨档索引没有测试。
+  - 因 5、7、8 未完成，本文档保持 `in-progress`。
 
 ## 阻塞原因
 

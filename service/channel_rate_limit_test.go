@@ -161,6 +161,34 @@ func TestReleaseChannelBudgetReturnsAdmissionOnce(t *testing.T) {
 	assert.False(t, allowed, "the second release must not return a second admission")
 }
 
+// With Redis enabled but unreachable, the budget admits every request instead of
+// failing it: a Redis outage must not take a healthy channel out of service. The
+// release must also return without panicking when its script cannot reach Redis.
+func TestChannelBudgetFailsOpenWhenRedisIsUnreachable(t *testing.T) {
+	c, restore := newBudgetTestContext(t)
+	defer restore()
+	client := redis.NewClient(&redis.Options{
+		Addr:         "127.0.0.1:1",
+		DialTimeout:  200 * time.Millisecond,
+		ReadTimeout:  200 * time.Millisecond,
+		WriteTimeout: 200 * time.Millisecond,
+		MaxRetries:   0,
+	})
+	t.Cleanup(func() { _ = client.Close() })
+	previousRDB := common.RDB
+	common.RedisEnabled = true
+	common.RDB = client
+	t.Cleanup(func() { common.RDB = previousRDB })
+
+	channel := budgetTestChannel(9404, 1, 1, 60)
+	for range 3 {
+		allowed, retryAfter := AcquireChannelBudget(c, channel)
+		require.True(t, allowed, "an unreachable Redis must not refuse the request")
+		assert.Zero(t, retryAfter)
+	}
+	ReleaseChannelBudget(c)
+}
+
 // TestChannelBudgetRedisPathAgainstRealRedis runs the token-bucket script on a
 // real Redis server. It is skipped unless NEW_API_TEST_REDIS_ADDR names one.
 // The test uses database 15 and flushes only that database.
