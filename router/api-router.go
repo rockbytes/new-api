@@ -245,6 +245,13 @@ func SetApiRouter(router *gin.Engine) {
 			customOAuthRoute.DELETE("/:id", controller.DeleteCustomOAuthProvider)
 		}
 
+		// Read-only view of the effective request limits of a subject (root only)
+		rateLimitOverviewRoute := apiRouter.Group("/rate-limit-overview")
+		rateLimitOverviewRoute.Use(middleware.RootAuth())
+		{
+			rateLimitOverviewRoute.GET("/", controller.GetRateLimitOverview)
+		}
+
 		// Request-limit overrides, such as an organization's total limit (root only)
 		rateLimitOverrideRoute := apiRouter.Group("/rate-limit-overrides")
 		rateLimitOverrideRoute.Use(middleware.RootAuth())

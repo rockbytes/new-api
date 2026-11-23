@@ -331,7 +331,7 @@ Phase 0 已完成。Phase 1 的实施尚未开始。
 **未完成：**
 
 - `x-ratelimit-*` 响应头（决定：先做拒绝响应）：429 拒绝带 `x-ratelimit-limit` 与 `x-ratelimit-remaining: 0`。渠道预算拒绝另带 `x-ratelimit-reset`，即补充一个请求所需的准确时间。用户层与组织层的 `Retry-After` 已改为计算出的等待时间（第二步），不带 `x-ratelimit-reset`；成功量限制仍用窗口长度，是上限。成功响应也带 `x-ratelimit-limit` 与 `x-ratelimit-remaining`（取剩余请求数最少的一层），由 Lua 返回的剩余量得到，已实现（待核实事项 8 已解决）。
-- 限速总览页（只读）：尚未开始。
+- 限速总览页（只读）：已实现。`GET /api/rate-limit-overview/`（仅 root）按请求经过的顺序列出组织、用户、渠道的生效值，并由系统设置的限速页面展示。用户层目前显示全局值，等待 Phase 3b 的用户覆盖。不写入任何数据。
 - 渠道重试路径的作用域：`controller/relay.go` 的 `getChannel` 在重试时产生的渠道拒绝，错误体还没有 `rate_limited_scope`。
 - 任务插件路由：`abortWithRateLimitedScope` 在任务插件路由上退回原有格式，因此不带作用域字段。
 

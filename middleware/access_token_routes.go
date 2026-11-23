@@ -148,6 +148,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"GET /api/rate-limit-overrides/":                             accessTokenSessionRule,
 	"PUT /api/rate-limit-overrides/":                             accessTokenSessionRule,
 	"DELETE /api/rate-limit-overrides/:subject_type/:subject_id": accessTokenSessionRule,
+	"GET /api/rate-limit-overview/":                              accessTokenSessionRule,
 
 	// router/api-router.go: /api/option
 	"GET /api/option/":                                           accessTokenScopeRule("option:read"),

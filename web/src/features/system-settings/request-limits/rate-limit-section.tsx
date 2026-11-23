@@ -24,6 +24,7 @@ import {
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
+import { RateLimitOverviewSection } from './rate-limit-overview'
 
 const createRateLimitSchema = () =>
   z.object({
@@ -193,6 +194,7 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
           </div>
         </SettingsForm>
       </Form>
+      <RateLimitOverviewSection />
     </SettingsSection>
   )
 }
