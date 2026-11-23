@@ -20,40 +20,27 @@ type RedisLimiter struct {
 }
 
 var (
-	instanceMu sync.Mutex
-	instance   *RedisLimiter
+	instance *RedisLimiter
+	once     sync.Once
 )
 
-// New returns the limiter for the client r. The instance is kept for the client it was
-// built with. A call with a different client loads the script on that client and
-// replaces the instance, so a client that was replaced is never used again.
 func New(ctx context.Context, r *redis.Client) *RedisLimiter {
-	instanceMu.Lock()
-	defer instanceMu.Unlock()
-	if instance != nil && instance.client == r {
-		return instance
-	}
-	// 预加载脚本
-	limitSHA, err := r.ScriptLoad(ctx, rateLimitScript).Result()
-	if err != nil {
-		common.SysLog(common.LogText("Failed to load rate limit script: %v", err))
-	}
-	instance = &RedisLimiter{
-		client:         r,
-		limitScriptSHA: limitSHA,
-	}
+	once.Do(func() {
+		// 预加载脚本
+		limitSHA, err := r.ScriptLoad(ctx, rateLimitScript).Result()
+		if err != nil {
+			common.SysLog(common.LogText("Failed to load rate limit script: %v", err))
+		}
+		instance = &RedisLimiter{
+			client:         r,
+			limitScriptSHA: limitSHA,
+		}
+	})
+
 	return instance
 }
 
 func (rl *RedisLimiter) Allow(ctx context.Context, key string, opts ...Option) (bool, error) {
-	allowed, _, err := rl.AllowWithRemaining(ctx, key, opts...)
-	return allowed, err
-}
-
-// AllowWithRemaining takes the request's tokens from the bucket and also returns how many
-// whole requests the bucket still holds after the admission. The remaining count is 0 when
-// the request is refused.
-func (rl *RedisLimiter) AllowWithRemaining(ctx context.Context, key string, opts ...Option) (bool, int64, error) {
 	// 默认配置
 	config := &Config{
 		Capacity:  10,
@@ -67,36 +54,33 @@ func (rl *RedisLimiter) AllowWithRemaining(ctx context.Context, key string, opts
 	}
 
 	// 执行限流
-	reply, err := rl.client.EvalSha(
+	result, err := rl.client.EvalSha(
 		ctx,
 		rl.limitScriptSHA,
 		[]string{key},
 		config.Requested,
 		config.Rate,
 		config.Capacity,
-	).Int64Slice()
+	).Int()
 
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "NOSCRIPT ") {
-			reply, err = rl.client.Eval(
+			result, err := rl.client.Eval(
 				ctx,
 				rateLimitScript,
 				[]string{key},
 				config.Requested,
 				config.Rate,
 				config.Capacity,
-			).Int64Slice()
+			).Int()
 			if err != nil {
-				return false, 0, fmt.Errorf("rate limit failed: %w", err)
+				return false, fmt.Errorf("rate limit failed: %w", err)
 			}
-		} else {
-			return false, 0, fmt.Errorf("rate limit failed: %w", err)
+			return result == 1, nil
 		}
+		return false, fmt.Errorf("rate limit failed: %w", err)
 	}
-	if len(reply) != 2 {
-		return false, 0, fmt.Errorf("rate limit failed: unexpected reply length %d", len(reply))
-	}
-	return reply[0] == 1, reply[1], nil
+	return result == 1, nil
 }
 
 // Config 配置选项模式

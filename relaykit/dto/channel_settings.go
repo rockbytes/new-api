@@ -2,7 +2,6 @@ package dto
 
 import (
 	"fmt"
-	"math"
 	"net/url"
 	"regexp"
 	"slices"
@@ -36,54 +35,6 @@ type ChannelSettings struct {
 	// TLSInsecureSkipVerify accepts upstream certificates that fail
 	// verification, such as self-signed ones, for this channel only.
 	TLSInsecureSkipVerify bool `json:"tls_insecure_skip_verify,omitempty"`
-	// RateLimit bounds how many requests this channel accepts in one window.
-	// Selection skips a channel that is over budget instead of sending a
-	// request the upstream would reject.
-	RateLimit *ChannelRateLimit `json:"rate_limit,omitempty"`
-}
-
-// ChannelRateLimit is the request budget of one channel. Requests are counted
-// per channel, not per key, because keys of the same upstream account usually
-// share one provider quota.
-type ChannelRateLimit struct {
-	Enabled         bool `json:"enabled,omitempty"`
-	Requests        int  `json:"requests,omitempty"`
-	DurationSeconds int  `json:"duration_seconds,omitempty"`
-	// OrgShares caps how much of the budget one organization may use, keyed by
-	// organization ID. Each value is a percentage (1-100) of Requests. An organization
-	// without an entry is limited only by the channel budget. Shares apply only while
-	// the budget is enabled; they are kept when it is switched off.
-	OrgShares map[int]int `json:"org_shares,omitempty"`
-}
-
-// MaxChannelRateLimitWindowSeconds caps the window at one day.
-const MaxChannelRateLimitWindowSeconds = 24 * 60 * 60
-
-// maxChannelRateLimitRequests keeps the token-bucket capacity
-// (Requests*DurationSeconds) inside int64 for any allowed window.
-const maxChannelRateLimitRequests = math.MaxInt64 / MaxChannelRateLimitWindowSeconds
-
-// ValidateRateLimit checks the channel request budget and its organization shares.
-// A disabled or absent budget is valid and means the channel is unlimited.
-func (s *ChannelSettings) ValidateRateLimit() error {
-	if s == nil || s.RateLimit == nil || !s.RateLimit.Enabled {
-		return nil
-	}
-	if s.RateLimit.Requests <= 0 || s.RateLimit.Requests > maxChannelRateLimitRequests {
-		return fmt.Errorf("rate_limit.requests must be between 1 and %d", maxChannelRateLimitRequests)
-	}
-	if s.RateLimit.DurationSeconds <= 0 || s.RateLimit.DurationSeconds > MaxChannelRateLimitWindowSeconds {
-		return fmt.Errorf("rate_limit.duration_seconds must be between 1 and %d", MaxChannelRateLimitWindowSeconds)
-	}
-	for organizationID, percent := range s.RateLimit.OrgShares {
-		if organizationID <= 0 {
-			return fmt.Errorf("rate_limit.org_shares contains an invalid organization id %d", organizationID)
-		}
-		if percent < 1 || percent > 100 {
-			return fmt.Errorf("rate_limit.org_shares must be between 1 and 100 percent")
-		}
-	}
-	return nil
 }
 
 // BindsTaskPlugin reports whether the channel is bound to the task plugin,

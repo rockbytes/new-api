@@ -1,6 +1,6 @@
 ---
 title: 多层限速模型设计
-status: in-progress
+status: abandoned
 created: 2026-11-18
 updated: 2026-11-23
 owner: Rock
@@ -8,6 +8,10 @@ completed:
 ---
 
 # 多层限速模型设计
+
+## 废弃原因
+
+2026-11-23 决定停止本方案，把请求数限速还原到 v1.0.28 基线（分支 `revert/request-limit-to-v1.0.28`）。线上版本只有用户与分组两层限速，本方案新增的组织上限、渠道预算、渠道占比、用户覆盖和只读总览超出了实际需求，且复杂度过高。本方案不再执行，相关实现已还原，文档仅作历史记录保留。
 
 ## 目标
 
@@ -115,7 +119,7 @@ flowchart TD
 
 ### D8 额度检查顺序（2026-11-20 修订）
 
-- 2026-11-20 决定：不实施额度只读检查。第 1 步量化显示额度预扣拒绝只占 1.57%，且全部来自组织成员额度，被拒请求的渠道预算与准入已由释放路径退还。只保留释放路径，详见 [额度只读检查前移（已关闭）](../../done/quota-readonly-check.md)。下面的原方案不再实施。
+- 2026-11-20 决定：不实施额度只读检查。第 1 步量化显示额度预扣拒绝只占 1.57%，且全部来自组织成员额度，被拒请求的渠道预算与准入已由释放路径退还。只保留释放路径，详见 [额度只读检查前移（已关闭）](../done/quota-readonly-check.md)。下面的原方案不再实施。
 
 - 额度**只读检查**放在"选渠道之后、占用渠道预算之前"。选渠道后才能确定计费分组（`auto` 分组下由选中的渠道决定），检查用的价格才与实际计费一致。
 - 额度**正式扣减**放在渠道通过之后、请求上游之前。
@@ -152,8 +156,8 @@ rate_limit_overrides
   subject_type   user | organization
   subject_id     用户 ID 或组织 ID
   group_name     分组覆盖时填写，否则为空
-  total_count    总请求上限；0 = 不覆盖，沿用全局默认（组织总量只用此列，且须 ≥ 1）
-  success_count  成功请求上限；0 = 不覆盖，沿用全局默认（仅用户覆盖使用）
+  total_count    总请求上限
+  success_count  成功请求上限（若沿用准入计，可与总请求上限合并，待 Phase 0 确认）
   updated_by     最后修改人
   updated_time   最后修改时间
   唯一索引 (subject_type, subject_id, group_name)
@@ -169,13 +173,13 @@ rate_limit_overrides
 ## 待核实事项
 
 1. **价格维度**：额度只读检查所用的价格是否只取决于模型和分组，不取决于具体渠道？如果取决于渠道，只读检查只能放在选渠道之后，或接受一次估算。
-2. **组织占比的配置存放**：`Organization` 没有 `Setting` 字段，新增需要加列并走三库验证。候选方案是把占比写进 `Channel.Setting` 的映射（例如 `org_shares: {"<orgID>": 0.5}`），由管理员维护，不需要迁移。**已确认（2026-11-23）：采用后者，占比以整数百分比（1–100）存入 `Channel.Setting.rate_limit.org_shares`，键为组织 ID，不改表结构。**
+2. **组织占比的配置存放**：`Organization` 没有 `Setting` 字段，新增需要加列并走三库验证。候选方案是把占比写进 `Channel.Setting` 的映射（例如 `org_shares: {"<orgID>": 0.5}`），由管理员维护，不需要迁移。**推荐后者，待确认。**
 3. **用户层口径变化**：从成功计改为准入计，失败请求也会计数，正式环境的有效上限会变严格。需要确认是否接受，并决定迁移期的策略（例如先在本地和灰度环境观察）。
 4. **Redis 故障策略**：渠道层是 fail-open。用户层现在是 fail-closed（返回 500）。多层统一后，建议：容量保护面（渠道）fail-open；与鉴权相关的组织、用户层保持 fail-closed。**已确认（2026-11-20）。**
 5. **原子脚本的性能**：每个请求一次 EVAL，涉及 3 到 5 个 key。需要压测确认延迟和 Redis 负载。
 6. **（已取消，见 D5）分组覆盖的迁移语义**：现有配置如 `{"vip": [total, success]}` 的含义是"用户 × 分组"的两个上限。迁移为用户层的分组覆盖后，`total` 与 `success` 分别对应什么口径（准入计后两者是否还有区别）？
 7. **数据库变更**：当前设计不需要表结构变更。若组织占比的配置最终需要落表，必须按三库矩阵（SQLite / MySQL ≥ 5.7.8 / PostgreSQL ≥ 9.6）验证。
-8. **响应头**：已解决。Lua 返回剩余量，成功与拒绝响应都带 `x-ratelimit-*`。
+8. **响应头**：`x-ratelimit-*` 需要 Lua 返回剩余量，待定。
 9. **用户覆盖的存储（已按 D11 确定）**：覆盖数量可能很大，缓存的内存占用和刷新耗时需要在 Phase 3b 压测确认（见验收条件 14）。
 10. **组织总量的存储（已按 D11 确定）**：组织数量通常远少于用户，与用户覆盖共用同一张表。
 
@@ -245,176 +249,14 @@ Phase 0 已完成。Phase 1 的实施尚未开始。
 
 **已知缺口（Phase 1 之后处理）：**
 
-- 额度预扣失败发生在选渠道之后，此时请求已标记为到达上游，因此会保留准入计数。已在 Phase 5 解决，见下文。
+- 额度预扣失败发生在选渠道之后，此时请求已标记为到达上游，因此会保留准入计数。在 Phase 5 调整额度检查顺序后解决。
 - 总请求数的"释放并退还准入"路径，本地 E2E 无法验证（本地配置中总请求数上限关闭），只有单元测试覆盖。
 - Responses WebSocket 路径只做了代码审查，没有端到端测试。
 - 组织层不在 Phase 1 范围内，留给 Phase 2。分组共享池已取消（见 D5）。
 - `x-ratelimit-*` 响应头仍未实现（Lua 不返回剩余量）。
 
-## Phase 2 实施状态（2026-11-20）
-
-实施分支：`feature/org-total-rate-limit`，提交 `dbfbfa44d`，尚未合并。
-
-**已完成（后端）：**
-
-- 新表 `rate_limit_overrides`（D11），唯一索引为 `(subject_type, subject_id, group_name)`，启动时由 AutoMigrate 创建。
-- 组织总量在同一个 Lua 脚本里与用户层一起原子预占。脚本改为先检查全部维度、全部通过后才写入，组织拒绝时用户令牌不被扣减。释放时组织令牌同时退还。
-- 组织上限只计付费组织的请求（token 的 `BillingOrganizationId`），用户层关闭时组织上限仍然生效。
-- 内存缓存按 `SYNC_FREQUENCY` 刷新，本节点的修改立即生效。
-- root 专属接口：`GET`、`PUT /api/rate-limit-overrides/`、`DELETE /api/rate-limit-overrides/:subject_type/:subject_id`。个人访问令牌被拒绝。
-
-**验证结果：**
-
-- 迁移与 upsert 测试（`model/rate_limit_override_test.go`，同一测试在三种数据库上运行）：
-  - SQLite：通过。
-  - MySQL 8.0.46（WSL，本机回环 3317 端口，未使用 Windows 侧已有的 3306 实例）：通过。
-  - PostgreSQL 18.3（E2E 实例，临时数据库，测试结束后删除）：通过。
-- 升级检查：
-  - PostgreSQL：E2E 库中已有旧版本建的表，新版本启动正常，接口可用，表已存在。
-  - SQLite：用迁移前的构建建库，新构建启动两次，日志无错误，`rate_limit_overrides` 表和唯一索引存在，原有表保留。
-  - 注意：这里的"旧版本"是迁移前的开发构建，不是正式发布版本。
-- 中间件测试：组织上限在用户层关闭时生效；组织拒绝时不扣减用户令牌；释放时退还。内存和 Redis（miniredis 与真实 Redis）两种后端都通过。
-- 权限：非 root 管理员（role 10）调用接口返回 403。
-- 接口读写：设置、重复设置（upsert）、拒绝 0 和不存在的组织、删除，全部正常，删除后表中无残留。
-- `router` 包的访问令牌路由测试：新增的三条路由已声明为仅会话访问。该测试原有的 4 个失败与本次改动无关，在改动前就存在。
-
-**未完成或未验证：**
-
-- **前端**：已完成。root 在组织详情抽屉中设置、修改和移除组织上限；组织管理员在组织管理页顶部只读查看（仅管理员可见，成员看不到）。
-- **端到端组织流程**：已完成。root 新建一个测试组织和它的管理员，授予额度并建一个测试渠道，两个令牌（一个付费组织、一个个人）分别发请求。组织上限为 2 时：付费组织的请求依次为 200、200、429、429，429 的提示写明"组织"，并带有 `Retry-After: 60`；个人令牌的请求全部 200；移除上限后恢复 200。测试结束后删除测试渠道、令牌、上限和组织。
-- **最低支持版本**：MySQL 5.7.8 和 PostgreSQL 9.6 没有验证，本机没有对应版本的实例。
-- **多节点一致性**：刷新机制已实现，但没有在多节点上验证"一个周期内生效"。
-
-## Phase 5 实施状态（2026-11-20）
-
-实施分支：`feature/quota-check-order`，尚未合并。
-
-**已完成：**
-
-- 白名单前移（D9）：`TokenModelAccess` 中间件位于 `ModelRequestRateLimit` 之前，挂在 `/v1` 与 Gemini 中转路由。被模型白名单拒绝的请求不占用用户或组织准入，也不会因限速返回 429 而不是 403。`Distribute` 与中间件共用同一判断函数 `abortIfTokenModelDenied`。
-- 额度预扣失败释放：`PrepareRequestBilling` 失败时调用 `ReleaseChannelBudget` 退还渠道预算，并清除到达上游标记，使用户与组织准入随结算释放。
-
-**未完成：**
-
-- D8 的额度只读检查（选渠道之前或之后）未实施。实施需要拆分 `BillingSession`，需先确认方案。
-- 任务插件路由未挂载 `TokenModelAccess`：这些路由在限速之后才解析插件模型，Distribute 中的白名单检查仍然生效。
-
-**验证结果：**
-
-- `go build ./...` 通过。
-- `go test ./common -run 'RateLimit|Limiter'`、`./service -run 'ChannelBudget|ReleaseChannelBudget|SelectChannelWithBudget'`、`./middleware -run '<新增与既有限速、白名单相关用例>'` 均通过。
-- gofmt 对修改文件无输出。
-- 本阶段不涉及数据库结构，未执行三数据库矩阵。
-- E2E（本地后端，PostgreSQL `newapi_e2e`，Redis DB 14，分支构建）：
-  - 渠道预算：两个渠道各 2 次/60 秒，第 1–4 次成功，第 5 次 429，`Retry-After` 为 30；无预算的低优先级渠道未被使用。
-  - 额度预扣拒绝释放：4 次额度不足的请求（长 prompt，预扣估算 0.006，token 余额 0.000002）全部 403，上游命中 0；随后 4 次无限额度请求全部 200，两个渠道各 2 次，证明被拒绝的请求没有占用渠道预算。
-  - 未做反向对照（去掉释放逻辑后的失败对照）。
-
-**已知缺口：**
-
-- 请求校验失败（`GetAndValidateRequest` 之后的 400）与 `GenRelayInfo` 失败已修复：这些请求在进入中继前释放渠道预算与用户、组织准入。在本地后端上，修复前合法请求被无效请求占用的预算拒绝（429），修复后返回 200。
-
-## Phase 6 实施状态（2026-11-20）
-
-实施分支：`feature/rate-limit-scope-attribution`，提交 `02747a77c`，尚未合并。
-
-**已完成：**
-
-- 限速归因（D4）：
-  - 429 的错误体带 `rate_limited_scope`：用户层为 `user`，组织层为 `org`，渠道层为 `channel`。原有的 `code` 字段保持不变。
-  - 每次拒绝写入 policy event（`rate_limited_scope`、`error_code`、`decision.reason = rate_limited`）。
-  - 用户层与组织层的拒绝现在也写入网关错误日志，与渠道层一致。
-- 验证：
-  - 单元测试 `TestModelRateLimitRefusalNamesItsLayer` 覆盖用户与组织两种作用域，同时检查错误体和 policy event。
-  - 本地后端（重新构建，`ERROR_LOG_ENABLED=true`）上，渠道预算拒绝的错误体为 `rate_limited_scope: channel`，日志接口读回的事件包含相同的作用域。
-
-**未完成：**
-
-- `x-ratelimit-*` 响应头（决定：先做拒绝响应）：429 拒绝带 `x-ratelimit-limit` 与 `x-ratelimit-remaining: 0`。渠道预算拒绝另带 `x-ratelimit-reset`，即补充一个请求所需的准确时间。用户层与组织层的 `Retry-After` 已改为计算出的等待时间（第二步），不带 `x-ratelimit-reset`；成功量限制仍用窗口长度，是上限。成功响应也带 `x-ratelimit-limit` 与 `x-ratelimit-remaining`（取剩余请求数最少的一层），由 Lua 返回的剩余量得到，已实现（待核实事项 8 已解决）。
-- 限速总览页（只读）：已实现。`GET /api/rate-limit-overview/`（仅 root）按请求经过的顺序列出组织、用户、渠道的生效值，并由系统设置的限速页面展示。用户层显示生效值（用户覆盖优先，否则全局默认），见 Phase 3b。不写入任何数据。
-- 渠道重试路径的作用域：`controller/relay.go` 的 `getChannel` 在重试时产生的渠道拒绝，错误体还没有 `rate_limited_scope`。
-- 任务插件路由：`abortWithRateLimitedScope` 在任务插件路由上退回原有格式，因此不带作用域字段。
-
-**需要注意：**
-
-- 错误日志默认关闭（`ERROR_LOG_ENABLED=false`）。关闭时，限速拒绝的 policy event 不会被持久化。生产是否开启，需要单独确认。
-- 用户层与组织层的拒绝现在会写入错误日志，日志量与被拒请求数相同。
-
-## Phase 3b 实施状态（2026-11-23）
-
-实施分支：`feature/user-rate-limit-overrides`，尚未合并。
-
-**已完成：**
-
-- 用户覆盖使用 `rate_limit_overrides` 中 `subject_type = user` 的行。`total_count`、`success_count` 各自为 0 时沿用全局默认；两者都为 0 时拒绝保存，移除用删除接口。
-- 覆盖不受全局用户限速开关影响：全局关闭时，覆盖设置的一项仍然生效，未覆盖的一项为关闭。
-- 生效值由 `service.EffectiveUserRateLimits` 计算，中间件的用户层与限速总览页使用同一来源。
-- 表结构：新增 `success_count` 列（`int not null default 0`），由 AutoMigrate 添加；唯一索引不变。
-- 缓存：用户覆盖与组织总量在同一次 `RefreshRateLimitOverrides` 中加载，两者都读取成功后才替换，任一读取失败则保持两者的旧状态。
-- 管理接口：`GET`、`PUT`、`DELETE /api/user/:id/rate_limit_override`，挂在管理员用户路由下（`AdminAuth`）。规则与 `UpdateUser` 一致：管理员只能修改角色低于自己的用户，root 可修改任何用户。写入与移除写审计日志（`user.rate_limit_set`、`user.rate_limit_clear`）。
-- 用户编辑抽屉的"请求限制"区块：显示生效值，通过弹窗编辑或移除。无权限时编辑按钮禁用并说明原因。前端不嵌套 `<form>`，弹窗内只用按钮触发提交。
-- 限速总览页：去掉"用户层为全局值"的说明，显示用户的生效值。
-
-**验证结果：**
-
-- 单元与集成测试（SQLite）：
-  - `model`：`TestRateLimitOverrideMigrationUpsertAndDelete`、`TestRateLimitOverrideUserCountsRoundTrip`。
-  - `service`：`TestEffectiveUserRateLimitsResolveOverridesAgainstTheGlobalDefault`、`TestRefreshRateLimitOverridesLoadsUserAndOrganizationRows`。
-  - `middleware`：`TestModelRateLimitUserOverrideAppliesWithTheGlobalLimitOff`（内存与 miniredis 两种后端）。
-  - `controller`：`TestUserRateLimitOverrideRoleRulesAndValidation`（角色规则、取值范围、移除后缓存即时生效）。
-- 前端：`vitest` 覆盖 `users` 与限速总览相关的 11 个文件、43 个用例通过；`typecheck`、`lint` 通过；七种语言的 19 个文案键已写入，`i18n:sync` 无缺失与多余键。
-- 数据库：
-  - SQLite：通过。
-  - PostgreSQL 18.3（本机，测试在临时库中执行后删除）：模型与控制器测试通过。
-  - 升级检查：在旧结构（不含 `success_count`，且已有行）的表上启动两次迁移，原有行保留、`success_count` 为 0、唯一索引仍生效、用户覆盖可写入。PostgreSQL 与 SQLite 均通过。
-  - MySQL：**未运行**。本机没有可用的 MySQL 测试 DSN，因此不能声称三库兼容。
-- 升级基线说明：`rate_limit_overrides` 表从未进入正式发布版本（`main` 上不存在），升级检查的基线是迁移前的开发构建（`e2e9759c3`）的表结构，不是正式发布版本。
-- 规模（验收条件 14）：SQLite 中 10 万条用户覆盖，`RefreshRateLimitOverrides` 耗时约 257–300 ms，堆增量约 3.4 MiB。这是一次性测量，测量代码未提交。
-- 端到端（本地后端，PostgreSQL `newapi_e2e`，Redis DB 14，分支构建，节点 A 在 3300，节点 B 在 3301，`SYNC_FREQUENCY=5`）：
-  - root 设置用户总量为 2（全局用户限速关闭）：用户请求 200、200、429，拒绝的 `rate_limited_scope` 为 `user`，带 `Retry-After`；同时段无覆盖的对照用户 200、200、200。
-  - 限速总览页显示该用户的 `user_total` 生效值为 2。
-  - 非管理员读取其他用户的覆盖：HTTP 403。
-  - 多节点（验收条件 13）：在节点 A 设置对照用户的覆盖，等待一个同步周期后，节点 B 返回 200、200、429；在 A 移除后，等待一个周期，B 返回 200。
-  - root 移除覆盖后，用户请求恢复 200。
-  - 测试用的渠道与令牌已删除。测试用户无法通过 API 删除或禁用（需要 step-up 验证），已在 E2E 库中直接禁用，并保留其行。
-
-**未完成或未验证：**
-
-- MySQL 三库验证（见上），以及 MySQL 5.7.8、PostgreSQL 9.6 的最低版本验证。
-- 管理员（角色 10）调用接口的端到端：创建管理员账号需要 step-up 验证，本次未在端到端中走通；角色规则由控制器测试覆盖。
-- 前端浏览器交互（Playwright）未做，仅有组件测试。
-- 文案键 `User values are global until per-user overrides are available.` 已无引用，留待 `prune-unused-locale-keys` 计划统一清理。
-
-## Phase 4 实施状态（2026-11-23）
-
-实施分支：`feature/channel-org-share`，尚未合并。
-
-**已完成：**
-
-- 存储：`Channel.Setting.rate_limit.org_shares`，映射「组织 ID → 占比百分比（1–100）」。占比只在渠道预算启用时生效，关闭预算后保留。与待核实事项 2 的示例不同，这里用整数百分比而非小数 0.5，避免 `0.29 × 100` 之类的浮点取整误差。
-- 换算：每个窗口的占比请求数 = `max(1, 预算请求数 × 百分比 / 100)`。至少为 1，避免取整后配置了占比的组织被完全挡住。
-- 准入：只对带付费组织（token 的 `BillingOrganizationId`）的请求计算占比。占比桶先于渠道预算检查：占比超限时不占用渠道预算；渠道预算拒绝时归还已占用的占比，被渠道拒绝的请求不消耗组织的占比。
-- Redis 键 `rateLimit:channel:<id>:org:<orgID>`；内存路径相同；Redis 故障时沿用渠道预算的 fail-open。
-- 拒绝归因（D4）：占比拒绝的 `rate_limited_scope` 为 `channel_org_share`，渠道预算拒绝为 `channel`。选择错误携带作用域，分发器按它记录；严格会话的亲和渠道使用本次请求对该渠道的实际拒绝记录。
-- 响应头：占比拒绝时 `x-ratelimit-limit` 为占比请求数；准入时报告较紧的一层。
-- 前端：渠道编辑抽屉的「请求预算」区块中增加「组织占比」行（组织选择、百分比、删除）。校验：启用预算时每行必须选择组织，百分比须为 1–100 的整数，同一组织只能有一行。
-
-**验证结果：**
-
-- relaykit 独立构建：`cd relaykit && GOWORK=off go build ./...` 通过。
-- 后端：`go build ./...`、`go vet` 通过；`service`、`middleware`、`model` 测试通过。`service` 的渠道预算测试在真实 Redis（WSL，`127.0.0.1:6379`）上通过，包括占比的并发准入测试：12 个并发请求、占比 3，准入恰好 3 个（验收条件 5）。
-- 前端：typecheck、lint 通过；`channels` 目录的 32 个测试文件、377 个用例通过。新增 8 个文案键，七种语言同步，`i18n:sync` 无缺失与多余键。
-- 端到端（本地后端 3300，PostgreSQL `newapi_e2e`，Redis DB 14，分支构建）：渠道预算 10 次 / 60 秒，组织占比 30%。组织付费请求依次为 200、200、200、429、429，拒绝的作用域为 `channel_org_share`，`Retry-After` 为 20，`x-ratelimit-limit` 为 3；同时段的个人请求 200、200、200，不受占比影响。
-- 数据库：没有表结构变更，`Channel.Setting` 为既有 JSON 文本字段。未执行三库矩阵；MySQL 按用户指示暂不要求。
-
-**未完成或未验证：**
-
-- 限速总览页未展示各渠道的占比。
-- 占比不借用空闲容量（D7 明确不做）。
-- 严格会话的亲和渠道路径（`channel_select.go`）只有构建与代码审查，没有单独的测试。
-- 占比总和可以超过 100%：每个组织单独封顶，组织之间不互相借用。
-
 ## 验收条件
+
 1. 任一层拒绝时，其他层的计数全部保持不变（通过测试断言）。
 2. 渠道层拒绝时，组织、用户的预占全部释放。
 3. 在到达上游之前被拒绝的请求不计数；到达上游后失败的请求计数保留。

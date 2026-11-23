@@ -17,7 +17,7 @@ completed: 2026-11-20
 
 请求在选中渠道之后、占用渠道预算之前，先做一次额度只读检查。额度明显不足的请求在进入渠道预算和用户、组织准入之前就被拒绝，不占用任何计数。
 
-这是分层限速设计 D8 中尚未实施的部分，来源见 [分层限速设计](../todo/in-progress/rate-limit-layered-design.md)。
+这是分层限速设计 D8 中尚未实施的部分，来源见 [分层限速设计](../abandoned/rate-limit-layered-design.md)。
 
 ## 现状
 

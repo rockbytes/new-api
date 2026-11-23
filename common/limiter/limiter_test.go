@@ -2,6 +2,7 @@ package limiter
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
@@ -20,10 +21,15 @@ func useLimiterMiniRedis(t *testing.T) (*miniredis.Miniredis, *redis.Client) {
 	require.NoError(t, redisClient.Ping(context.Background()).Err())
 
 	instance = nil
+	once = sync.Once{}
 
 	t.Cleanup(func() {
 		_ = redisClient.Close()
 		instance = previousInstance
+		once = sync.Once{}
+		if previousInstance != nil {
+			once.Do(func() {})
+		}
 	})
 
 	return redisServer, redisClient
@@ -71,37 +77,4 @@ func TestAllowFallsBackToEvalAfterScriptFlush(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, exists, 1)
 	assert.True(t, exists[0])
-}
-
-// AllowWithRemaining reports the whole requests the bucket still holds after an admission.
-func TestAllowWithRemainingReportsWholeRequestsLeft(t *testing.T) {
-	ctx := context.Background()
-	_, redisClient := useLimiterMiniRedis(t)
-	redisLimiter := New(ctx, redisClient)
-
-	allowed, remaining, err := redisLimiter.AllowWithRemaining(ctx, "rateLimit:test-remaining", WithCapacity(300), WithRate(5), WithRequested(60))
-	require.NoError(t, err)
-	assert.True(t, allowed)
-	assert.Equal(t, int64(4), remaining, "a 300-token bucket holds 4 more requests of 60 tokens after one")
-}
-
-// A limiter built for one client must not be served to a later call that passes a
-// different client: the later limiter must run on its own server.
-func TestNewKeepsTheLimiterOfTheClientItIsGiven(t *testing.T) {
-	ctx := context.Background()
-	_, firstClient := useLimiterMiniRedis(t)
-	firstLimiter := New(ctx, firstClient)
-	require.Same(t, firstLimiter, New(ctx, firstClient), "the same client keeps its limiter")
-
-	secondServer := miniredis.RunT(t)
-	secondClient := redis.NewClient(&redis.Options{Addr: secondServer.Addr()})
-	t.Cleanup(func() { _ = secondClient.Close() })
-
-	secondLimiter := New(ctx, secondClient)
-	assert.Same(t, secondClient, secondLimiter.client)
-
-	allowed, err := secondLimiter.Allow(ctx, "rateLimit:test-second-client", WithCapacity(1), WithRate(1), WithRequested(1))
-	require.NoError(t, err)
-	assert.True(t, allowed)
-	assert.True(t, secondServer.Exists("rateLimit:test-second-client"), "the request must reach the second server")
 }

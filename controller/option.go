@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
@@ -312,6 +313,12 @@ func UpdateOption(c *gin.Context) {
 		err = ratio_setting.UpdateCreateCacheRatioByJSONString(option.Value.(string))
 		if err != nil {
 			common.ApiErrorT(c, "Failed to set the cache creation ratio: {{error}}", map[string]any{"error": err.Error()})
+			return
+		}
+	case "ModelRequestRateLimitGroup":
+		err = setting.CheckModelRequestRateLimitGroup(option.Value.(string))
+		if err != nil {
+			common.ApiError(c, err)
 			return
 		}
 	case "AutomaticDisableStatusCodes":

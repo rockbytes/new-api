@@ -167,9 +167,6 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.PUT("/", controller.UpdateUser)
 				adminRoute.DELETE("/:id", controller.DeleteUser)
 				adminRoute.DELETE("/:id/reset_passkey", controller.AdminResetPasskey)
-				adminRoute.GET("/:id/rate_limit_override", controller.GetUserRateLimitOverride)
-				adminRoute.PUT("/:id/rate_limit_override", controller.UpdateUserRateLimitOverride)
-				adminRoute.DELETE("/:id/rate_limit_override", controller.DeleteUserRateLimitOverride)
 
 				// Admin 2FA routes
 				adminRoute.GET("/2fa/stats", controller.Admin2FAStats)
@@ -246,22 +243,6 @@ func SetApiRouter(router *gin.Engine) {
 			customOAuthRoute.POST("/", controller.CreateCustomOAuthProvider)
 			customOAuthRoute.PUT("/:id", controller.UpdateCustomOAuthProvider)
 			customOAuthRoute.DELETE("/:id", controller.DeleteCustomOAuthProvider)
-		}
-
-		// Read-only view of the effective request limits of a subject (root only)
-		rateLimitOverviewRoute := apiRouter.Group("/rate-limit-overview")
-		rateLimitOverviewRoute.Use(middleware.RootAuth())
-		{
-			rateLimitOverviewRoute.GET("/", controller.GetRateLimitOverview)
-		}
-
-		// Request-limit overrides, such as an organization's total limit (root only)
-		rateLimitOverrideRoute := apiRouter.Group("/rate-limit-overrides")
-		rateLimitOverrideRoute.Use(middleware.RootAuth())
-		{
-			rateLimitOverrideRoute.GET("/", controller.GetRateLimitOverrides)
-			rateLimitOverrideRoute.PUT("/", controller.UpdateRateLimitOverride)
-			rateLimitOverrideRoute.DELETE("/:subject_type/:subject_id", controller.DeleteRateLimitOverride)
 		}
 		performanceRoute := apiRouter.Group("/performance")
 		performanceRoute.Use(middleware.RootAuth())

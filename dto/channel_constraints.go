@@ -40,9 +40,6 @@ const (
 	FilterTaskPluginEndpoint ChannelFilterKind = "task_plugin_endpoint"
 	FilterTaskPluginIdentity ChannelFilterKind = "task_plugin_identity"
 	FilterResponsesWebSocket ChannelFilterKind = "responses_websocket"
-	// FilterChannelRateLimited excludes channels that already spent their
-	// request budget for this request's attempt.
-	FilterChannelRateLimited ChannelFilterKind = "channel_rate_limited"
 )
 
 type ChannelFilter struct {
@@ -54,10 +51,6 @@ type ChannelFilter struct {
 	// TaskPluginRelayOnly excludes endpoint candidates after an ordinary relay
 	// channel wins selection, so retries keep using the same protocol handler.
 	TaskPluginRelayOnly bool
-	// ExcludeChannelIDs is the channel budget exclusion set for
-	// FilterChannelRateLimited. It is a plain membership test so candidate
-	// filtering can stay inside the channel cache lock.
-	ExcludeChannelIDs []int
 }
 
 type ChannelConstraints struct {

@@ -38,7 +38,6 @@ import {
   updateOrganizationName,
 } from '../api'
 import type { OrganizationMember } from '../types'
-import { OrganizationRequestLimitSection } from './organization-request-limit-section'
 
 type OrganizationDetailSheetProps = {
   organizationId: number | null
@@ -211,9 +210,6 @@ export function OrganizationDetailSheet(props: OrganizationDetailSheetProps) {
                   </Button>
                 </div>
               </section>
-              {organizationId !== null ? (
-                <OrganizationRequestLimitSection organizationId={organizationId} />
-              ) : null}
               <section className={sideDrawerSectionClassName()}>
                 <div className='flex flex-wrap items-center justify-between gap-2'>
                   <h3 className='text-sm font-medium'>{t('Members')}</h3>

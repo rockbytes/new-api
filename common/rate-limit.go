@@ -59,25 +59,6 @@ func (q *rateLimitQueue) clear() {
 	q.length = 0
 }
 
-// removeLast drops the most recent admission. The queue is singly linked, so
-// the walk runs from the head; a refund is rare, so this is acceptable.
-func (q *rateLimitQueue) removeLast() {
-	if q.tail == nil {
-		return
-	}
-	if q.head == q.tail {
-		q.clear()
-		return
-	}
-	previous := q.head
-	for previous.next != q.tail {
-		previous = previous.next
-	}
-	previous.next = nil
-	q.tail = previous
-	q.length--
-}
-
 // rateLimitEntry is both a rate-limit bucket and a node in the key-level LRU.
 type rateLimitEntry struct {
 	lastActive time.Time
@@ -167,43 +148,8 @@ func (l *InMemoryRateLimiter) touchEntry(key string, now time.Time) *rateLimitEn
 	return entry
 }
 
-// Refund returns the most recent admission for key. It is for a request that was
-// admitted but never reached the upstream, so it must not count against the window.
-func (l *InMemoryRateLimiter) Refund(key string) {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-
-	entry, ok := l.store[key]
-	if !ok {
-		return
-	}
-	entry.requests.removeLast()
-}
-
-// RetryAfter reports how many seconds until the oldest accepted request of key leaves
-// its window. Reservations hold slots that leave on their own, so while any are held the
-// window length is the only bound and is returned instead.
-func (l *InMemoryRateLimiter) RetryAfter(key string, duration int64) int64 {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-
-	entry, ok := l.store[key]
-	if !ok || l.reservations[key] > 0 || entry.requests.head == nil {
-		return duration
-	}
-	wait := entry.requests.head.timestamp + duration - time.Now().Unix()
-	return min(max(wait, 1), duration)
-}
-
 // Request parameter duration's unit is seconds
 func (l *InMemoryRateLimiter) Request(key string, maxRequestNum int, duration int64) bool {
-	allowed, _ := l.RequestRemaining(key, maxRequestNum, duration)
-	return allowed
-}
-
-// RequestRemaining is Request, and also reports how many requests the window still
-// allows after this one.
-func (l *InMemoryRateLimiter) RequestRemaining(key string, maxRequestNum int, duration int64) (bool, int64) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
@@ -216,7 +162,7 @@ func (l *InMemoryRateLimiter) RequestRemaining(key string, maxRequestNum int, du
 		entry.requests.append(now.Unix())
 	}
 
-	return allowed, int64(max(maxRequestNum-entry.requests.length, 0))
+	return allowed
 }
 
 // RateLimitReservation counts an active request towards admission until its
@@ -225,8 +171,6 @@ type RateLimitReservation struct {
 	limiter *InMemoryRateLimiter
 	key     string
 	once    sync.Once
-	// Remaining is how many requests the key still allows after this admission.
-	Remaining int
 }
 
 // Reserve admits a request when the key's accepted requests plus its in-flight
@@ -242,7 +186,7 @@ func (l *InMemoryRateLimiter) Reserve(key string, maxRequests int, duration int6
 		return nil
 	}
 	l.reservations[key]++
-	return &RateLimitReservation{limiter: l, key: key, Remaining: maxRequests - (entry.requests.length + l.reservations[key])}
+	return &RateLimitReservation{limiter: l, key: key}
 }
 
 // Complete releases the reservation. A successful outcome records the request

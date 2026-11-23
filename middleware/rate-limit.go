@@ -11,7 +11,6 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis/v8"
 )
 
 const redisRateLimitNamespace = "rateLimit:v2"
@@ -38,10 +37,6 @@ return {1, count, ttl}
 `
 
 var inMemoryRateLimiter common.InMemoryRateLimiter
-
-// redisFixedWindowRun sends the fixed-window script with EVALSHA, falling back to
-// EVAL only when Redis has not cached it yet.
-var redisFixedWindowRun = redis.NewScript(redisFixedWindowScript)
 
 var defNext = func(c *gin.Context) {
 	c.Next()
@@ -82,9 +77,9 @@ func redisFixedWindowTake(ctx context.Context, key string, maxRequestNum int, du
 		return false, 0, 0, errors.New("rate limit duration must be positive")
 	}
 
-	values, err := redisFixedWindowRun.Run(
+	values, err := common.RDB.Eval(
 		ctx,
-		common.RDB,
+		redisFixedWindowScript,
 		[]string{key},
 		maxRequestNum,
 		duration,

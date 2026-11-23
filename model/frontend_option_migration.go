@@ -16,10 +16,6 @@ const retiredThemeOptionKey = "theme.frontend"
 // are now granted per user group, so the stored value is no longer read.
 const retiredUserUsableGroupsOptionKey = "UserUsableGroups"
 
-// retiredModelRequestRateLimitGroupOptionKey is the per-group model request limit.
-// Rate limits no longer apply per group, so the stored value is no longer read.
-const retiredModelRequestRateLimitGroupOptionKey = "ModelRequestRateLimitGroup"
-
 type legacyOptionTransform func(string) (string, error)
 
 // MigrateRetiredFrontendOptions normalizes options that belonged to the

@@ -6,7 +6,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -70,13 +69,6 @@ func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewA
 	return err
 }
 
-// releaseRefusedBeforeUpstream returns the channel budget and the user and organization
-// admissions of a request that the relay refuses before it reaches the upstream.
-func releaseRefusedBeforeUpstream(c *gin.Context) {
-	service.ReleaseChannelBudget(c)
-	middleware.ClearModelRateLimitUpstreamReached(c)
-}
-
 func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	requestId := c.GetString(common.RequestIdKey)
@@ -130,7 +122,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	request, err := helper.GetAndValidateRequest(c, relayFormat)
 	if err != nil {
-		releaseRefusedBeforeUpstream(c)
 		// Map "request body too large" to 413 so clients can handle it correctly
 		if common.IsRequestBodyTooLargeError(err) || errors.Is(err, common.ErrRequestBodyTooLarge) {
 			newAPIError = types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusRequestEntityTooLarge, types.ErrOptionWithSkipRetry())
@@ -143,7 +134,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	relayInfo, err := relaycommon.GenRelayInfo(c, relayFormat, request, ws)
 	if err != nil {
-		releaseRefusedBeforeUpstream(c)
 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
 		return
 	}
@@ -169,9 +159,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	if newAPIError = relay.PrepareRequestBilling(c, relayInfo); newAPIError != nil {
-		// Quota pre-consume refused the request before the upstream. Return its
-		// channel budget and its user and organization admissions.
-		releaseRefusedBeforeUpstream(c)
 		service.RecordGatewayErrorLog(c, newAPIError)
 		return
 	}
@@ -329,26 +316,12 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		service.RequestPolicy(c).BeginAttempt(channel, info.UsingGroup)
 		return channel, nil
 	}
-	channel, selectGroup, selectErr := service.SelectChannelWithBudget(c, retryParam, func(retry *service.RetryParam) (*model.Channel, string, *service.ChannelSelectError) {
-		channel, group, err := service.CacheGetRandomSatisfiedChannel(retry)
-		if err != nil {
-			return nil, group, &service.ChannelSelectError{Message: err.Error()}
-		}
-		if channel == nil {
-			return nil, group, &service.ChannelSelectError{NoAvailableChannel: true}
-		}
-		return channel, group, nil
-	})
-	if selectErr != nil {
-		if selectErr.RetryAfterSeconds > 0 {
-			c.Header("Retry-After", strconv.FormatInt(selectErr.RetryAfterSeconds, 10))
-			middleware.SetChannelRateLimitHeaders(c, selectErr.RateLimitRequests, selectErr.RetryAfterSeconds)
-			return nil, types.NewErrorWithStatusCode(errors.New(i18n.T(c, selectErr.MessageID, selectErr.Params)), selectErr.Code, selectErr.StatusCode, types.ErrOptionWithSkipRetry())
-		}
-		if selectErr.NoAvailableChannel {
-			return nil, types.NewError(errors.New(i18n.T(c, i18n.MsgRelayRetryNoAvailableChannel, map[string]any{"Group": selectGroup, "Model": info.OriginModelName})), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
-		}
-		return nil, types.NewError(errors.New(i18n.T(c, i18n.MsgRelayRetryGetChannelFailed, map[string]any{"Group": selectGroup, "Model": info.OriginModelName, "Error": selectErr.Message})), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
+	if err != nil {
+		return nil, types.NewError(errors.New(i18n.T(c, i18n.MsgRelayRetryGetChannelFailed, map[string]any{"Group": selectGroup, "Model": info.OriginModelName, "Error": err.Error()})), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+	}
+	if channel == nil {
+		return nil, types.NewError(errors.New(i18n.T(c, i18n.MsgRelayRetryNoAvailableChannel, map[string]any{"Group": selectGroup, "Model": info.OriginModelName})), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)

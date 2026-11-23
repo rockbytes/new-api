@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -273,16 +272,6 @@ type ChannelSelectError struct {
 	// NoAvailableChannel marks the "no channel for this group and model"
 	// outcome so the distributor can name the claiming task plugin.
 	NoAvailableChannel bool
-	// RetryAfterSeconds is set when the channel request budget refused the
-	// request. It is the Retry-After hint for the client, in seconds.
-	RetryAfterSeconds int64
-	// RateLimitRequests is the request count of the limit that refused the request,
-	// reported as x-ratelimit-limit.
-	RateLimitRequests int64
-	// RateLimitedScope names the channel limit that refused the request: the channel
-	// budget (RateLimitScopeChannel) or one organization's share of it
-	// (RateLimitScopeChannelOrgShare).
-	RateLimitedScope string
 }
 
 // SelectChannelForRequest resolves the channel for one attempt with the rules
@@ -328,19 +317,6 @@ func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam
 			if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled {
 				affinitySatisfied, _ = model.ChannelSatisfiesFilters(preferred, modelName, constraints.Filters)
 			}
-			// A preferred channel that is only over its request budget keeps its
-			// affinity binding. Clearing it would drop the session's prompt-cache
-			// locality for a condition that clears on its own.
-			budgetExcluded := err == nil && preferred != nil &&
-				slices.ContainsFunc(constraints.Filters, func(f dto.ChannelFilter) bool {
-					return f.Kind == dto.FilterChannelRateLimited && slices.Contains(f.ExcludeChannelIDs, preferred.Id)
-				})
-			if budgetExcluded && RequestPolicy(c).SessionMode == "strict" {
-				// A strict session must stay on its channel, so it cannot move to
-				// another channel while this one is over budget. It gets the refusal the
-				// channel gave this request, so the scope names the limit that refused it.
-				return nil, "", channelBudgetExhaustedError(channelBudgetRefusalAt(c, preferred.Id))
-			}
 			if affinitySatisfied {
 				if usingGroup == "auto" {
 					userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
@@ -361,7 +337,7 @@ func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam
 					MarkChannelAffinityUsed(c, usingGroup, preferred.Id)
 				}
 			}
-			if !affinityUsable && !budgetExcluded && !ShouldKeepChannelAffinityOnChannelDisabled() {
+			if !affinityUsable && !ShouldKeepChannelAffinityOnChannelDisabled() {
 				ClearCurrentChannelAffinityCache(c)
 			}
 			if !affinityUsable && RequestPolicy(c).SessionMode == "strict" {

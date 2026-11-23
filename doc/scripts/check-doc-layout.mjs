@@ -19,6 +19,7 @@ const ALLOWED_DOC_ENTRIES = new Set([
   'scripts',
   'todo',
   'done',
+  'abandoned',
   'sdwan-architecture-layer.png',
   'sdwan-architecture-layer.svg',
 ]);
@@ -98,6 +99,10 @@ function validatePlanFile(rootDir, filePath, status, errors) {
     errors.push(`${relativeFilePath}: blocked documents require a non-empty 阻塞原因 or Blockers section`);
   }
 
+  if (status === 'abandoned' && !hasNonEmptySection(content, ['废弃原因', 'Abandonment'])) {
+    errors.push(`${relativeFilePath}: abandoned documents require a non-empty 废弃原因 or Abandonment section`);
+  }
+
   if (status === 'done') {
     if (!fields.completed) {
       errors.push(`${relativeFilePath}: done documents require a 'completed' field`);
@@ -171,6 +176,9 @@ export function checkDocLayout(rootDir = process.cwd()) {
   }
 
   validatePlanDirectory(displayRoot, join(docDirectory, 'done'), 'done', errors);
+  if (isDirectory(join(docDirectory, 'abandoned'))) {
+    validatePlanDirectory(displayRoot, join(docDirectory, 'abandoned'), 'abandoned', errors);
+  }
 
   return errors;
 }

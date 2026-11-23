@@ -144,25 +144,3 @@ export interface ManageUserQuotaPayload {
 // ============================================================================
 
 export type UsersDialogType = 'create' | 'update' | 'delete'
-
-// ============================================================================
-// Request Limits
-// ============================================================================
-
-// The request limits an administrator set for one user. A count of 0 in the
-// override inherits the global default; a count of 0 in the default or effective
-// values means that limit is off.
-export type UserRequestLimit = {
-  user_id: number
-  total_count: number
-  success_count: number
-  default_total: number
-  default_success: number
-  effective_total: number
-  effective_success: number
-}
-
-export type UserRequestLimitInput = {
-  total_count: number
-  success_count: number
-}

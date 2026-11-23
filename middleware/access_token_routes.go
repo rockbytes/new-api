@@ -121,9 +121,6 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"DELETE /api/user/:id/reset_passkey":               accessTokenScopeRule("user:write"),
 	"GET /api/user/2fa/stats":                          accessTokenScopeRule("user:read"),
 	"DELETE /api/user/:id/2fa":                         accessTokenScopeRule("user:write"),
-	"GET /api/user/:id/rate_limit_override":            accessTokenScopeRule("user:read"),
-	"PUT /api/user/:id/rate_limit_override":            accessTokenScopeRule("user:write"),
-	"DELETE /api/user/:id/rate_limit_override":         accessTokenScopeRule("user:write"),
 
 	// router/api-router.go: /api/subscription
 	"GET /api/subscription/plans":                                    accessTokenScopeRule("wallet:read"),
@@ -145,13 +142,6 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /api/subscription/admin/users/:id/subscriptions/reset":     accessTokenScopeRule("billing:write"),
 	"POST /api/subscription/admin/user_subscriptions/:id/invalidate": accessTokenScopeRule("billing:write"),
 	"DELETE /api/subscription/admin/user_subscriptions/:id":          accessTokenScopeRule("billing:write"),
-
-	// router/api-router.go: root-only request-limit overrides. Personal access
-	// tokens are refused, so only a root browser session can change a limit.
-	"GET /api/rate-limit-overrides/":                             accessTokenSessionRule,
-	"PUT /api/rate-limit-overrides/":                             accessTokenSessionRule,
-	"DELETE /api/rate-limit-overrides/:subject_type/:subject_id": accessTokenSessionRule,
-	"GET /api/rate-limit-overview/":                              accessTokenSessionRule,
 
 	// router/api-router.go: /api/option
 	"GET /api/option/":                                           accessTokenScopeRule("option:read"),

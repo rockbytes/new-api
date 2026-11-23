@@ -133,6 +133,30 @@ created: 2026-08-12
   }
 });
 
+test('requires a reason for abandoned documents', () => {
+  const root = createWorkspace();
+  try {
+    mkdirSync(join(root, 'doc/abandoned'), { recursive: true });
+    writeFileSync(
+      join(root, 'doc/abandoned/example-plan.md'),
+      `---
+title: Example Plan
+status: abandoned
+created: 2026-08-12
+---
+
+## Acceptance Criteria
+
+- The implementation is complete.
+`,
+    );
+
+    assert.match(checkDocLayout(root).join('\n'), /废弃原因|abandonment/i);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('rejects the legacy finish directory', () => {
   const root = createWorkspace();
   try {

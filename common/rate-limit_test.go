@@ -116,23 +116,6 @@ func TestInMemoryRateLimiterCleanupTicksEvictExpiredKeys(t *testing.T) {
 	assert.Zero(t, limiter.lru.Len())
 }
 
-// Refund gives back only the most recent admission, so a request that never
-// reached the upstream stops counting against the window.
-func TestInMemoryRateLimiterRefundReturnsLatestAdmission(t *testing.T) {
-	var limiter InMemoryRateLimiter
-	limiter.Init(0)
-
-	require.True(t, limiter.Request("client", 2, 60))
-	require.True(t, limiter.Request("client", 2, 60))
-	require.False(t, limiter.Request("client", 2, 60))
-
-	limiter.Refund("client")
-	assert.True(t, limiter.Request("client", 2, 60))
-	assert.False(t, limiter.Request("client", 2, 60))
-
-	limiter.Refund("unknown")
-}
-
 func TestInMemoryRateLimiterInitKeepsFirstConfiguration(t *testing.T) {
 	var limiter InMemoryRateLimiter
 	limiter.Init(time.Hour)

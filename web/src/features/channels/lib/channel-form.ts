@@ -10,8 +10,6 @@ import {
   CHANNEL_STATUS,
   ERROR_MESSAGES,
   FIELD_PASSTHROUGH_TYPES,
-  MAX_CHANNEL_RATE_LIMIT_REQUESTS,
-  MAX_CHANNEL_RATE_LIMIT_WINDOW_SECONDS,
   MODEL_FETCHABLE_TYPES,
   OPENAI_FIELD_PASSTHROUGH_TYPES,
 } from '../constants'
@@ -254,23 +252,6 @@ export const channelFormSchema = z
     http_protocol: z.enum(['auto', 'http1']).optional(),
     http2_connection_shards: z.number().int().optional(),
     tls_insecure_skip_verify: z.boolean().optional(),
-    // Request budget (stored in setting JSON). Edited by ChannelRateLimitSetting;
-    // checked in superRefine only while enabled, so a disabled budget keeps its values.
-    rate_limit: z
-      .object({
-        enabled: z.boolean().optional(),
-        requests: z.number().int().optional(),
-        duration_seconds: z.number().int().optional(),
-        org_shares: z
-          .array(
-            z.object({
-              organization_id: z.number().int().optional(),
-              percent: z.number().int().optional(),
-            })
-          )
-          .optional(),
-      })
-      .optional(),
     pass_through_body_enabled: z.boolean().optional(),
     responses_websocket_enabled: z.boolean().optional(),
     system_prompt: z.string().optional(),
@@ -322,68 +303,6 @@ export const channelFormSchema = z
       !data.task_plugin_key?.trim()
     ) {
       addRequiredIssue(ctx, 'task_plugin_key', 'Task plugin is required')
-    }
-
-    const budget = data.rate_limit
-    if (budget?.enabled) {
-      const requests = budget.requests
-      if (
-        requests === undefined ||
-        !Number.isInteger(requests) ||
-        requests < 1 ||
-        requests > MAX_CHANNEL_RATE_LIMIT_REQUESTS
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['rate_limit', 'requests'],
-          message: ERROR_MESSAGES.INVALID_RATE_LIMIT_REQUESTS,
-        })
-      }
-      const windowSeconds = budget.duration_seconds
-      if (
-        windowSeconds === undefined ||
-        !Number.isInteger(windowSeconds) ||
-        windowSeconds < 1 ||
-        windowSeconds > MAX_CHANNEL_RATE_LIMIT_WINDOW_SECONDS
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['rate_limit', 'duration_seconds'],
-          message: ERROR_MESSAGES.INVALID_RATE_LIMIT_WINDOW,
-        })
-      }
-
-      const seenOrganizations = new Set<number>()
-      for (const [index, row] of (budget.org_shares ?? []).entries()) {
-        if (!row.organization_id) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['rate_limit', 'org_shares', index, 'organization_id'],
-            message: ERROR_MESSAGES.MISSING_ORG_SHARE_ORGANIZATION,
-          })
-        } else if (seenOrganizations.has(row.organization_id)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['rate_limit', 'org_shares', index, 'organization_id'],
-            message: ERROR_MESSAGES.DUPLICATE_ORG_SHARE,
-          })
-        } else {
-          seenOrganizations.add(row.organization_id)
-        }
-        const percent = row.percent
-        if (
-          percent === undefined ||
-          !Number.isInteger(percent) ||
-          percent < 1 ||
-          percent > 100
-        ) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['rate_limit', 'org_shares', index, 'percent'],
-            message: ERROR_MESSAGES.INVALID_ORG_SHARE_PERCENT,
-          })
-        }
-      }
     }
 
     if (data.type === CHANNEL_TYPE_ADVANCED_CUSTOM) {
@@ -578,7 +497,6 @@ export function transformChannelToFormDefaults(
     responses_websocket_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
-    rate_limit: undefined as ChannelRateLimitFormValue | undefined,
   }
 
   if (channel.setting) {
@@ -602,7 +520,6 @@ export function transformChannelToFormDefaults(
           parsed.responses_websocket_enabled === true,
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
-        rate_limit: readRateLimitFormValue(parsed.rate_limit),
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -718,75 +635,6 @@ export function transformChannelToFormDefaults(
   }
 }
 
-type ChannelRateLimitSetting = {
-  enabled?: boolean
-  requests?: number
-  duration_seconds?: number
-  // Stored form: organization ID -> percentage of the budget.
-  org_shares?: Record<string, number>
-}
-
-// The form edits one organization share per row. The stored setting keeps the same
-// shares as a map keyed by organization ID.
-export type OrganizationShareRow = {
-  organization_id?: number
-  percent?: number
-}
-
-type ChannelRateLimitFormValue = {
-  enabled?: boolean
-  requests?: number
-  duration_seconds?: number
-  org_shares?: OrganizationShareRow[]
-}
-
-function readRateLimitFormValue(
-  stored: ChannelRateLimitSetting | undefined
-): ChannelRateLimitFormValue | undefined {
-  if (!stored) return undefined
-  return {
-    enabled: stored.enabled,
-    requests: stored.requests,
-    duration_seconds: stored.duration_seconds,
-    org_shares: readOrganizationShareRows(stored.org_shares),
-  }
-}
-
-function buildRateLimitSetting(
-  formValue: ChannelRateLimitFormValue | undefined
-): ChannelRateLimitSetting | undefined {
-  if (!formValue) return undefined
-  return {
-    enabled: formValue.enabled,
-    requests: formValue.requests,
-    duration_seconds: formValue.duration_seconds,
-    org_shares: buildOrganizationShareMap(formValue.org_shares),
-  }
-}
-
-export function readOrganizationShareRows(
-  shares: Record<string, number> | undefined
-): OrganizationShareRow[] {
-  return Object.entries(shares ?? {}).map(([organizationId, percent]) => ({
-    organization_id: Number(organizationId),
-    percent,
-  }))
-}
-
-// Rows that are not complete are left out; the form schema refuses them while the
-// budget is enabled, so they can only be dropped while it is off.
-export function buildOrganizationShareMap(
-  rows: OrganizationShareRow[] | undefined
-): Record<string, number> | undefined {
-  const shares: Record<string, number> = {}
-  for (const row of rows ?? []) {
-    if (row.organization_id && row.percent) {
-      shares[String(row.organization_id)] = row.percent
-    }
-  }
-  return Object.keys(shares).length > 0 ? shares : undefined
-}
-
 /**
  * Build the setting JSON string from form extra settings
  */
@@ -810,7 +658,6 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
       formData.responses_websocket_enabled === true,
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
-    rate_limit: buildRateLimitSetting(formData.rate_limit),
   }
 
   const protocol = normalizeHttpProtocol(formData.http_protocol)

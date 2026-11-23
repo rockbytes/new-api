@@ -40,31 +40,6 @@ func requireOptionMissing(t *testing.T, db *gorm.DB, key string) {
 	assert.ErrorIs(t, db.Where(&Option{Key: key}).First(&option).Error, gorm.ErrRecordNotFound)
 }
 
-// A group rate limit stored by an earlier version is retired: loading it must not
-// put it back into the in-memory options, so the options API does not list it.
-func TestRetiredModelRequestRateLimitGroupOptionIsNotLoaded(t *testing.T) {
-	common.OptionMapRWMutex.Lock()
-	previous, hadPrevious := common.OptionMap["ModelRequestRateLimitGroup"]
-	delete(common.OptionMap, "ModelRequestRateLimitGroup")
-	common.OptionMapRWMutex.Unlock()
-	t.Cleanup(func() {
-		common.OptionMapRWMutex.Lock()
-		defer common.OptionMapRWMutex.Unlock()
-		if hadPrevious {
-			common.OptionMap["ModelRequestRateLimitGroup"] = previous
-			return
-		}
-		delete(common.OptionMap, "ModelRequestRateLimitGroup")
-	})
-
-	require.NoError(t, updateOptionMap("ModelRequestRateLimitGroup", "{}"))
-
-	common.OptionMapRWMutex.RLock()
-	_, loaded := common.OptionMap["ModelRequestRateLimitGroup"]
-	common.OptionMapRWMutex.RUnlock()
-	assert.False(t, loaded, "a retired option must not be loaded into the options map")
-}
-
 func TestMigrateRetiredFrontendOptionsMigratesValidValuesIdempotently(t *testing.T) {
 	db := useFrontendOptionMigrationDB(t)
 	legacy := []Option{

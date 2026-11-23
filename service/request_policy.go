@@ -1,10 +1,7 @@
 package service
 
 import (
-	"errors"
-	"net/http"
 	"slices"
-	"strconv"
 	"sync"
 	"time"
 
@@ -36,43 +33,6 @@ type PolicyEvent struct {
 	ElapsedMS   int64          `json:"elapsed_ms"`
 	Decision    PolicyDecision `json:"decision"`
 	Health      string         `json:"health,omitempty"`
-	// RateLimitedScope names the rate limit layer that refused the request.
-	RateLimitedScope string `json:"rate_limited_scope,omitempty"`
-}
-
-// Rate limit scopes name the layer that refused a request (design D4).
-const (
-	RateLimitScopeUser         = "user"
-	RateLimitScopeOrganization = "org"
-	RateLimitScopeChannel      = "channel"
-	// RateLimitScopeChannelOrgShare is the channel budget share of one organization.
-	RateLimitScopeChannelOrgShare = "channel_org_share"
-)
-
-// SetRateLimitRemaining reports the limit of the layer that admitted a request and how
-// many requests that layer still allows in its window.
-func SetRateLimitRemaining(c *gin.Context, limit int64, remaining int64) {
-	c.Header("x-ratelimit-limit", strconv.FormatInt(limit, 10))
-	c.Header("x-ratelimit-remaining", strconv.FormatInt(remaining, 10))
-}
-
-// RecordRateLimitRefusal records a refusal by a rate limit layer as a policy event and
-// as a gateway error log, so the refusing layer is visible to administrators.
-func RecordRateLimitRefusal(c *gin.Context, scope string, errorCode types.ErrorCode, message string) {
-	RecordRateLimitRefusalEvent(c, scope, errorCode)
-	RecordGatewayErrorLog(c, types.NewErrorWithStatusCode(errors.New(message), errorCode, http.StatusTooManyRequests, types.ErrOptionWithSkipRetry()))
-}
-
-// RecordRateLimitRefusalEvent records a refusal by a rate limit layer as a policy
-// event, so the decision flow in the log details names the refusing layer.
-func RecordRateLimitRefusalEvent(c *gin.Context, scope string, errorCode types.ErrorCode) {
-	RequestPolicy(c).AddEvent(PolicyEvent{
-		Status:           http.StatusTooManyRequests,
-		ErrorCode:        string(errorCode),
-		ErrorSource:      "local",
-		RateLimitedScope: scope,
-		Decision:         PolicyDecision{Action: "stop", Reason: "rate_limited", Source: scope},
-	})
 }
 
 // RequestPolicyState records how one request was routed so administrators can

@@ -10,7 +10,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
@@ -68,9 +67,6 @@ type organizationSelfResponse struct {
 	Role         string              `json:"role"`
 	Status       string              `json:"status"`
 	Permissions  []string            `json:"permissions"`
-	// RequestLimit is the organization's total request limit per window. It is
-	// set only for organization administrators, and 0 means no limit.
-	RequestLimit int `json:"request_limit"`
 }
 
 // writeOrganizationError responds with a stable code and a message key. The web
@@ -291,16 +287,12 @@ func GetOrganizationSelf(c *gin.Context) {
 		respondOrganizationError(c, err)
 		return
 	}
-	response := organizationSelfResponse{
+	common.ApiSuccess(c, organizationSelfResponse{
 		Organization: organization,
 		Role:         membership.Role,
 		Status:       membership.Status,
 		Permissions:  authz.OrganizationRolePermissions(membership.Role),
-	}
-	if membership.Role == model.OrganizationRoleAdmin {
-		response.RequestLimit = service.OrganizationTotalRateLimit(organization.Id)
-	}
-	common.ApiSuccess(c, response)
+	})
 }
 
 func ListOrganizationMembers(c *gin.Context) {

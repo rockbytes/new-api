@@ -318,11 +318,6 @@ export const MULTI_KEY_CONFIRM_MESSAGES = {
 // Error / Success Messages (i18n keys: use t(ERROR_MESSAGES.xxx) when displaying)
 // ============================================================================
 
-export const MAX_CHANNEL_RATE_LIMIT_WINDOW_SECONDS = 24 * 60 * 60
-
-// The backend bounds requests so that requests * window fits in int64 (math.MaxInt64 / one day).
-export const MAX_CHANNEL_RATE_LIMIT_REQUESTS = 106751991167300
-
 export const ERROR_MESSAGES = {
   REQUIRED_NAME: 'Channel name is required',
   REQUIRED_TYPE: 'Channel type is required',
@@ -338,13 +333,6 @@ export const ERROR_MESSAGES = {
     'HTTP/2 connection shards must be between 1 and 8',
   INVALID_HTTP1_WITH_SHARDS:
     'HTTP/2 connection shards must be 1 when HTTP/1.1 is selected',
-  INVALID_RATE_LIMIT_REQUESTS:
-    'Requests per window must be a whole number from 1 to 106751991167300',
-  INVALID_RATE_LIMIT_WINDOW:
-    'Window must be a whole number of seconds from 1 to 86400',
-  INVALID_ORG_SHARE_PERCENT: 'Share must be a whole number from 1 to 100',
-  MISSING_ORG_SHARE_ORGANIZATION: 'Select an organization for each share',
-  DUPLICATE_ORG_SHARE: 'Each organization can have one share',
   CREATE_FAILED: 'Failed to create channel',
   UPDATE_FAILED: 'Failed to update channel',
   DELETE_FAILED: 'Failed to delete channel',

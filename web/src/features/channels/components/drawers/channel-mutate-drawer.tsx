@@ -214,7 +214,6 @@ import {
   type ModelMappingDraftRequest,
 } from '../model-mapping-editor'
 import { ModelRedirectPanel } from '../model-redirect-panel'
-import { ChannelRateLimitSetting } from '../channel-rate-limit-setting'
 import { ResponsesWebSocketSetting } from '../responses-websocket-setting'
 import { UpstreamModelSelection } from '../upstream-model-selection'
 import {
@@ -4736,9 +4735,6 @@ export function ChannelMutateDrawer({
               >
                 <ResponsesWebSocketSetting
                   channelType={currentType}
-                  disabled={sensitiveLocked || isSubmitting}
-                />
-                <ChannelRateLimitSetting
                   disabled={sensitiveLocked || isSubmitting}
                 />
                 {formatFields}

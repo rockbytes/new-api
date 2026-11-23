@@ -382,7 +382,6 @@ func migrateDB() error {
 		&OrganizationQuotaAccount{},
 		&OrganizationMemberQuota{},
 		&OrganizationQuotaLedgerEntry{},
-		&RateLimitOverride{},
 	)
 	if err != nil {
 		return err

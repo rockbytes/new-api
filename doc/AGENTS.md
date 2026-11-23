@@ -19,6 +19,7 @@ workflow and document format.
 - When blocked, move the plan to `todo/blocked/` and record the blocker.
 - When the blocker is resolved, move the plan back to `todo/in-progress/`.
 - Move a plan to `done/` only after its acceptance criteria are satisfied and verification is complete.
+- A plan that will not be executed moves to `abandoned/` with `status: abandoned` and a non-empty 废弃原因 or Abandonment section. Abandoned plans are kept as history and are not executed.
 - The plan's `status` frontmatter must match its directory.
 - Move documents instead of creating duplicate copies, and update relative links when a document is moved.
 

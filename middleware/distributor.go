@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -35,7 +34,11 @@ type ModelRequest struct {
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var channel *model.Channel
-		defer recordDistributeRejection(c)
+		defer func() {
+			if c.Writer.Status() >= 400 {
+				service.RecordRequestPolicyTermination(c, types.NewErrorWithStatusCode(errors.New("request rejected"), types.ErrorCodeInvalidRequest, c.Writer.Status(), types.ErrOptionWithSkipRetry()))
+			}
+		}()
 		constraints := service.GetChannelConstraints(c)
 		constraints.AddFilter(taskdto.ChannelFilter{
 			Kind:        taskdto.FilterRequestPath,
@@ -51,8 +54,24 @@ func Distribute() func(c *gin.Context) {
 		_, pinned, _ := constraints.ResolvedPin()
 		if !pinned {
 			// Select a channel for the user
-			if abortIfTokenModelDenied(c, modelRequest.Model) {
-				return
+			// check token model mapping
+			modelLimitEnable := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
+			if modelLimitEnable {
+				s, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
+				if !ok {
+					// token model limit is empty, all models are not allowed
+					abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorTokenNoModelAccess))
+					return
+				}
+				var tokenModelLimit map[string]bool
+				tokenModelLimit, ok = s.(map[string]bool)
+				if !ok {
+					tokenModelLimit = map[string]bool{}
+				}
+				if !TokenModelLimitAllows(tokenModelLimit, modelRequest.Model) {
+					abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorTokenModelForbidden, map[string]any{"Model": modelRequest.Model}))
+					return
+				}
 			}
 
 			if shouldSelectChannel {
@@ -91,14 +110,12 @@ func Distribute() func(c *gin.Context) {
 				}
 			}
 			if channel == nil {
-				channel, _, selectErr = service.SelectChannelWithBudget(c, &service.RetryParam{
+				channel, _, selectErr = service.SelectChannelForRequest(c, modelRequest.Model, &service.RetryParam{
 					Ctx:         c,
 					ModelName:   modelRequest.Model,
 					TokenGroup:  usingGroup,
 					RequestPath: c.Request.URL.Path,
 					Retry:       common.GetPointer(0),
-				}, func(retry *service.RetryParam) (*model.Channel, string, *service.ChannelSelectError) {
-					return service.SelectChannelForRequest(c, modelRequest.Model, retry)
 				})
 			}
 			if selectErr != nil {
@@ -111,84 +128,18 @@ func Distribute() func(c *gin.Context) {
 				} else if selectErr.MessageID != "" {
 					message = i18n.T(c, selectErr.MessageID, selectErr.Params)
 				}
-				if selectErr.FilterKind == taskdto.FilterChannelRateLimited {
-					service.RecordRateLimitRefusalEvent(c, selectErr.RateLimitedScope, selectErr.Code)
-				}
 				service.RecordGatewayErrorLog(c, types.NewErrorWithStatusCode(errors.New(message), selectErr.Code, selectErr.StatusCode))
-				if selectErr.RetryAfterSeconds > 0 {
-					c.Header("Retry-After", strconv.FormatInt(selectErr.RetryAfterSeconds, 10))
-				}
-				if selectErr.FilterKind == taskdto.FilterChannelRateLimited {
-					SetChannelRateLimitHeaders(c, selectErr.RateLimitRequests, selectErr.RetryAfterSeconds)
-					abortWithRateLimitedScope(c, selectErr.StatusCode, message, selectErr.Code, selectErr.RateLimitedScope)
-					return
-				}
 				abortWithOpenAiMessage(c, selectErr.StatusCode, message, selectErr.Code)
 				return
 			}
 		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
-		if setupErr := SetupContextForSelectedChannel(c, channel, modelRequest.Model); setupErr == nil {
-			MarkModelRateLimitUpstreamReached(c)
-		}
+		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
 		c.Next()
 		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest {
 			service.RecordChannelAffinity(c, channel.Id)
 		}
 	}
-}
-
-// recordDistributeRejection records the policy termination of a request refused
-// before channel selection, whether by Distribute or by TokenModelAccess.
-func recordDistributeRejection(c *gin.Context) {
-	if c.Writer.Status() >= 400 {
-		service.RecordRequestPolicyTermination(c, types.NewErrorWithStatusCode(errors.New("request rejected"), types.ErrorCodeInvalidRequest, c.Writer.Status(), types.ErrOptionWithSkipRetry()))
-	}
-}
-
-// TokenModelAccess refuses a request whose token may not use the requested model.
-// It runs before ModelRequestRateLimit, so a refused request takes no admission.
-// A request whose model cannot be read is left to Distribute, which reports it.
-func TokenModelAccess() func(c *gin.Context) {
-	return func(c *gin.Context) {
-		if _, pinned, _ := service.GetChannelConstraints(c).ResolvedPin(); pinned {
-			c.Next()
-			return
-		}
-		modelRequest, _, err := getModelRequest(c)
-		if err != nil {
-			c.Next()
-			return
-		}
-		if abortIfTokenModelDenied(c, modelRequest.Model) {
-			recordDistributeRejection(c)
-			return
-		}
-		c.Next()
-	}
-}
-
-// abortIfTokenModelDenied aborts with 403 when the request's token may not use
-// model. It reports whether it aborted.
-func abortIfTokenModelDenied(c *gin.Context, model string) bool {
-	if !common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled) {
-		return false
-	}
-	s, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
-	if !ok {
-		// token model limit is empty, all models are not allowed
-		abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorTokenNoModelAccess))
-		return true
-	}
-	tokenModelLimit, ok := s.(map[string]bool)
-	if !ok {
-		tokenModelLimit = map[string]bool{}
-	}
-	if !TokenModelLimitAllows(tokenModelLimit, model) {
-		abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorTokenModelForbidden, map[string]any{"Model": model}))
-		return true
-	}
-	return false
 }
 
 // noAvailableChannelMessage explains a 503 for a task-plugin-claimed model.
