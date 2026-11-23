@@ -168,7 +168,7 @@ completed:
   - 6：只覆盖"释放预算"路径；不写亲和缓存、不触发自动禁用未单独验证。
   - 10：已验证（本次）。
   - 7：已实现（Phase 6，分支 `feature/rate-limit-scope-attribution`）。拒绝写入 policy event，带 `rate_limited_scope: channel`、错误码 `channel_rate_limited` 与 `decision.reason: rate_limited`；在开启错误日志的本地后端上，从日志接口读回事件验证。
-  - 5：未实现。`x-ratelimit-*` 响应头依赖待核实事项 8，属于 Phase 6 的剩余部分。
+  - 5：部分实现（Phase 6）。渠道预算拒绝带 `x-ratelimit-limit`、`x-ratelimit-remaining: 0` 与 `x-ratelimit-reset`，reset 是补充一个请求所需的准确时间，与 `Retry-After` 相同。用户层与组织层拒绝的 `Retry-After` 是计算出的等待时间：令牌桶（Redis）按补足所需令牌的时间算，内存限流器按最早一条记录离开窗口的时间算（有在途预占时退回窗口长度）；成功量限制仍为窗口长度，是上限。成功响应的 `x-ratelimit-*` 头需要 Lua 返回剩余量，尚未实现（待核实事项 8）。
   - 8：未验证。auto 分组下因限流换渠道后的跨档索引没有测试。
   - 因 5、8 未完成，本文档保持 `in-progress`。
 

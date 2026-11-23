@@ -47,7 +47,9 @@ const (
 // ARGV[4] total max      ARGV[5] total capacity   ARGV[6] total rate
 // ARGV[7] requested      ARGV[8] reservation id   ARGV[9] in-flight TTL
 // ARGV[10] organization max  ARGV[11] organization capacity  ARGV[12] organization rate
-// Returns {allowed, scope}: scope 1 = success, 2 = user total, 3 = organization total.
+// Returns {allowed, scope, retryAfter}: scope 1 = success, 2 = user total, 3 = organization
+// total. retryAfter is in seconds: for a token bucket, the time until it holds the tokens the
+// request needs; for the success limit, the window (its in-flight requests are not predictable).
 const modelRateLimitReserveScript = `
 local now = tonumber(ARGV[1])
 local window = tonumber(ARGV[2])
@@ -75,20 +77,20 @@ redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now - inflightTTL)
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - window)
 
 if successMax > 0 and redis.call('ZCARD', KEYS[1]) + redis.call('ZCARD', KEYS[2]) >= successMax then
-  return {0, 1}
+  return {0, 1, window}
 end
 
 local totalTokens, orgTokens = 0, 0
 if totalMax > 0 then
   totalTokens = refill(KEYS[3], totalCapacity, totalRate)
   if totalTokens < requested then
-    return {0, 2}
+    return {0, 2, math.max(1, math.ceil((requested - totalTokens) / totalRate))}
   end
 end
 if orgMax > 0 then
   orgTokens = refill(KEYS[4], orgCapacity, orgRate)
   if orgTokens < requested then
-    return {0, 3}
+    return {0, 3, math.max(1, math.ceil((requested - orgTokens) / orgRate))}
   end
 end
 
@@ -106,6 +108,13 @@ if successMax > 0 then
 end
 return {1, 0}
 `
+
+// The scripts are loaded once as go-redis Scripts. Run sends EVALSHA and falls back
+// to EVAL only when Redis has not cached the script yet (NOSCRIPT).
+var (
+	modelRateLimitReserve = redis.NewScript(modelRateLimitReserveScript)
+	modelRateLimitSettle  = redis.NewScript(modelRateLimitSettleScript)
+)
 
 // modelRateLimitSettleScript ends a reservation. It always removes the in-flight
 // slot. A success is recorded only when requested. A release returns the
@@ -205,7 +214,7 @@ type redisModelRateLimitReservation struct {
 }
 
 func (r *redisModelRateLimitReservation) settle(record bool, refund bool) {
-	err := r.rdb.Eval(context.Background(), modelRateLimitSettleScript,
+	err := modelRateLimitSettle.Run(context.Background(), r.rdb,
 		[]string{r.successKey, r.inflightKey, r.totalKey, r.orgKey},
 		float64(time.Now().UnixNano())/1e9,
 		r.window, r.id,
@@ -235,14 +244,14 @@ func boolFlag(value bool) string {
 }
 
 // reserveRedisModelRequest admits one request against the user limits only.
-func reserveRedisModelRequest(rdb *redis.Client, subject string, duration int64, totalMaxCount, successMaxCount int, now time.Time) (*redisModelRateLimitReservation, modelRateLimitScope, error) {
+func reserveRedisModelRequest(rdb *redis.Client, subject string, duration int64, totalMaxCount, successMaxCount int, now time.Time) (*redisModelRateLimitReservation, modelRateLimitScope, int64, error) {
 	return reserveRedisModelRequestWithOrganization(rdb, subject, duration, totalMaxCount, successMaxCount, 0, 0, now)
 }
 
 // reserveRedisModelRequestWithOrganization admits one request against the user
 // limits and, when organizationMax is positive, the organization's total limit.
 // All of them are checked and reserved by one script.
-func reserveRedisModelRequestWithOrganization(rdb *redis.Client, subject string, duration int64, totalMaxCount, successMaxCount int, organizationId int, organizationMax int, now time.Time) (*redisModelRateLimitReservation, modelRateLimitScope, error) {
+func reserveRedisModelRequestWithOrganization(rdb *redis.Client, subject string, duration int64, totalMaxCount, successMaxCount int, organizationId int, organizationMax int, now time.Time) (*redisModelRateLimitReservation, modelRateLimitScope, int64, error) {
 	reservation := &redisModelRateLimitReservation{
 		rdb:          rdb,
 		successKey:   fmt.Sprintf("rateLimit:v3:model:success:%s", subject),
@@ -258,7 +267,7 @@ func reserveRedisModelRequestWithOrganization(rdb *redis.Client, subject string,
 	}
 	reservation.userCapacity = rateLimitCapacity(totalMaxCount, duration)
 	reservation.orgCapacity = rateLimitCapacity(organizationMax, duration)
-	result, err := rdb.Eval(context.Background(), modelRateLimitReserveScript,
+	result, err := modelRateLimitReserve.Run(context.Background(), rdb,
 		[]string{reservation.successKey, reservation.inflightKey, reservation.totalKey, reservation.orgKey},
 		float64(now.UnixNano())/1e9,
 		duration, successMaxCount, totalMaxCount, reservation.userCapacity, int64(totalMaxCount), reservation.requested,
@@ -266,29 +275,36 @@ func reserveRedisModelRequestWithOrganization(rdb *redis.Client, subject string,
 		organizationMax, reservation.orgCapacity, int64(organizationMax),
 	).Slice()
 	if err != nil {
-		return nil, modelRateLimitAllowed, err
+		return nil, modelRateLimitAllowed, 0, err
 	}
-	if len(result) != 2 {
-		return nil, modelRateLimitAllowed, fmt.Errorf("unexpected model rate limit reply length %d", len(result))
+	if len(result) != 2 && len(result) != 3 {
+		return nil, modelRateLimitAllowed, 0, fmt.Errorf("unexpected model rate limit reply length %d", len(result))
 	}
 	allowed, err := redisReplyInteger(result[0])
 	if err != nil {
-		return nil, modelRateLimitAllowed, err
+		return nil, modelRateLimitAllowed, 0, err
 	}
 	if allowed == 1 {
-		return reservation, modelRateLimitAllowed, nil
+		return reservation, modelRateLimitAllowed, 0, nil
+	}
+	retryAfter := int64(0)
+	if len(result) == 3 {
+		retryAfter, err = redisReplyInteger(result[2])
+		if err != nil {
+			return nil, modelRateLimitAllowed, 0, err
+		}
 	}
 	scope, err := redisReplyInteger(result[1])
 	if err != nil {
-		return nil, modelRateLimitAllowed, err
+		return nil, modelRateLimitAllowed, 0, err
 	}
 	switch scope {
 	case 2:
-		return nil, modelRateLimitTotalDenied, nil
+		return nil, modelRateLimitTotalDenied, retryAfter, nil
 	case 3:
-		return nil, modelRateLimitOrganizationDenied, nil
+		return nil, modelRateLimitOrganizationDenied, retryAfter, nil
 	default:
-		return nil, modelRateLimitSuccessDenied, nil
+		return nil, modelRateLimitSuccessDenied, retryAfter, nil
 	}
 }
 
@@ -312,14 +328,14 @@ func (r *memoryModelRateLimitReservation) release() {
 }
 
 // reserveMemoryModelRequest admits one request against the user limits only.
-func reserveMemoryModelRequest(subject string, duration int64, totalMaxCount, successMaxCount int) (*memoryModelRateLimitReservation, modelRateLimitScope) {
+func reserveMemoryModelRequest(subject string, duration int64, totalMaxCount, successMaxCount int) (*memoryModelRateLimitReservation, modelRateLimitScope, int64) {
 	return reserveMemoryModelRequestWithOrganization(subject, duration, totalMaxCount, successMaxCount, 0, 0)
 }
 
 // reserveMemoryModelRequestWithOrganization admits one request against the
 // in-process limiter. The reservations count toward their limits while the
 // request runs. A refusal releases the reservations already taken.
-func reserveMemoryModelRequestWithOrganization(subject string, duration int64, totalMaxCount, successMaxCount int, organizationId int, organizationMax int) (*memoryModelRateLimitReservation, modelRateLimitScope) {
+func reserveMemoryModelRequestWithOrganization(subject string, duration int64, totalMaxCount, successMaxCount int, organizationId int, organizationMax int) (*memoryModelRateLimitReservation, modelRateLimitScope, int64) {
 	totalKey := ModelRequestRateLimitCountMark + subject
 	successKey := ModelRequestRateLimitSuccessCountMark + subject
 	orgKey := modelRateLimitOrganizationCountMark + strconv.Itoa(organizationId)
@@ -328,14 +344,14 @@ func reserveMemoryModelRequestWithOrganization(subject string, duration int64, t
 	if successMaxCount > 0 {
 		success = inMemoryRateLimiter.Reserve(successKey, successMaxCount, duration)
 		if success == nil {
-			return nil, modelRateLimitSuccessDenied
+			return nil, modelRateLimitSuccessDenied, duration
 		}
 	}
 	if totalMaxCount > 0 {
 		total = inMemoryRateLimiter.Reserve(totalKey, totalMaxCount, duration)
 		if total == nil {
 			success.Complete(false)
-			return nil, modelRateLimitTotalDenied
+			return nil, modelRateLimitTotalDenied, inMemoryRateLimiter.RetryAfter(totalKey, duration)
 		}
 	}
 	if organizationMax > 0 {
@@ -343,27 +359,31 @@ func reserveMemoryModelRequestWithOrganization(subject string, duration int64, t
 		if org == nil {
 			total.Complete(false)
 			success.Complete(false)
-			return nil, modelRateLimitOrganizationDenied
+			return nil, modelRateLimitOrganizationDenied, inMemoryRateLimiter.RetryAfter(orgKey, duration)
 		}
 	}
-	return &memoryModelRateLimitReservation{success: success, total: total, org: org}, modelRateLimitAllowed
+	return &memoryModelRateLimitReservation{success: success, total: total, org: org}, modelRateLimitAllowed, 0
 }
 
-// abortModelRateLimited rejects a request refused by a limit. The window is the Retry-After hint:
-// it is an upper bound on the wait, because the counters do not report the time left.
-func abortModelRateLimited(c *gin.Context, scope modelRateLimitScope, duration int64, totalMaxCount, successMaxCount, organizationMax int) {
-	c.Header("Retry-After", strconv.FormatInt(duration, 10))
+// abortModelRateLimited rejects a request refused by a limit. retryAfter is the Retry-After hint in seconds:
+// a token bucket gives the exact time to refill; the success limit gives the window, an upper bound.
+func abortModelRateLimited(c *gin.Context, scope modelRateLimitScope, retryAfter int64, totalMaxCount, successMaxCount, organizationMax int) {
+	c.Header("Retry-After", strconv.FormatInt(retryAfter, 10))
 	layer := service.RateLimitScopeUser
+	limit := int64(successMaxCount)
 	var message string
 	switch scope {
 	case modelRateLimitTotalDenied:
+		limit = int64(totalMaxCount)
 		message = i18n.T(c, i18n.MsgRateLimitTotalReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": totalMaxCount})
 	case modelRateLimitOrganizationDenied:
 		layer = service.RateLimitScopeOrganization
+		limit = int64(organizationMax)
 		message = i18n.T(c, i18n.MsgRateLimitOrganizationReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": organizationMax})
 	default:
 		message = i18n.T(c, i18n.MsgRateLimitReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": successMaxCount})
 	}
+	setRateLimitHeaders(c, limit)
 	service.RecordRateLimitRefusal(c, layer, "rate_limited", message)
 	abortWithRateLimitedScope(c, http.StatusTooManyRequests, message, "", layer)
 }
@@ -375,14 +395,14 @@ func redisRateLimitHandler(subject string, duration int64, totalMaxCount, succes
 
 func redisModelRateLimitHandler(subject string, duration int64, totalMaxCount, successMaxCount int, organizationId int, organizationMax int) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		reservation, scope, err := reserveRedisModelRequestWithOrganization(common.RDB, subject, duration, totalMaxCount, successMaxCount, organizationId, organizationMax, time.Now())
+		reservation, scope, retryAfter, err := reserveRedisModelRequestWithOrganization(common.RDB, subject, duration, totalMaxCount, successMaxCount, organizationId, organizationMax, time.Now())
 		if err != nil {
 			fmt.Println(common.LogText("failed to reserve the model request limit: %s", err.Error()))
 			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
 			return
 		}
 		if scope != modelRateLimitAllowed {
-			abortModelRateLimited(c, scope, duration, totalMaxCount, successMaxCount, organizationMax)
+			abortModelRateLimited(c, scope, retryAfter, totalMaxCount, successMaxCount, organizationMax)
 			return
 		}
 		defer settleModelRateLimitReservation(c, reservation)
@@ -399,9 +419,9 @@ func memoryModelRateLimitHandler(subject string, duration int64, totalMaxCount, 
 	inMemoryRateLimiter.Init(time.Duration(setting.ModelRequestRateLimitDurationMinutes) * time.Minute)
 
 	return func(c *gin.Context) {
-		reservation, scope := reserveMemoryModelRequestWithOrganization(subject, duration, totalMaxCount, successMaxCount, organizationId, organizationMax)
+		reservation, scope, retryAfter := reserveMemoryModelRequestWithOrganization(subject, duration, totalMaxCount, successMaxCount, organizationId, organizationMax)
 		if scope != modelRateLimitAllowed {
-			abortModelRateLimited(c, scope, duration, totalMaxCount, successMaxCount, organizationMax)
+			abortModelRateLimited(c, scope, retryAfter, totalMaxCount, successMaxCount, organizationMax)
 			return
 		}
 		defer settleModelRateLimitReservation(c, reservation)

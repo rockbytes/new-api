@@ -189,6 +189,25 @@ func TestChannelBudgetFailsOpenWhenRedisIsUnreachable(t *testing.T) {
 	ReleaseChannelBudget(c)
 }
 
+// A refused channel budget reports its request count as the limit and the Retry-After
+// hint as the reset, so the 429 headers describe the layer that refused.
+func TestSelectChannelWithBudgetRefusalReportsItsLimit(t *testing.T) {
+	c, restore := newBudgetTestContext(t)
+	defer restore()
+	channel := budgetTestChannel(9405, 1, 2, 60)
+	picker := budgetTestPicker(c, channel)
+	retry := &RetryParam{Ctx: c, ModelName: "budget-model", Retry: common.GetPointer(0)}
+
+	for range 2 {
+		_, _, selectErr := SelectChannelWithBudget(c, retry, picker)
+		require.Nil(t, selectErr)
+	}
+	_, _, selectErr := SelectChannelWithBudget(c, retry, picker)
+	require.NotNil(t, selectErr)
+	assert.Equal(t, int64(2), selectErr.RateLimitRequests)
+	assert.Equal(t, int64(30), selectErr.RetryAfterSeconds)
+}
+
 // TestChannelBudgetRedisPathAgainstRealRedis runs the token-bucket script on a
 // real Redis server. It is skipped unless NEW_API_TEST_REDIS_ADDR names one.
 // The test uses database 15 and flushes only that database.

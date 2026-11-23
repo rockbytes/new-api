@@ -180,6 +180,21 @@ func (l *InMemoryRateLimiter) Refund(key string) {
 	entry.requests.removeLast()
 }
 
+// RetryAfter reports how many seconds until the oldest accepted request of key leaves
+// its window. Reservations hold slots that leave on their own, so while any are held the
+// window length is the only bound and is returned instead.
+func (l *InMemoryRateLimiter) RetryAfter(key string, duration int64) int64 {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	entry, ok := l.store[key]
+	if !ok || l.reservations[key] > 0 || entry.requests.head == nil {
+		return duration
+	}
+	wait := entry.requests.head.timestamp + duration - time.Now().Unix()
+	return min(max(wait, 1), duration)
+}
+
 // Request parameter duration's unit is seconds
 func (l *InMemoryRateLimiter) Request(key string, maxRequestNum int, duration int64) bool {
 	l.mutex.Lock()

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -33,6 +34,20 @@ func abortWithOpenAiMessage(c *gin.Context, statusCode int, message string, code
 	}
 	c.Abort()
 	logger.LogError(c.Request.Context(), common.LogText("user %d | %s", userId, message))
+}
+
+// setRateLimitHeaders reports the limit that refused a request. Its window is spent,
+// so remaining is 0. A window length is not a wait time, so no reset is set here.
+func setRateLimitHeaders(c *gin.Context, limit int64) {
+	c.Header("x-ratelimit-limit", strconv.FormatInt(limit, 10))
+	c.Header("x-ratelimit-remaining", "0")
+}
+
+// SetChannelRateLimitHeaders reports a refused channel budget. Its reset is exact: the
+// time to refill one request, the same hint as Retry-After.
+func SetChannelRateLimitHeaders(c *gin.Context, limit int64, resetSeconds int64) {
+	setRateLimitHeaders(c, limit)
+	c.Header("x-ratelimit-reset", strconv.FormatInt(resetSeconds, 10))
 }
 
 // abortWithRateLimitedScope refuses a request with the OpenAI error body and also

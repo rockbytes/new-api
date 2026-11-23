@@ -31,12 +31,12 @@ func TestModelRedisReservationIgnoresLocalTimezone(t *testing.T) {
 	time.Local = time.FixedZone("test-utc-plus-eight", 8*60*60)
 	t.Cleanup(func() { time.Local = previousLocation })
 
-	first, scope, err := reserveRedisModelRequest(redisClient, "tz-subject", 60, 0, 1, time.Now())
+	first, scope, _, err := reserveRedisModelRequest(redisClient, "tz-subject", 60, 0, 1, time.Now())
 	require.NoError(t, err)
 	require.Equal(t, modelRateLimitAllowed, scope)
 	first.commit(true)
 
-	_, scope, err = reserveRedisModelRequest(redisClient, "tz-subject", 60, 0, 1, time.Now())
+	_, scope, _, err = reserveRedisModelRequest(redisClient, "tz-subject", 60, 0, 1, time.Now())
 	require.NoError(t, err)
 	assert.Equal(t, modelRateLimitSuccessDenied, scope, "a recorded success inside the window must count on a non-UTC host")
 }
@@ -48,12 +48,12 @@ func TestModelRedisReservationRefusalWritesNothing(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	held, scope, err := reserveRedisModelRequest(redisClient, "refusal-subject", 60, 1, 5, now)
+	held, scope, _, err := reserveRedisModelRequest(redisClient, "refusal-subject", 60, 1, 5, now)
 	require.NoError(t, err)
 	require.Equal(t, modelRateLimitAllowed, scope)
 	assert.Equal(t, int64(1), redisClient.ZCard(ctx, held.inflightKey).Val())
 
-	_, scope, err = reserveRedisModelRequest(redisClient, "refusal-subject", 60, 1, 5, now)
+	_, scope, _, err = reserveRedisModelRequest(redisClient, "refusal-subject", 60, 1, 5, now)
 	require.NoError(t, err)
 	assert.Equal(t, modelRateLimitTotalDenied, scope)
 	assert.Equal(t, int64(1), redisClient.ZCard(ctx, held.inflightKey).Val(), "the refused request must not hold a success slot")
@@ -61,7 +61,7 @@ func TestModelRedisReservationRefusalWritesNothing(t *testing.T) {
 	// Releasing the held request returns its admission token.
 	held.release()
 	assert.Equal(t, int64(0), redisClient.ZCard(ctx, held.inflightKey).Val())
-	again, scope, err := reserveRedisModelRequest(redisClient, "refusal-subject", 60, 1, 5, now)
+	again, scope, _, err := reserveRedisModelRequest(redisClient, "refusal-subject", 60, 1, 5, now)
 	require.NoError(t, err)
 	assert.Equal(t, modelRateLimitAllowed, scope, "a released admission must be available again")
 	again.commit(false)
@@ -73,17 +73,17 @@ func TestModelRedisReservationCommitFailureCountsAdmissionOnly(t *testing.T) {
 	_, redisClient := useRateLimitMiniRedis(t)
 	now := time.Now()
 
-	first, scope, err := reserveRedisModelRequest(redisClient, "failure-subject", 60, 2, 1, now)
+	first, scope, _, err := reserveRedisModelRequest(redisClient, "failure-subject", 60, 2, 1, now)
 	require.NoError(t, err)
 	require.Equal(t, modelRateLimitAllowed, scope)
 	first.commit(false)
 
-	second, scope, err := reserveRedisModelRequest(redisClient, "failure-subject", 60, 2, 1, now)
+	second, scope, _, err := reserveRedisModelRequest(redisClient, "failure-subject", 60, 2, 1, now)
 	require.NoError(t, err)
 	require.Equal(t, modelRateLimitAllowed, scope, "a failed request must not use the success limit")
 	second.commit(false)
 
-	_, scope, err = reserveRedisModelRequest(redisClient, "failure-subject", 60, 2, 1, now)
+	_, scope, _, err = reserveRedisModelRequest(redisClient, "failure-subject", 60, 2, 1, now)
 	require.NoError(t, err)
 	assert.Equal(t, modelRateLimitTotalDenied, scope, "both failed requests keep their admission in the total")
 }
@@ -93,16 +93,16 @@ func TestModelRedisReservationPrunesAbandonedInflight(t *testing.T) {
 	_, redisClient := useRateLimitMiniRedis(t)
 	start := time.Now()
 
-	_, scope, err := reserveRedisModelRequest(redisClient, "abandon-subject", 60, 0, 1, start)
+	_, scope, _, err := reserveRedisModelRequest(redisClient, "abandon-subject", 60, 0, 1, start)
 	require.NoError(t, err)
 	require.Equal(t, modelRateLimitAllowed, scope)
 
-	_, scope, err = reserveRedisModelRequest(redisClient, "abandon-subject", 60, 0, 1, start)
+	_, scope, _, err = reserveRedisModelRequest(redisClient, "abandon-subject", 60, 0, 1, start)
 	require.NoError(t, err)
 	require.Equal(t, modelRateLimitSuccessDenied, scope, "an in-flight reservation holds the success slot")
 
 	later := start.Add(time.Duration(modelRateLimitInflightTTLSeconds+1) * time.Second)
-	_, scope, err = reserveRedisModelRequest(redisClient, "abandon-subject", 60, 0, 1, later)
+	_, scope, _, err = reserveRedisModelRequest(redisClient, "abandon-subject", 60, 0, 1, later)
 	require.NoError(t, err)
 	assert.Equal(t, modelRateLimitAllowed, scope, "an abandoned reservation must expire")
 }
@@ -141,7 +141,7 @@ func runConcurrentRedisReservation(t *testing.T, client *redis.Client, subject s
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			reservation, scope, err := reserveRedisModelRequest(client, subject, 60, 0, successLimit, time.Now())
+			reservation, scope, _, err := reserveRedisModelRequest(client, subject, 60, 0, successLimit, time.Now())
 			if err != nil {
 				t.Errorf("reserve failed: %v", err)
 				return
@@ -158,7 +158,7 @@ func runConcurrentRedisReservation(t *testing.T, client *redis.Client, subject s
 	for reservation := range reservations {
 		reservation.commit(true)
 	}
-	_, scope, err := reserveRedisModelRequest(client, subject, 60, 0, successLimit, time.Now())
+	_, scope, _, err := reserveRedisModelRequest(client, subject, 60, 0, successLimit, time.Now())
 	require.NoError(t, err)
 	assert.Equal(t, modelRateLimitSuccessDenied, scope, "the recorded successes keep the limit closed")
 }
@@ -170,14 +170,14 @@ func TestModelMemoryReservationReleaseAndCommitAdmission(t *testing.T) {
 	subject := strconv.Itoa(7200000 + int(modelRateLimitTestUsers.Add(1)))
 	inMemoryRateLimiter.Init(time.Duration(setting.ModelRequestRateLimitDurationMinutes) * time.Minute)
 
-	released, scope := reserveMemoryModelRequest(subject, 60, 1, 0)
+	released, scope, _ := reserveMemoryModelRequest(subject, 60, 1, 0)
 	require.Equal(t, modelRateLimitAllowed, scope)
 	released.release()
-	again, scope := reserveMemoryModelRequest(subject, 60, 1, 0)
+	again, scope, _ := reserveMemoryModelRequest(subject, 60, 1, 0)
 	require.Equal(t, modelRateLimitAllowed, scope, "a released admission must be available again")
 	again.commit(false)
 
-	_, scope = reserveMemoryModelRequest(subject, 60, 1, 0)
+	_, scope, _ = reserveMemoryModelRequest(subject, 60, 1, 0)
 	assert.Equal(t, modelRateLimitTotalDenied, scope, "a committed failure keeps its admission")
 }
 
@@ -299,7 +299,7 @@ func TestModelRateLimitSettlementDecision(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, redisClient := useRateLimitMiniRedis(t)
 			subject := "settle-" + tc.name
-			reservation, scope, err := reserveRedisModelRequest(redisClient, subject, 60, 1, 1, time.Now())
+			reservation, scope, _, err := reserveRedisModelRequest(redisClient, subject, 60, 1, 1, time.Now())
 			require.NoError(t, err)
 			require.Equal(t, modelRateLimitAllowed, scope)
 
@@ -310,7 +310,7 @@ func TestModelRateLimitSettlementDecision(t *testing.T) {
 			c.Status(tc.status)
 			settleModelRateLimitReservation(c, reservation)
 
-			_, next, err := reserveRedisModelRequest(redisClient, subject, 60, 1, 1, time.Now())
+			_, next, _, err := reserveRedisModelRequest(redisClient, subject, 60, 1, 1, time.Now())
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantNext, next)
 		})
@@ -349,7 +349,13 @@ func TestOrganizationTotalLimitAppliesWithoutUserLimits(t *testing.T) {
 			resp := performRateLimitRequest(router, "/", "127.0.0.1:1000")
 			assert.Equal(t, http.StatusTooManyRequests, resp.Code)
 			assert.Contains(t, resp.Body.String(), "organization", "the refusal must name the organization limit")
-			assert.Equal(t, "60", resp.Header().Get("Retry-After"), "a refusal carries the window as its Retry-After")
+			retryAfter, err := strconv.Atoi(resp.Header().Get("Retry-After"))
+			require.NoError(t, err)
+			if backend == "redis" {
+				assert.Equal(t, 30, retryAfter, "a token bucket of 2 requests per 60 seconds refills one request in 30 seconds")
+			} else {
+				assert.InDelta(t, 60, retryAfter, 1, "the sliding window frees a slot when its oldest request leaves the window")
+			}
 		})
 	}
 }
@@ -362,13 +368,13 @@ func TestOrganizationRefusalLeavesUserTotalUntouched(t *testing.T) {
 	now := time.Now()
 	ctx := context.Background()
 
-	first, scope, err := reserveRedisModelRequestWithOrganization(client, "org-atomic", 60, 5, 0, organizationId, 1, now)
+	first, scope, _, err := reserveRedisModelRequestWithOrganization(client, "org-atomic", 60, 5, 0, organizationId, 1, now)
 	require.NoError(t, err)
 	require.Equal(t, modelRateLimitAllowed, scope)
 	assert.Equal(t, "240", client.HGet(ctx, first.totalKey, "tokens").Val(), "one admission leaves 4 of 5 user tokens")
 	assert.Equal(t, "0", client.HGet(ctx, first.orgKey, "tokens").Val(), "the organization's one token is spent")
 
-	_, scope, err = reserveRedisModelRequestWithOrganization(client, "org-atomic", 60, 5, 0, organizationId, 1, now)
+	_, scope, _, err = reserveRedisModelRequestWithOrganization(client, "org-atomic", 60, 5, 0, organizationId, 1, now)
 	require.NoError(t, err)
 	assert.Equal(t, modelRateLimitOrganizationDenied, scope)
 	assert.Equal(t, "240", client.HGet(ctx, first.totalKey, "tokens").Val(), "a refused organization limit must not spend a user token")
@@ -470,12 +476,58 @@ func TestModelRateLimitRefusalNamesItsLayer(t *testing.T) {
 			}
 			require.NoError(t, common.Unmarshal(resp.Body.Bytes(), &body))
 			assert.Equal(t, tc.wantScope, body.Error.RateLimitedScope)
+			assert.Equal(t, "1", resp.Header().Get("x-ratelimit-limit"), "the refusing limit is the configured maximum")
+			assert.Equal(t, "0", resp.Header().Get("x-ratelimit-remaining"), "a refused window has nothing left")
+			assert.Empty(t, resp.Header().Get("x-ratelimit-reset"), "a window length is not a wait time, so a user or organization refusal sets no reset")
 			require.NotEmpty(t, events)
 			last := events[len(events)-1]
 			assert.Equal(t, tc.wantScope, last.RateLimitedScope)
 			assert.Equal(t, "rate_limited", last.Decision.Reason)
 		})
 	}
+}
+
+// A refused channel budget reports the exact reset: the time to refill one request.
+func TestChannelRateLimitHeadersCarryTheExactReset(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+
+	SetChannelRateLimitHeaders(c, 2, 30)
+
+	assert.Equal(t, "2", c.Writer.Header().Get("x-ratelimit-limit"))
+	assert.Equal(t, "0", c.Writer.Header().Get("x-ratelimit-remaining"))
+	assert.Equal(t, "30", c.Writer.Header().Get("x-ratelimit-reset"))
+}
+
+// A token bucket refusal reports the exact time to refill the tokens the request needs.
+// The memory limiter reports the time until its oldest request leaves the window.
+func TestModelRateLimitRefusalReportsTheWait(t *testing.T) {
+	_, client := useRateLimitMiniRedis(t)
+	now := time.Now()
+	// Two requests per 60 seconds refill one request every 30 seconds.
+	for range 2 {
+		_, scope, _, err := reserveRedisModelRequest(client, "wait-redis", 60, 2, 0, now)
+		require.NoError(t, err)
+		require.Equal(t, modelRateLimitAllowed, scope)
+	}
+	_, scope, retryAfter, err := reserveRedisModelRequest(client, "wait-redis", 60, 2, 0, now)
+	require.NoError(t, err)
+	require.Equal(t, modelRateLimitTotalDenied, scope)
+	assert.Equal(t, int64(30), retryAfter, "an empty bucket refills 2 tokens a second; a request needs 60")
+
+	// 15 seconds later 30 tokens are back, so 15 more seconds are needed.
+	_, scope, retryAfter, err = reserveRedisModelRequest(client, "wait-redis", 60, 2, 0, now.Add(15*time.Second))
+	require.NoError(t, err)
+	require.Equal(t, modelRateLimitTotalDenied, scope)
+	assert.Equal(t, int64(15), retryAfter)
+
+	inMemoryRateLimiter.Init(time.Minute)
+	first, scope, _ := reserveMemoryModelRequest("wait-memory", 60, 1, 0)
+	require.Equal(t, modelRateLimitAllowed, scope)
+	first.commit(true)
+	_, scope, retryAfter = reserveMemoryModelRequest("wait-memory", 60, 1, 0)
+	require.Equal(t, modelRateLimitTotalDenied, scope)
+	assert.InDelta(t, 60, retryAfter, 1, "the memory limiter frees the slot when the oldest request leaves the window")
 }
 
 // A request refused before its upstream, such as by quota pre-consume, gives its

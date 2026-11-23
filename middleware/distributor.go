@@ -119,6 +119,7 @@ func Distribute() func(c *gin.Context) {
 					c.Header("Retry-After", strconv.FormatInt(selectErr.RetryAfterSeconds, 10))
 				}
 				if selectErr.FilterKind == taskdto.FilterChannelRateLimited {
+					SetChannelRateLimitHeaders(c, selectErr.RateLimitRequests, selectErr.RetryAfterSeconds)
 					abortWithRateLimitedScope(c, selectErr.StatusCode, message, selectErr.Code, service.RateLimitScopeChannel)
 					return
 				}

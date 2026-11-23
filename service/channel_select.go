@@ -276,6 +276,9 @@ type ChannelSelectError struct {
 	// RetryAfterSeconds is set when the channel request budget refused the
 	// request. It is the Retry-After hint for the client, in seconds.
 	RetryAfterSeconds int64
+	// RateLimitRequests is the request count of the channel budget that refused
+	// the request, reported as x-ratelimit-limit.
+	RateLimitRequests int64
 }
 
 // SelectChannelForRequest resolves the channel for one attempt with the rules
@@ -331,7 +334,8 @@ func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam
 			if budgetExcluded && RequestPolicy(c).SessionMode == "strict" {
 				// A strict session must stay on its channel, so it cannot move to
 				// another channel while this one is over budget.
-				return nil, "", channelBudgetExhaustedError(channelBudgetRetryAfter(preferred))
+				limit, _, _ := channelBudget(preferred)
+				return nil, "", channelBudgetExhaustedError(channelBudgetRetryAfter(preferred), limit)
 			}
 			if affinitySatisfied {
 				if usingGroup == "auto" {

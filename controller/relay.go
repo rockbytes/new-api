@@ -334,6 +334,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	if selectErr != nil {
 		if selectErr.RetryAfterSeconds > 0 {
 			c.Header("Retry-After", strconv.FormatInt(selectErr.RetryAfterSeconds, 10))
+			middleware.SetChannelRateLimitHeaders(c, selectErr.RateLimitRequests, selectErr.RetryAfterSeconds)
 			return nil, types.NewErrorWithStatusCode(errors.New(i18n.T(c, selectErr.MessageID, selectErr.Params)), selectErr.Code, selectErr.StatusCode, types.ErrOptionWithSkipRetry())
 		}
 		if selectErr.NoAvailableChannel {

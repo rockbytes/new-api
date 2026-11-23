@@ -15,6 +15,7 @@ import (
 	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 )
 
 // channelRateLimitErrorCode is the error code clients see when a channel
@@ -116,6 +117,10 @@ end
 return 1
 `
 
+// channelBudgetRefund returns the admission with EVALSHA, falling back to EVAL only
+// when Redis has not cached the script yet.
+var channelBudgetRefund = redis.NewScript(channelBudgetRefundScript)
+
 // ReleaseChannelBudget returns the channel admission the request holds. Call it
 // when the request fails before it reaches the upstream, such as when the quota
 // pre-consume refuses it, so a refused request does not use up the channel's budget.
@@ -133,7 +138,7 @@ func ReleaseChannelBudget(c *gin.Context) {
 		channelBudgetMemoryLimiter.Refund(hold.key)
 		return
 	}
-	if err := common.RDB.Eval(context.Background(), channelBudgetRefundScript, []string{hold.key},
+	if err := channelBudgetRefund.Run(context.Background(), common.RDB, []string{hold.key},
 		hold.capacity, hold.requested).Err(); err != nil {
 		logger.LogError(context.Background(), common.LogText("channel budget release failed (key=%s): %v", hold.key, err))
 	}
@@ -141,13 +146,14 @@ func ReleaseChannelBudget(c *gin.Context) {
 
 // channelBudgetExhaustedError is the 429 returned when no channel can take the
 // request within its budget.
-func channelBudgetExhaustedError(retryAfterSeconds int64) *ChannelSelectError {
+func channelBudgetExhaustedError(retryAfterSeconds int64, limit int64) *ChannelSelectError {
 	return &ChannelSelectError{
 		StatusCode:        http.StatusTooManyRequests,
 		Code:              channelRateLimitErrorCode,
 		MessageID:         i18n.MsgDistributorChannelRateLimited,
 		FilterKind:        dto.FilterChannelRateLimited,
 		RetryAfterSeconds: retryAfterSeconds,
+		RateLimitRequests: limit,
 	}
 }
 
@@ -169,7 +175,7 @@ func SelectChannelWithBudget(c *gin.Context, retry *RetryParam, pick ChannelPick
 
 	var excluded []int
 	var tierPriority int64
-	var retryAfter int64
+	var retryAfter, limit int64
 	for attempt := 0; ; attempt++ {
 		// The exclusion lasts for this selection only, so a later request
 		// starts with every channel eligible again.
@@ -182,7 +188,7 @@ func SelectChannelWithBudget(c *gin.Context, retry *RetryParam, pick ChannelPick
 		if selectErr != nil {
 			if len(excluded) > 0 && selectErr.NoAvailableChannel {
 				// Every remaining candidate is over budget.
-				return nil, group, channelBudgetExhaustedError(retryAfter)
+				return nil, group, channelBudgetExhaustedError(retryAfter, limit)
 			}
 			return nil, group, selectErr
 		}
@@ -190,7 +196,7 @@ func SelectChannelWithBudget(c *gin.Context, retry *RetryParam, pick ChannelPick
 		if attempt == 0 {
 			tierPriority = channel.GetPriority()
 		} else if channel.GetPriority() != tierPriority {
-			return nil, group, channelBudgetExhaustedError(retryAfter)
+			return nil, group, channelBudgetExhaustedError(retryAfter, limit)
 		}
 
 		allowed, wait := AcquireChannelBudget(c, channel)
@@ -198,8 +204,9 @@ func SelectChannelWithBudget(c *gin.Context, retry *RetryParam, pick ChannelPick
 			return channel, group, nil
 		}
 		retryAfter = wait
+		limit, _, _ = channelBudget(channel)
 		if pinned || len(excluded)+1 >= maxChannelBudgetAttempts {
-			return nil, group, channelBudgetExhaustedError(retryAfter)
+			return nil, group, channelBudgetExhaustedError(retryAfter, limit)
 		}
 		excluded = append(excluded, channel.Id)
 	}

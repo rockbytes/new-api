@@ -330,7 +330,7 @@ Phase 0 已完成。Phase 1 的实施尚未开始。
 
 **未完成：**
 
-- `x-ratelimit-*` 响应头：依赖待核实事项 8（Lua 返回剩余量），尚未决定实现方式。
+- `x-ratelimit-*` 响应头（决定：先做拒绝响应）：429 拒绝带 `x-ratelimit-limit` 与 `x-ratelimit-remaining: 0`。渠道预算拒绝另带 `x-ratelimit-reset`，即补充一个请求所需的准确时间。用户层与组织层的 `Retry-After` 已改为计算出的等待时间（第二步），不带 `x-ratelimit-reset`；成功量限制仍用窗口长度，是上限。成功响应的头需要 Lua 返回剩余量，尚未实现（待核实事项 8）。
 - 限速总览页（只读）：尚未开始。
 - 渠道重试路径的作用域：`controller/relay.go` 的 `getChannel` 在重试时产生的渠道拒绝，错误体还没有 `rate_limited_scope`。
 - 任务插件路由：`abortWithRateLimitedScope` 在任务插件路由上退回原有格式，因此不带作用域字段。

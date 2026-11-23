@@ -20,23 +20,28 @@ type RedisLimiter struct {
 }
 
 var (
-	instance *RedisLimiter
-	once     sync.Once
+	instanceMu sync.Mutex
+	instance   *RedisLimiter
 )
 
+// New returns the limiter for the client r. The instance is kept for the client it was
+// built with. A call with a different client loads the script on that client and
+// replaces the instance, so a client that was replaced is never used again.
 func New(ctx context.Context, r *redis.Client) *RedisLimiter {
-	once.Do(func() {
-		// 预加载脚本
-		limitSHA, err := r.ScriptLoad(ctx, rateLimitScript).Result()
-		if err != nil {
-			common.SysLog(common.LogText("Failed to load rate limit script: %v", err))
-		}
-		instance = &RedisLimiter{
-			client:         r,
-			limitScriptSHA: limitSHA,
-		}
-	})
-
+	instanceMu.Lock()
+	defer instanceMu.Unlock()
+	if instance != nil && instance.client == r {
+		return instance
+	}
+	// 预加载脚本
+	limitSHA, err := r.ScriptLoad(ctx, rateLimitScript).Result()
+	if err != nil {
+		common.SysLog(common.LogText("Failed to load rate limit script: %v", err))
+	}
+	instance = &RedisLimiter{
+		client:         r,
+		limitScriptSHA: limitSHA,
+	}
 	return instance
 }
 
