@@ -175,7 +175,7 @@ rate_limit_overrides
 5. **原子脚本的性能**：每个请求一次 EVAL，涉及 3 到 5 个 key。需要压测确认延迟和 Redis 负载。
 6. **（已取消，见 D5）分组覆盖的迁移语义**：现有配置如 `{"vip": [total, success]}` 的含义是"用户 × 分组"的两个上限。迁移为用户层的分组覆盖后，`total` 与 `success` 分别对应什么口径（准入计后两者是否还有区别）？
 7. **数据库变更**：当前设计不需要表结构变更。若组织占比的配置最终需要落表，必须按三库矩阵（SQLite / MySQL ≥ 5.7.8 / PostgreSQL ≥ 9.6）验证。
-8. **响应头**：`x-ratelimit-*` 需要 Lua 返回剩余量，待定。
+8. **响应头**：已解决。Lua 返回剩余量，成功与拒绝响应都带 `x-ratelimit-*`。
 9. **用户覆盖的存储（已按 D11 确定）**：覆盖数量可能很大，缓存的内存占用和刷新耗时需要在 Phase 3b 压测确认（见验收条件 14）。
 10. **组织总量的存储（已按 D11 确定）**：组织数量通常远少于用户，与用户覆盖共用同一张表。
 
@@ -330,7 +330,7 @@ Phase 0 已完成。Phase 1 的实施尚未开始。
 
 **未完成：**
 
-- `x-ratelimit-*` 响应头（决定：先做拒绝响应）：429 拒绝带 `x-ratelimit-limit` 与 `x-ratelimit-remaining: 0`。渠道预算拒绝另带 `x-ratelimit-reset`，即补充一个请求所需的准确时间。用户层与组织层的 `Retry-After` 已改为计算出的等待时间（第二步），不带 `x-ratelimit-reset`；成功量限制仍用窗口长度，是上限。成功响应的头需要 Lua 返回剩余量，尚未实现（待核实事项 8）。
+- `x-ratelimit-*` 响应头（决定：先做拒绝响应）：429 拒绝带 `x-ratelimit-limit` 与 `x-ratelimit-remaining: 0`。渠道预算拒绝另带 `x-ratelimit-reset`，即补充一个请求所需的准确时间。用户层与组织层的 `Retry-After` 已改为计算出的等待时间（第二步），不带 `x-ratelimit-reset`；成功量限制仍用窗口长度，是上限。成功响应也带 `x-ratelimit-limit` 与 `x-ratelimit-remaining`（取剩余请求数最少的一层），由 Lua 返回的剩余量得到，已实现（待核实事项 8 已解决）。
 - 限速总览页（只读）：尚未开始。
 - 渠道重试路径的作用域：`controller/relay.go` 的 `getChannel` 在重试时产生的渠道拒绝，错误体还没有 `rate_limited_scope`。
 - 任务插件路由：`abortWithRateLimitedScope` 在任务插件路由上退回原有格式，因此不带作用域字段。

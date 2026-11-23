@@ -208,6 +208,18 @@ func TestSelectChannelWithBudgetRefusalReportsItsLimit(t *testing.T) {
 	assert.Equal(t, int64(30), selectErr.RetryAfterSeconds)
 }
 
+// An admitted channel request reports the channel's limit and the requests it has left.
+func TestChannelBudgetAdmissionReportsTheRemainingRequests(t *testing.T) {
+	c, restore := newBudgetTestContext(t)
+	defer restore()
+	channel := budgetTestChannel(9406, 1, 3, 60)
+
+	allowed, _ := AcquireChannelBudget(c, channel)
+	require.True(t, allowed)
+	assert.Equal(t, "3", c.Writer.Header().Get("x-ratelimit-limit"))
+	assert.Equal(t, "2", c.Writer.Header().Get("x-ratelimit-remaining"))
+}
+
 // TestChannelBudgetRedisPathAgainstRealRedis runs the token-bucket script on a
 // real Redis server. It is skipped unless NEW_API_TEST_REDIS_ADDR names one.
 // The test uses database 15 and flushes only that database.

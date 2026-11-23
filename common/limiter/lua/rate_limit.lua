@@ -43,4 +43,4 @@ redis.call('HMSET', key, 'tokens', tokens, 'last_time', last_time)
 -- stops. A full bucket costs no refill time, so add that to the idle lifetime.
 redis.call('EXPIRE', key, math.ceil(capacity / rate) + 60)
 
-return allowed and 1 or 0
+return {allowed and 1 or 0, allowed and math.floor(tokens / requested) or 0}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -45,6 +46,13 @@ const (
 	RateLimitScopeOrganization = "org"
 	RateLimitScopeChannel      = "channel"
 )
+
+// SetRateLimitRemaining reports the limit of the layer that admitted a request and how
+// many requests that layer still allows in its window.
+func SetRateLimitRemaining(c *gin.Context, limit int64, remaining int64) {
+	c.Header("x-ratelimit-limit", strconv.FormatInt(limit, 10))
+	c.Header("x-ratelimit-remaining", strconv.FormatInt(remaining, 10))
+}
 
 // RecordRateLimitRefusal records a refusal by a rate limit layer as a policy event and
 // as a gateway error log, so the refusing layer is visible to administrators.

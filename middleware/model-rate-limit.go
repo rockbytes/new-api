@@ -106,7 +106,11 @@ if successMax > 0 then
   redis.call('ZADD', KEYS[2], now, id)
   redis.call('EXPIRE', KEYS[2], inflightTTL)
 end
-return {1, 0}
+local remTotal, remOrg, remSuccess = -1, -1, -1
+if totalMax > 0 then remTotal = math.floor((totalTokens - requested) / requested) end
+if orgMax > 0 then remOrg = math.floor((orgTokens - requested) / requested) end
+if successMax > 0 then remSuccess = successMax - (redis.call('ZCARD', KEYS[1]) + redis.call('ZCARD', KEYS[2])) end
+return {1, 0, remTotal, remOrg, remSuccess}
 `
 
 // The scripts are loaded once as go-redis Scripts. Run sends EVALSHA and falls back
@@ -198,19 +202,21 @@ func ClearModelRateLimitUpstreamReached(c *gin.Context) {
 }
 
 type redisModelRateLimitReservation struct {
-	rdb          *redis.Client
-	successKey   string
-	inflightKey  string
-	totalKey     string
-	orgKey       string
-	id           string
-	window       int64
-	userCapacity int64
-	orgCapacity  int64
-	requested    int64
-	recordSucc   bool
-	totalEnabled bool
-	orgEnabled   bool
+	rdb             *redis.Client
+	successKey      string
+	inflightKey     string
+	totalKey        string
+	orgKey          string
+	id              string
+	window          int64
+	userCapacity    int64
+	orgCapacity     int64
+	requested       int64
+	recordSucc      bool
+	totalEnabled    bool
+	orgEnabled      bool
+	headerLimit     int64
+	headerRemaining int64
 }
 
 func (r *redisModelRateLimitReservation) settle(record bool, refund bool) {
@@ -241,6 +247,60 @@ func boolFlag(value bool) string {
 		return "1"
 	}
 	return "0"
+}
+
+// layerLeft is one enabled layer of an admission: its limit and the requests it still allows.
+type layerLeft struct {
+	limit     int64
+	remaining int64
+}
+
+// tightestLayer returns the limit and remaining count of the layer with the fewest requests
+// left, which is the layer a client is about to hit. It returns zeros when no layer is enabled.
+func tightestLayer(layers ...layerLeft) (int64, int64) {
+	var limit, remaining int64
+	found := false
+	for _, layer := range layers {
+		if layer.limit <= 0 || layer.remaining < 0 {
+			continue
+		}
+		if !found || layer.remaining < remaining {
+			limit, remaining, found = layer.limit, layer.remaining, true
+		}
+	}
+	return limit, remaining
+}
+
+// redisAdmissionHeaders reads the remaining counts that the reservation script returns with an
+// admission: user total at index 2, organization total at 3 and success at 4, -1 when disabled.
+func redisAdmissionHeaders(result []any, totalMax, orgMax, successMax int) (int64, int64) {
+	layers := make([]layerLeft, 0, 3)
+	for _, layer := range []struct{ limit, index int }{{totalMax, 2}, {orgMax, 3}, {successMax, 4}} {
+		if len(result) <= layer.index {
+			continue
+		}
+		left, err := redisReplyInteger(result[layer.index])
+		if err != nil {
+			continue
+		}
+		layers = append(layers, layerLeft{limit: int64(layer.limit), remaining: left})
+	}
+	return tightestLayer(layers...)
+}
+
+// memoryAdmissionHeaders takes the remaining counts of the in-process reservations.
+func memoryAdmissionHeaders(success, total, org *common.RateLimitReservation, successMax, totalMax, orgMax int) (int64, int64) {
+	var layers []layerLeft
+	if success != nil {
+		layers = append(layers, layerLeft{limit: int64(successMax), remaining: int64(success.Remaining)})
+	}
+	if total != nil {
+		layers = append(layers, layerLeft{limit: int64(totalMax), remaining: int64(total.Remaining)})
+	}
+	if org != nil {
+		layers = append(layers, layerLeft{limit: int64(orgMax), remaining: int64(org.Remaining)})
+	}
+	return tightestLayer(layers...)
 }
 
 // reserveRedisModelRequest admits one request against the user limits only.
@@ -277,7 +337,7 @@ func reserveRedisModelRequestWithOrganization(rdb *redis.Client, subject string,
 	if err != nil {
 		return nil, modelRateLimitAllowed, 0, err
 	}
-	if len(result) != 2 && len(result) != 3 {
+	if len(result) != 3 && len(result) != 5 {
 		return nil, modelRateLimitAllowed, 0, fmt.Errorf("unexpected model rate limit reply length %d", len(result))
 	}
 	allowed, err := redisReplyInteger(result[0])
@@ -285,6 +345,7 @@ func reserveRedisModelRequestWithOrganization(rdb *redis.Client, subject string,
 		return nil, modelRateLimitAllowed, 0, err
 	}
 	if allowed == 1 {
+		reservation.headerLimit, reservation.headerRemaining = redisAdmissionHeaders(result, totalMaxCount, organizationMax, successMaxCount)
 		return reservation, modelRateLimitAllowed, 0, nil
 	}
 	retryAfter := int64(0)
@@ -309,9 +370,11 @@ func reserveRedisModelRequestWithOrganization(rdb *redis.Client, subject string,
 }
 
 type memoryModelRateLimitReservation struct {
-	success *common.RateLimitReservation
-	total   *common.RateLimitReservation
-	org     *common.RateLimitReservation
+	success         *common.RateLimitReservation
+	total           *common.RateLimitReservation
+	org             *common.RateLimitReservation
+	headerLimit     int64
+	headerRemaining int64
 }
 
 func (r *memoryModelRateLimitReservation) commit(succeeded bool) {
@@ -362,7 +425,8 @@ func reserveMemoryModelRequestWithOrganization(subject string, duration int64, t
 			return nil, modelRateLimitOrganizationDenied, inMemoryRateLimiter.RetryAfter(orgKey, duration)
 		}
 	}
-	return &memoryModelRateLimitReservation{success: success, total: total, org: org}, modelRateLimitAllowed, 0
+	limit, remaining := memoryAdmissionHeaders(success, total, org, successMaxCount, totalMaxCount, organizationMax)
+	return &memoryModelRateLimitReservation{success: success, total: total, org: org, headerLimit: limit, headerRemaining: remaining}, modelRateLimitAllowed, 0
 }
 
 // abortModelRateLimited rejects a request refused by a limit. retryAfter is the Retry-After hint in seconds:
@@ -405,6 +469,9 @@ func redisModelRateLimitHandler(subject string, duration int64, totalMaxCount, s
 			abortModelRateLimited(c, scope, retryAfter, totalMaxCount, successMaxCount, organizationMax)
 			return
 		}
+		if reservation.headerLimit > 0 {
+			service.SetRateLimitRemaining(c, reservation.headerLimit, reservation.headerRemaining)
+		}
 		defer settleModelRateLimitReservation(c, reservation)
 		c.Next()
 	}
@@ -423,6 +490,9 @@ func memoryModelRateLimitHandler(subject string, duration int64, totalMaxCount, 
 		if scope != modelRateLimitAllowed {
 			abortModelRateLimited(c, scope, retryAfter, totalMaxCount, successMaxCount, organizationMax)
 			return
+		}
+		if reservation.headerLimit > 0 {
+			service.SetRateLimitRemaining(c, reservation.headerLimit, reservation.headerRemaining)
 		}
 		defer settleModelRateLimitReservation(c, reservation)
 		c.Next()

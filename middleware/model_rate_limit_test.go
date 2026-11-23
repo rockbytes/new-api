@@ -530,6 +530,24 @@ func TestModelRateLimitRefusalReportsTheWait(t *testing.T) {
 	assert.InDelta(t, 60, retryAfter, 1, "the memory limiter frees the slot when the oldest request leaves the window")
 }
 
+// An admission reports the layer nearest its limit: the one with the fewest requests left.
+func TestModelRateLimitAdmissionReportsTheTightestLayer(t *testing.T) {
+	_, client := useRateLimitMiniRedis(t)
+	organizationId := 7800000 + int(modelRateLimitTestUsers.Add(1))
+	// The organization allows 2 requests a minute and the user 5, so the organization is nearer.
+	reservation, scope, _, err := reserveRedisModelRequestWithOrganization(client, "tightest-redis", 60, 5, 0, organizationId, 2, time.Now())
+	require.NoError(t, err)
+	require.Equal(t, modelRateLimitAllowed, scope)
+	assert.Equal(t, int64(2), reservation.headerLimit)
+	assert.Equal(t, int64(1), reservation.headerRemaining)
+
+	inMemoryRateLimiter.Init(time.Minute)
+	memory, scope, _ := reserveMemoryModelRequestWithOrganization("tightest-memory", 60, 5, 0, organizationId+1, 2)
+	require.Equal(t, modelRateLimitAllowed, scope)
+	assert.Equal(t, int64(2), memory.headerLimit)
+	assert.Equal(t, int64(1), memory.headerRemaining)
+}
+
 // A request refused before its upstream, such as by quota pre-consume, gives its
 // admission back. Otherwise the refused request would count toward the total limit.
 func TestRequestRefusedBeforeUpstreamReleasesAdmission(t *testing.T) {

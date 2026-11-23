@@ -63,6 +63,7 @@ func AcquireChannelBudget(c *gin.Context, channel *model.Channel) (bool, int64) 
 	key := fmt.Sprintf("rateLimit:channel:%d", channel.Id)
 
 	var allowed bool
+	var remaining int64
 	redisBackend := common.RedisEnabled && common.RDB != nil
 	if redisBackend {
 		ctx := c.Request.Context()
@@ -70,7 +71,7 @@ func AcquireChannelBudget(c *gin.Context, channel *model.Channel) (bool, int64) 
 		// A token bucket where each request costs one window of tokens and the
 		// bucket refills at `requests` per second: `requests` requests may burst,
 		// and the sustained rate is `requests` per window.
-		allowed, err = limiter.New(ctx, common.RDB).Allow(ctx, key,
+		allowed, remaining, err = limiter.New(ctx, common.RDB).AllowWithRemaining(ctx, key,
 			limiter.WithCapacity(requests*window),
 			limiter.WithRate(requests),
 			limiter.WithRequested(window),
@@ -81,9 +82,10 @@ func AcquireChannelBudget(c *gin.Context, channel *model.Channel) (bool, int64) 
 		}
 	} else {
 		channelBudgetMemoryLimiter.Init(time.Duration(kitdto.MaxChannelRateLimitWindowSeconds) * time.Second)
-		allowed = channelBudgetMemoryLimiter.Request(key, int(requests), window)
+		allowed, remaining = channelBudgetMemoryLimiter.RequestRemaining(key, int(requests), window)
 	}
 	if allowed {
+		SetRateLimitRemaining(c, requests, remaining)
 		c.Set(channelBudgetHeldKey, channelBudgetHold{
 			key:       key,
 			redis:     redisBackend,

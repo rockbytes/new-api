@@ -73,6 +73,18 @@ func TestAllowFallsBackToEvalAfterScriptFlush(t *testing.T) {
 	assert.True(t, exists[0])
 }
 
+// AllowWithRemaining reports the whole requests the bucket still holds after an admission.
+func TestAllowWithRemainingReportsWholeRequestsLeft(t *testing.T) {
+	ctx := context.Background()
+	_, redisClient := useLimiterMiniRedis(t)
+	redisLimiter := New(ctx, redisClient)
+
+	allowed, remaining, err := redisLimiter.AllowWithRemaining(ctx, "rateLimit:test-remaining", WithCapacity(300), WithRate(5), WithRequested(60))
+	require.NoError(t, err)
+	assert.True(t, allowed)
+	assert.Equal(t, int64(4), remaining, "a 300-token bucket holds 4 more requests of 60 tokens after one")
+}
+
 // A limiter built for one client must not be served to a later call that passes a
 // different client: the later limiter must run on its own server.
 func TestNewKeepsTheLimiterOfTheClientItIsGiven(t *testing.T) {

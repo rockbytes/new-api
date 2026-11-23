@@ -46,6 +46,14 @@ func New(ctx context.Context, r *redis.Client) *RedisLimiter {
 }
 
 func (rl *RedisLimiter) Allow(ctx context.Context, key string, opts ...Option) (bool, error) {
+	allowed, _, err := rl.AllowWithRemaining(ctx, key, opts...)
+	return allowed, err
+}
+
+// AllowWithRemaining takes the request's tokens from the bucket and also returns how many
+// whole requests the bucket still holds after the admission. The remaining count is 0 when
+// the request is refused.
+func (rl *RedisLimiter) AllowWithRemaining(ctx context.Context, key string, opts ...Option) (bool, int64, error) {
 	// 默认配置
 	config := &Config{
 		Capacity:  10,
@@ -59,33 +67,36 @@ func (rl *RedisLimiter) Allow(ctx context.Context, key string, opts ...Option) (
 	}
 
 	// 执行限流
-	result, err := rl.client.EvalSha(
+	reply, err := rl.client.EvalSha(
 		ctx,
 		rl.limitScriptSHA,
 		[]string{key},
 		config.Requested,
 		config.Rate,
 		config.Capacity,
-	).Int()
+	).Int64Slice()
 
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "NOSCRIPT ") {
-			result, err := rl.client.Eval(
+			reply, err = rl.client.Eval(
 				ctx,
 				rateLimitScript,
 				[]string{key},
 				config.Requested,
 				config.Rate,
 				config.Capacity,
-			).Int()
+			).Int64Slice()
 			if err != nil {
-				return false, fmt.Errorf("rate limit failed: %w", err)
+				return false, 0, fmt.Errorf("rate limit failed: %w", err)
 			}
-			return result == 1, nil
+		} else {
+			return false, 0, fmt.Errorf("rate limit failed: %w", err)
 		}
-		return false, fmt.Errorf("rate limit failed: %w", err)
 	}
-	return result == 1, nil
+	if len(reply) != 2 {
+		return false, 0, fmt.Errorf("rate limit failed: unexpected reply length %d", len(reply))
+	}
+	return reply[0] == 1, reply[1], nil
 }
 
 // Config 配置选项模式
