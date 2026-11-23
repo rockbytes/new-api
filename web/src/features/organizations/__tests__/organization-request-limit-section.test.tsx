@@ -40,9 +40,9 @@ function mockOverrides(totalCount: number | null) {
             updated_time: 1700000000,
           },
         ]
-  return vi.spyOn(api, 'get').mockResolvedValue(
-    response({ success: true, data: rows })
-  )
+  return vi
+    .spyOn(api, 'get')
+    .mockResolvedValue(response({ success: true, data: rows }))
 }
 
 beforeEach(() => {
@@ -136,4 +136,65 @@ it('disables removing the limit when the organization has none', async () => {
     await screen.findByText('No request limit is set for this organization.')
   ).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Remove limit' })).toBeDisabled()
+})
+
+const LIMIT_HELP_TEXT =
+  'The window is set in the rate limit settings. The limit applies only to requests this organization pays for.'
+
+it('keeps the input, Save and Remove limit in one top-aligned row', async () => {
+  mockOverrides(300)
+  renderSection()
+
+  const input = await screen.findByRole('spinbutton', {
+    name: 'Maximum requests per window',
+  })
+  const row = input.parentElement
+
+  expect(row).toBe(screen.getByRole('button', { name: 'Save' }).parentElement)
+  expect(row).toBe(
+    screen.getByRole('button', { name: 'Remove limit' }).parentElement
+  )
+  expect(row).toHaveClass('flex', 'items-start')
+})
+
+it('places the label above the row and the help text below it', async () => {
+  mockOverrides(300)
+  renderSection()
+
+  const input = await screen.findByRole('spinbutton', {
+    name: 'Maximum requests per window',
+  })
+  const row = input.parentElement as HTMLElement
+  const label = screen.getByText('Maximum requests per window')
+  const help = screen.getByText(LIMIT_HELP_TEXT)
+
+  expect(row.compareDocumentPosition(label)).toBe(
+    Node.DOCUMENT_POSITION_PRECEDING
+  )
+  expect(row.compareDocumentPosition(help)).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING
+  )
+})
+
+it('shows a validation message below the row instead of beside the buttons', async () => {
+  mockOverrides(null)
+  const user = userEvent.setup()
+  renderSection()
+  await screen.findByText('No request limit is set for this organization.')
+
+  const input = await screen.findByRole('spinbutton', {
+    name: 'Maximum requests per window',
+  })
+  await user.clear(input)
+  await user.type(input, '0')
+  await user.click(screen.getByRole('button', { name: 'Save' }))
+  const message = await screen.findByText(
+    'Enter a number between 1 and 100000000.'
+  )
+  const row = input.parentElement as HTMLElement
+
+  expect(row).not.toContainElement(message)
+  expect(row.compareDocumentPosition(message)).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING
+  )
 })

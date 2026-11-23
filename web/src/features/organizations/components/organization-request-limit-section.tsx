@@ -98,7 +98,6 @@ export function OrganizationRequestLimitSection(
       <p className='text-muted-foreground text-sm'>{statusText}</p>
       <Form {...form}>
         <form
-          className='flex flex-wrap items-start gap-2'
           onSubmit={form.handleSubmit((values) =>
             saveMutation.mutate(values.total_count)
           )}
@@ -107,22 +106,37 @@ export function OrganizationRequestLimitSection(
             control={form.control}
             name='total_count'
             render={({ field }) => (
-              <FormItem className='min-w-48 flex-1'>
+              <FormItem>
                 <FormLabel>{t('Maximum requests per window')}</FormLabel>
-                <FormControl>
-                  <Input
-                    type='number'
-                    min={1}
-                    step={1}
-                    name={field.name}
-                    ref={field.ref}
-                    value={Number.isNaN(field.value) ? '' : field.value}
-                    onBlur={field.onBlur}
-                    onChange={(event) =>
-                      field.onChange(event.target.valueAsNumber)
-                    }
-                  />
-                </FormControl>
+                {/* The input and buttons share one row, so their tops line up. */}
+                <div className='flex items-start gap-2'>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={1}
+                      step={1}
+                      className='flex-1'
+                      name={field.name}
+                      ref={field.ref}
+                      value={Number.isNaN(field.value) ? '' : field.value}
+                      onBlur={field.onBlur}
+                      onChange={(event) =>
+                        field.onChange(event.target.valueAsNumber)
+                      }
+                    />
+                  </FormControl>
+                  <Button type='submit' disabled={saveMutation.isPending}>
+                    {t('Save')}
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    disabled={currentLimit === 0 || clearMutation.isPending}
+                    onClick={() => clearMutation.mutate()}
+                  >
+                    {t('Remove limit')}
+                  </Button>
+                </div>
                 <FormDescription>
                   {t(
                     'The window is set in the rate limit settings. The limit applies only to requests this organization pays for.'
@@ -132,19 +146,6 @@ export function OrganizationRequestLimitSection(
               </FormItem>
             )}
           />
-          <div className='flex gap-2 pt-7'>
-            <Button type='submit' disabled={saveMutation.isPending}>
-              {t('Save')}
-            </Button>
-            <Button
-              type='button'
-              variant='outline'
-              disabled={currentLimit === 0 || clearMutation.isPending}
-              onClick={() => clearMutation.mutate()}
-            >
-              {t('Remove limit')}
-            </Button>
-          </div>
         </form>
       </Form>
     </section>
