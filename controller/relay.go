@@ -70,6 +70,13 @@ func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewA
 	return err
 }
 
+// releaseRefusedBeforeUpstream returns the channel budget and the user and organization
+// admissions of a request that the relay refuses before it reaches the upstream.
+func releaseRefusedBeforeUpstream(c *gin.Context) {
+	service.ReleaseChannelBudget(c)
+	middleware.ClearModelRateLimitUpstreamReached(c)
+}
+
 func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	requestId := c.GetString(common.RequestIdKey)
@@ -123,6 +130,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	request, err := helper.GetAndValidateRequest(c, relayFormat)
 	if err != nil {
+		releaseRefusedBeforeUpstream(c)
 		// Map "request body too large" to 413 so clients can handle it correctly
 		if common.IsRequestBodyTooLargeError(err) || errors.Is(err, common.ErrRequestBodyTooLarge) {
 			newAPIError = types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusRequestEntityTooLarge, types.ErrOptionWithSkipRetry())
@@ -135,6 +143,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	relayInfo, err := relaycommon.GenRelayInfo(c, relayFormat, request, ws)
 	if err != nil {
+		releaseRefusedBeforeUpstream(c)
 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
 		return
 	}
@@ -162,8 +171,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	if newAPIError = relay.PrepareRequestBilling(c, relayInfo); newAPIError != nil {
 		// Quota pre-consume refused the request before the upstream. Return its
 		// channel budget and its user and organization admissions.
-		service.ReleaseChannelBudget(c)
-		middleware.ClearModelRateLimitUpstreamReached(c)
+		releaseRefusedBeforeUpstream(c)
 		service.RecordGatewayErrorLog(c, newAPIError)
 		return
 	}
