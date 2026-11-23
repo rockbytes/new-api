@@ -1,10 +1,10 @@
 ---
 title: 滚动升级的显式排空
-status: planned
+status: done
 created: 2026-11-19
-updated: 2026-11-19
+updated: 2026-11-23
 owner: Rock
-completed:
+completed: 2026-11-23
 ---
 
 # 滚动升级的显式排空
@@ -163,22 +163,30 @@ go drainServer.Serve(ln)
 
 ### 4. systemd unit
 
-两个 unit 各自配置（socket 路径必须按实例区分）：
+两个 unit 各自配置，目录名与 socket 路径都必须按实例区分：
 
 ```ini
-[Service]
-RuntimeDirectory=newapi-drain
+# new-api-a.service
+RuntimeDirectory=newapi-drain-a
 RuntimeDirectoryMode=0750
-Environment=DRAIN_SOCKET=/run/newapi-drain/drain.sock
+Environment=DRAIN_SOCKET=/run/newapi-drain-a/drain.sock
+
+# new-api-b.service
+RuntimeDirectory=newapi-drain-b
+RuntimeDirectoryMode=0750
+Environment=DRAIN_SOCKET=/run/newapi-drain-b/drain.sock
 ```
 
 `RuntimeDirectory` 的价值是 systemd 在服务停止时自动删除目录，socket 文件随之消失，无需自行清理。
+
+**修正（第 5 步，2026-11-23）**：原文两个 unit 都写 `newapi-drain`。两个实例共用目录时，一个实例停止会删除另一个实例的 socket，因此改为按实例区分。仓库内 `DEPLOYMENT.md` 第 10.2、10.3 节已同步更新；服务器上的 unit 文件尚未修改，需要在确认后应用。
 
 ### 5. 升级脚本
 
 ```bash
 DRAIN_TIMEOUT_SECONDS=600
-DRAIN_SOCK_A=/run/newapi-drain/drain.sock
+DRAIN_SOCK_A=/run/newapi-drain-a/drain.sock
+DRAIN_SOCK_B=/run/newapi-drain-b/drain.sock
 
 drained() {  # drained <socket>
   curl -sf -m 2 --unix-socket "$1" http://localhost/drain/status \
@@ -212,10 +220,74 @@ drain_instance() {  # drain_instance <socket> <label>
 3. **排空期间返回 503 的语义**：nginx 已摘除该实例，正常流量不应到达，503 只用于兜底直连场景。若存在绕过 nginx 的直连客户端，其重试行为需单独确认。
 4. **计数准确性依赖中间件挂载位置**：`SetRouter` 是唯一入口，任何新增的独立 `gin.Engine`（如 `controller/responses_websocket.go` 中的 `responsesWSRequestEngine`）都不会被计数。后者的请求由已计数的外层 WebSocket 覆盖，目前是安全的，但新增独立引擎时需注意这一点。
 5. **多实例 socket 路径冲突**：两个实例若共用同一 `DRAIN_SOCKET`，第二个会因 `os.Remove` 误删第一个的 socket 而抢占。必须在各自 unit 中配置不同路径，部署文档需显式提醒。
+6. **空闲 WebSocket 不会自行结束（第 0 步核实发现，待决策）**：两条路径的读循环都阻塞在 `ReadMessage` 上，既没有读超时，也没有空闲关闭。客户端保持连接但不发请求时，会话永远不结束。如果排空只等计数归零，任何一个空闲会话都会让排空打满 600 秒并中止升级。因此排空开始时必须主动处理 WebSocket，而不是等待它们结束。具体策略见下方"待决策"。
+
+## 前置核实记录（第 0 步）
+
+核实对象：`relay/responses_websocket.go` 的 `:166`、`:512`、`:651`，以及 realtime 路径 `relay/channel/openai/relay_realtime.go`、`relay/websocket.go`。
+
+- **结论：前置条件成立。** 三处 `<-s.ctx.Done()` 都能被唤醒，但机制与原方案描述不同。原方案写的是"依赖读写错误让循环退出"，实际链路是：客户端连接关闭 → 主读循环 `client.ReadMessage()` 返回错误 → 函数返回时的 `defer` 调用 `s.shutdown()` → `s.cancel()` 取消 ctx → 三处 select 退出 → `s.workers.Wait()` 返回。
+- **realtime 路径**：客户端或上游任一端关闭，对应读协程返回并关闭 `clientClosed` / `targetClosed`，`OpenaiRealtimeHandler` 返回；`WssHelper` 中 `defer info.TargetWs.Close()` 关闭上游。两端都会收尾，没有泄漏。
+- **未核实项**：`runCall` 中不在 select 内的阻塞点（渠道选择、`DoWssRequest` 拨号）是否有超时。写入侧有 `responsesWSWriteTimeout`（30 秒）与 `clientWriteBudget` 截止时间，但拨号超时尚未确认。该项在第 2 步前补查。
+- **与计数的关系**：`ResponsesWebSocketHelper` 在 `s.workers.Wait()` 之后才返回，因此在它返回前释放 WebSocket 登记，会把仍在收尾的 goroutine 漏算在外。登记释放必须放在 handler 返回之后。
+
+## 待决策：排空时如何处理空闲 WebSocket
+
+需要在第 2 步之前确定，否则排空逻辑无法完成。
+
+**已决定（2026-11-23）：采用方案 A。** 具体规则：
+
+- Responses WebSocket：排空开始时，没有进行中请求的会话立即以 `1001` 关闭；有进行中请求的会话，在该请求完成并把终止事件写回客户端后以 `1001` 关闭；排空期间收到的新 `response.create` 返回 503。
+- Realtime WebSocket：没有请求边界，排空开始后等待 `DRAIN_WS_GRACE_SECONDS`（默认 60 秒，实施时确定），仍在线则以 `1001` 关闭。宽限期内若排空已被撤销（`DELETE /drain`），则不关闭。
+- 排空期间新的 WebSocket 升级请求返回 503。
+
+- **方案 A（推荐）：分两类处理。** `POST /drain` 时，立即以 `1001` 关闭没有进行中请求的 Responses WebSocket 会话（`s.current == nil`），进行中的请求等它完成。Realtime 会话没有请求边界，按下面的宽限期处理。
+- **方案 B：统一宽限期。** `POST /drain` 后等待 `DRAIN_WS_GRACE_SECONDS` 秒，再对所有剩余 WebSocket 发 `1001`。实现简单，但会切断仍在对话中的 realtime 会话。
+- **方案 C：空闲超时。** 为读循环增加空闲截止时间，仅在排空期间生效。改动面最大，且会改变正常运行时的行为。
+
+若选 A 或 B，需要额外确定：Realtime 会话在排空中被 `1001` 关闭后，客户端重连会落到 nginx 上的另一个实例，这是否可以接受。
+
+## 升级脚本测试记录（第 6 步）
+
+脚本位于仓库 `deploy/upgrade.sh`。服务器上的 `/opt/new-api/bin/upgrade.sh` 尚未替换，替换需要在确认后随新版本一起发布。
+
+在 WSL Ubuntu 24.04 的沙箱中（root，`/opt/new-api` 布局与生产一致；`systemctl`、`nginx`、`journalctl` 为 stub，实例为真实 `new-api` 二进制，A、B 共用一个 SQLite 文件以模拟共享数据库）运行六个场景，结果 31 项断言全部通过：
+
+- A：无流量的正常升级。B、A 都先排空再重启，upstream 全部恢复，两个实例运行新版本。
+- B：B 上有一个未完成的 HTTP 请求。排空期间 `active_requests` 为 1，B 等请求完成（约 16 秒）后才重启，请求拿到正常响应。
+- C：`DRAIN_TIMEOUT_SECONDS=5` 且请求未完成。脚本以 `not drained` 中止，upstream 恢复，B 未重启，drain 状态回到 `running`。
+- D：`FORCE_RESTART=yes` 时超时后强制重启 B。
+- E：运行中的旧版本没有 drain socket，预检阶段直接拒绝，未改动任何实例或 nginx 配置。
+- F：B 上一个空闲的 Responses WebSocket 会话。排空时客户端收到 `1001 server draining`，升级约 4 秒完成，未等待该会话。
+
+测试过程中发现的两个沙箱问题（均与脚本无关）：
+
+- `NODE_TYPE=slave` 的实例不执行 AutoMigrate，必须与主节点共享数据库；生产环境 A、B 本来就共用 PostgreSQL。
+- 命令替换会等待后台子进程的 stdout 关闭，导致测试中的 held 请求被同步执行。测试脚本已修正。
+
+## 线上上线记录（第 8 步，2026-11-23）
+
+- 版本：`v1.0.29`（本地 tag 指向 `a8785ee14`，未推送）。二进制 SHA-256 `4FDF8FF54EA635A42ACE468302CFAC00B8851296479072E770E2F4D72060EE4C`，上传前后一致。
+- schema 检查：`v1.0.28..HEAD` 的 `model/` 净差异为空，代码中无迁移语句，`CONFIRM_BACKWARD_COMPATIBLE=yes` 有依据。
+- 线上操作：
+  - release 安装到 `/opt/new-api/releases/v1.0.29/`，v1.0.28 保留作为回滚路径；
+  - 两个 unit 增加 `RuntimeDirectory` 与 `DRAIN_SOCKET`，改动前备份为 `*.service.bak-before-drain`；
+  - 旧版脚本执行滚动升级：B 与 A 均 `drained` 后重启，`upgrade complete`；
+  - `/opt/new-api/bin/upgrade.sh` 替换为本仓库 `deploy/upgrade.sh`，旧版备份为 `upgrade.sh.bak-before-drain`。
+- 线上已确认：两个实例 active 且健康，运行 v1.0.29，nginx `:80` 返回 200，upstream 无 `down`，fatal/panic 为 0，A 启动后台任务、B 未启动，drain socket 存在且权限为 `0660`，TCP 监听仅 3000、3001。
+- **未在线上验证**（需要测试账号，本次未进行）：验收条件 2（在途 SSE 排空后再重启）、3（空闲 WebSocket 收到 1001）、5（socket 的访问控制）、6（排空超时中止并恢复流量）。这些项目前只有 WSL 沙箱和单元测试的结果。
 
 ## 验证结果
 
-（实施后填写）
+- 单元与集成测试：见上文各节的记录（middleware、controller drain、relay WebSocket 回归）。
+- 沙箱端到端：第 4 步（SIGTERM 空闲会话）与第 6 步（六个升级场景，31 项断言）。
+- 线上部署：v1.0.29 已在网关上线，两个实例健康，运行新版本，upstream 正常，drain socket 存在（见"线上上线记录"）。
+- **线上端到端：未执行（2026-11-23 决定）。** 原因是缺少可用的测试账号，且当前不便安排测试流量与重启窗口。以下验收条件**在线上未验证**，仅有沙箱或单元测试结果：
+  - 验收条件 2：在途 SSE 排空后才重启，客户端流不被截断；
+  - 验收条件 3：空闲 WebSocket 在升级时收到 `1001`；
+  - 验收条件 5：drain socket 的访问控制（非授权用户被拒绝、`ss` 输出符合预期）；
+  - 验收条件 6：排空超时后中止、流量恢复、实例不重启。
+- 结论：功能代码与升级脚本已通过单元、集成与沙箱验证，并已上线。线上的排空行为将在下一次升级时首次真实触发，届时需要留意脚本日志中的 `drained` 与超时记录。
 
 ## 阻塞原因
 

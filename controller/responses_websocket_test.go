@@ -282,6 +282,8 @@ type responsesWSBillingTest struct {
 	channel      *model.Channel
 	client       *websocket.Conn
 	done         chan struct{}
+	// doneOnce guards done: a test may open further upgrades, each of which runs the handler.
+	doneOnce     sync.Once
 	upstreamDone chan struct{}
 	connections  atomic.Int32
 	gatewayURL   string
@@ -405,7 +407,7 @@ func newResponsesWSBillingTest(t *testing.T, expression string, handle func(*web
 	})
 	engine := gin.New()
 	engine.GET("/v1/responses", middleware.TokenAuth(), func(c *gin.Context) {
-		defer close(fixture.done)
+		defer fixture.doneOnce.Do(func() { close(fixture.done) })
 		c.Set(common.RequestIdKey, "responses-ws-billing")
 		ResponsesWebSocket(c)
 	})
@@ -1218,6 +1220,85 @@ func TestResponsesWebSocketCloseCodes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Draining ends an idle Responses session at once and refuses new upgrades. A
+// session with an in-flight request refuses further creates, lets that request
+// finish and settle, and only then closes with 1001.
+func TestResponsesWebSocketDrainingEndsSessionAfterInFlightRequest(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	const (
+		created   = `{"type":"response.created","response":{"id":"active","status":"in_progress"}}`
+		delta     = `{"type":"response.output_text.delta","delta":"hello"}`
+		completed = `{"type":"response.completed","response":{"id":"active","status":"completed","usage":{"input_tokens":1000,"output_tokens":10,"total_tokens":1010}}}`
+	)
+	// Draining is process-wide, so each subtest must reset it before its fixture cleans up.
+	t.Run("idle session closes at once and refuses upgrades", func(t *testing.T) {
+		t.Cleanup(middleware.StopDraining)
+		fixture := newResponsesWSBillingTest(t, `tier("request", fixed(0.002))`, func(*websocket.Conn, *http.Request) {})
+		middleware.StartDraining()
+
+		require.NoError(t, fixture.client.SetReadDeadline(time.Now().Add(5*time.Second)))
+		_, _, err := fixture.client.ReadMessage()
+		var closeErr *websocket.CloseError
+		require.ErrorAs(t, err, &closeErr)
+		assert.Equal(t, websocket.CloseGoingAway, closeErr.Code)
+		assert.Equal(t, "server draining", closeErr.Text)
+
+		_, resp, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(fixture.gatewayURL, "http")+"/v1/responses", http.Header{"Authorization": []string{"Bearer sk-" + fixture.token.Key}})
+		require.ErrorIs(t, err, websocket.ErrBadHandshake)
+		require.NotNil(t, resp)
+		assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+		fixture.closeAndWait(t)
+	})
+
+	t.Run("in-flight request finishes before the close", func(t *testing.T) {
+		t.Cleanup(middleware.StopDraining)
+		releaseUpstream := make(chan struct{})
+		fixture := newResponsesWSBillingTest(t, `tier("request", fixed(0.002))`, func(ws *websocket.Conn, _ *http.Request) {
+			if _, _, err := ws.ReadMessage(); !assert.NoError(t, err) {
+				return
+			}
+			for _, event := range []string{created, delta} {
+				if !assert.NoError(t, ws.WriteMessage(websocket.TextMessage, []byte(event))) {
+					return
+				}
+			}
+			<-releaseUpstream
+			if !assert.NoError(t, ws.WriteMessage(websocket.TextMessage, []byte(completed))) {
+				return
+			}
+			for {
+				if _, _, err := ws.ReadMessage(); err != nil {
+					return
+				}
+			}
+		})
+		require.NoError(t, fixture.client.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"ws-billing","input":"hi"}`)))
+		for _, event := range []string{created, delta} {
+			actual, err := common.Marshal(readResponsesWSTestEvent(t, fixture.client))
+			require.NoError(t, err)
+			assert.JSONEq(t, event, string(actual))
+		}
+
+		middleware.StartDraining()
+		require.NoError(t, fixture.client.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"ws-billing","input":"again"}`)))
+		assert.Equal(t, float64(http.StatusServiceUnavailable), readResponsesWSTestEvent(t, fixture.client)["status"])
+
+		close(releaseUpstream)
+		actual, err := common.Marshal(readResponsesWSTestEvent(t, fixture.client))
+		require.NoError(t, err)
+		assert.JSONEq(t, completed, string(actual))
+
+		require.NoError(t, fixture.client.SetReadDeadline(time.Now().Add(5*time.Second)))
+		_, _, err = fixture.client.ReadMessage()
+		var closeErr *websocket.CloseError
+		require.ErrorAs(t, err, &closeErr)
+		assert.Equal(t, websocket.CloseGoingAway, closeErr.Code)
+		assert.Equal(t, "server draining", closeErr.Text)
+		fixture.closeAndWait(t)
+		assertResponsesWSAccounting(t, fixture, []int{1000})
+	})
 }
 
 // A control event queued while another is still outstanding is rejected

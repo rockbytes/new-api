@@ -226,23 +226,66 @@ func main() {
 
 	common.LogStartupSuccess(startTime, port)
 
+	var drainServer *http.Server
+	if drainSocket := os.Getenv("DRAIN_SOCKET"); drainSocket != "" {
+		server, err := controller.ServeDrainSocket(drainSocket)
+		if err != nil {
+			common.SysError(common.LogText("drain socket disabled: %v", err))
+		}
+		drainServer = server
+	}
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
 	common.SysLog(common.LogText("received signal: %v, shutting down...", sig))
 
-	// SSE streams may run for minutes; give them time to finish before forced exit
+	// SSE streams and WebSocket sessions may run for minutes. Both share one
+	// deadline: upgrades are refused from now on, idle WebSocket sessions end at
+	// once, and in-flight work gets until the deadline to finish.
 	shutdownTimeout := time.Duration(common.GetEnvOrDefault("SHUTDOWN_TIMEOUT_SECONDS", 120)) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
+	middleware.StartDraining()
+	httpShutdown := make(chan error, 1)
+	go func() { httpShutdown <- srv.Shutdown(ctx) }()
+	waitForWebSocketRelease(ctx)
+	if closed := middleware.CloseWebSocketsGoingAway(); closed > 0 {
+		common.SysError(common.LogText("shutdown deadline reached, sent 1001 to %d websocket connection(s)", closed))
+		// Each session still settles its billing and writes its final state after
+		// the close frame, so the process waits briefly before exiting.
+		settleCtx, cancelSettle := context.WithTimeout(context.Background(), websocketSettleTimeout)
+		waitForWebSocketRelease(settleCtx)
+		cancelSettle()
+	}
+	if err := <-httpShutdown; err != nil {
 		common.SysError(common.LogText("server forced to shutdown: %v", err))
+	}
+	if drainServer != nil {
+		_ = drainServer.Close()
 	}
 	// 内存中的看板数据保存入库，避免重启丢失未落库数据 (issue #5679)
 	if common.DataExportEnabled {
 		model.SaveQuotaDataCache()
 	}
 	common.SysLog(common.LogText("server exited"))
+}
+
+// websocketSettleTimeout bounds how long a force-closed WebSocket session may
+// take to settle after it has been sent 1001.
+const websocketSettleTimeout = 5 * time.Second
+
+// waitForWebSocketRelease returns once no WebSocket connection is tracked, or when ctx ends.
+func waitForWebSocketRelease(ctx context.Context) {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for middleware.ActiveWebSocketCount() > 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 func InjectUmamiAnalytics() {

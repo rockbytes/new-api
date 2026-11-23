@@ -113,6 +113,13 @@ func newResponsesWSRequestRunner(c *gin.Context) relay.ResponsesWSRequestRunner 
 
 func ResponsesWebSocket(c *gin.Context) {
 	requestID := c.GetString(common.RequestIdKey)
+	if middleware.IsDraining() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{
+			"type":    string(types.ErrorCodeServerDraining),
+			"message": "server is draining; reconnect to another instance",
+		}})
+		return
+	}
 	runner := newResponsesWSRequestRunner(c)
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {

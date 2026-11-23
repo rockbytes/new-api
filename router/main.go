@@ -13,6 +13,9 @@ import (
 )
 
 func SetRouter(router *gin.Engine, assets WebAssets) {
+	// Must precede every route group: gin copies the engine's handlers when a group
+	// is created, so later Use calls do not reach routes registered earlier.
+	router.Use(middleware.StatsMiddleware())
 	SetApiRouter(router)
 	SetDashboardRouter(router)
 	SetRelayRouter(router)

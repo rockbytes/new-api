@@ -81,6 +81,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	)
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
+		if middleware.IsDraining() {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{
+				"type":    string(types.ErrorCodeServerDraining),
+				"message": "server is draining; reconnect to another instance",
+			}})
+			return
+		}
 		var err error
 		ws, err = upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
@@ -88,6 +95,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			return
 		}
 		defer ws.Close()
+		// Realtime has no request boundary, so a draining instance gives the
+		// session a grace period before closing it. If draining is cancelled in the
+		// meantime, the session stays open.
+		release := middleware.TrackWebSocket(ws, func() {
+			grace := time.Duration(common.GetEnvOrDefault("DRAIN_WS_GRACE_SECONDS", 60)) * time.Second
+			time.AfterFunc(grace, func() {
+				if middleware.IsDraining() {
+					middleware.CloseWebSocketGoingAway(ws)
+				}
+			})
+		})
+		defer release()
 	}
 
 	defer func() {

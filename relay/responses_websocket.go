@@ -34,6 +34,7 @@ import (
 
 const responsesWSEventTypeResponseCreate = "response.create"
 const responsesWSWriteTimeout = 30 * time.Second
+const responsesWSDrainReason = "server draining"
 
 // ResponsesWSRequestRunner executes the existing authentication and rate-limit
 // middleware around one complete request, without a second HTTP connection.
@@ -106,6 +107,9 @@ type responsesWSSession struct {
 	unregister    func()
 	stateMu       sync.Mutex
 	current       *responsesWSCallState
+	// drainRequested is guarded by stateMu. Once set, no new request is admitted,
+	// and the session ends after any in-flight request finishes.
+	drainRequested bool
 
 	// clientWriteBudget is guarded by clientWriteMu.
 	clientWriteBudget helper.StreamWriteBudget
@@ -129,6 +133,10 @@ func ResponsesWebSocketHelper(c *gin.Context, client *websocket.Conn, runner Res
 	if s.requestID == "" {
 		s.requestID = common.NewRequestId()
 	}
+	// Registered before the shutdown defer below, so it runs after the workers
+	// have finished and the connection no longer counts as active.
+	release := middleware.TrackWebSocket(client, s.drain)
+	defer release()
 	maxMB := appconstant.MaxRequestBodyMB
 	if maxMB <= 0 {
 		maxMB = 128
@@ -172,6 +180,10 @@ func ResponsesWebSocketHelper(c *gin.Context, client *websocket.Conn, runner Res
 		}
 		state := &responsesWSCallState{inbox: make(chan responsesWSMessage), controls: make(chan responsesWSControl, 1), done: make(chan struct{})}
 		if !s.tryReserveCurrent(state) {
+			if middleware.IsDraining() {
+				s.sendError(envelope.EventID, streamID, types.NewErrorWithStatusCode(errors.New("server is draining; reconnect to another instance"), types.ErrorCodeServerDraining, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry()))
+				continue
+			}
 			s.sendError(envelope.EventID, streamID, types.NewErrorWithStatusCode(errors.New("another response.create is already in progress on this websocket connection"), types.ErrorCodeInvalidRequest, http.StatusConflict, types.ErrOptionWithSkipRetry()))
 			continue
 		}
@@ -215,8 +227,14 @@ func (s *responsesWSSession) runRequest(state *responsesWSCallState, message []b
 		}
 		s.current = nil
 		close(state.done)
+		// Read under the same lock that releases the request, so a drain request
+		// that arrives after this point is handled by drain itself.
+		endAfterRequest := s.drainRequested && middleware.IsDraining()
 		s.stateMu.Unlock()
 		s.clientWriteMu.Unlock()
+		if endAfterRequest {
+			s.shutdown(websocket.CloseGoingAway, responsesWSDrainReason)
+		}
 	}()
 	request := s.request.Clone(s.ctx)
 	request.Body = io.NopCloser(bytes.NewReader(message))
@@ -679,11 +697,24 @@ func (s *responsesWSSession) getCurrent() *responsesWSCallState {
 func (s *responsesWSSession) tryReserveCurrent(state *responsesWSCallState) bool {
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
-	if s.current != nil {
+	if s.current != nil || s.drainRequested {
 		return false
 	}
 	s.current = state
 	return true
+}
+
+// drain ends an idle session at once. A session with an in-flight request ends
+// when that request finishes, after its terminal event has been written, so the
+// response in progress is not cut off.
+func (s *responsesWSSession) drain() {
+	s.stateMu.Lock()
+	s.drainRequested = true
+	idle := s.current == nil
+	s.stateMu.Unlock()
+	if idle {
+		s.shutdown(websocket.CloseGoingAway, responsesWSDrainReason)
+	}
 }
 
 func (s *responsesWSSession) getTarget() *websocket.Conn {
