@@ -8,12 +8,16 @@ import {
   RouterProvider,
 } from '@tanstack/react-router'
 import { render, screen } from '@testing-library/react'
-import { expect, test, vi } from 'vitest'
+import { beforeEach, expect, test, vi } from 'vitest'
 
 import { SignIn } from '..'
 
+const statusState = vi.hoisted(() => ({
+  status: {} as Record<string, unknown>,
+}))
+
 vi.mock('@/hooks/use-status', () => ({
-  useStatus: () => ({ status: { register_enabled: true } }),
+  useStatus: () => ({ status: statusState.status }),
 }))
 
 vi.mock('@tanstack/react-router', async (importOriginal) => ({
@@ -44,13 +48,42 @@ function renderSignIn() {
   )
 }
 
-test('the sign-in page offers no sign-up entry even when registration is enabled', async () => {
+beforeEach(() => {
+  statusState.status = {}
+})
+
+test('the sign-in page links to sign-up when registration is enabled', async () => {
+  statusState.status = { register_enabled: true }
   renderSignIn()
 
   expect(
     await screen.findByRole('heading', { name: 'Sign in' })
   ).toBeInTheDocument()
-  expect(screen.queryByText("Don't have an account?")).not.toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'Sign up' })).toHaveAttribute(
+    'href',
+    '/sign-up'
+  )
+})
+
+test('the sign-in page offers no sign-up link when registration is disabled', async () => {
+  statusState.status = { register_enabled: false }
+  renderSignIn()
+
+  expect(
+    await screen.findByRole('heading', { name: 'Sign in' })
+  ).toBeInTheDocument()
+  expect(
+    screen.queryByRole('link', { name: 'Sign up' })
+  ).not.toBeInTheDocument()
+})
+
+test('the sign-in page offers no sign-up link in self-use mode even when registration is enabled', async () => {
+  statusState.status = { register_enabled: true, self_use_mode_enabled: true }
+  renderSignIn()
+
+  expect(
+    await screen.findByRole('heading', { name: 'Sign in' })
+  ).toBeInTheDocument()
   expect(
     screen.queryByRole('link', { name: 'Sign up' })
   ).not.toBeInTheDocument()
