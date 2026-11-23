@@ -578,3 +578,46 @@ func TestRequestRefusedBeforeUpstreamReleasesAdmission(t *testing.T) {
 	assert.Equal(t, http.StatusPaymentRequired, performRateLimitRequest(router, "/?refuse=1", "127.0.0.1:1000").Code)
 	assert.Equal(t, http.StatusOK, performRateLimitRequest(router, "/", "127.0.0.1:1000").Code, "the refused request released the only admission")
 }
+
+// A user override sets that user's limits even when the global user limit is off, and
+// a user without an override stays unlimited.
+func TestModelRateLimitUserOverrideAppliesWithTheGlobalLimitOff(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	previousEnabled, previousRedis := setting.ModelRequestRateLimitEnabled, common.RedisEnabled
+	t.Cleanup(func() {
+		setting.ModelRequestRateLimitEnabled, common.RedisEnabled = previousEnabled, previousRedis
+		service.ReplaceUserRateLimitOverrides(nil)
+	})
+	setting.ModelRequestRateLimitEnabled = false
+
+	for _, backend := range []string{"memory", "redis"} {
+		t.Run(backend, func(t *testing.T) {
+			if backend == "redis" {
+				useRateLimitMiniRedis(t)
+			} else {
+				common.RedisEnabled = false
+			}
+			overridden := 7300000 + int(modelRateLimitTestUsers.Add(1))
+			unlimited := overridden + 1
+			service.ReplaceUserRateLimitOverrides(map[int]service.UserRateLimitOverride{overridden: {TotalCount: 2}})
+			router := gin.New()
+			router.GET("/:user", func(c *gin.Context) {
+				userId, _ := strconv.Atoi(c.Param("user"))
+				c.Set("id", userId)
+				c.Next()
+			}, ModelRequestRateLimit(), func(c *gin.Context) {
+				c.Status(http.StatusOK)
+			})
+
+			path := "/" + strconv.Itoa(overridden)
+			assert.Equal(t, http.StatusOK, performRateLimitRequest(router, path, "127.0.0.1:1000").Code)
+			assert.Equal(t, http.StatusOK, performRateLimitRequest(router, path, "127.0.0.1:1000").Code)
+			refused := performRateLimitRequest(router, path, "127.0.0.1:1000")
+			assert.Equal(t, http.StatusTooManyRequests, refused.Code, "the override must limit the third request")
+
+			for range 3 {
+				assert.Equal(t, http.StatusOK, performRateLimitRequest(router, "/"+strconv.Itoa(unlimited), "127.0.0.1:1000").Code)
+			}
+		})
+	}
+}

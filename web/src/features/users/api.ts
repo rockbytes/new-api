@@ -14,6 +14,8 @@ import type {
   ManageUserAction,
   ManageUserQuotaPayload,
   ApiResponse,
+  UserRequestLimit,
+  UserRequestLimitInput,
 } from './types'
 
 // A step-up proof is single-use, so the request carrying it must never be
@@ -250,4 +252,24 @@ export async function adminUnbindCustomOAuth(
     securityProofConfig(proofToken)
   )
   return res.data
+}
+
+export async function getUserRequestLimit(
+  userId: number
+): Promise<UserRequestLimit> {
+  const res = await api.get(`/api/user/${userId}/rate_limit_override`)
+  return requireServerSuccess(res.data).data
+}
+
+export async function setUserRequestLimit(
+  userId: number,
+  input: UserRequestLimitInput
+): Promise<void> {
+  const res = await api.put(`/api/user/${userId}/rate_limit_override`, input)
+  requireServerSuccess(res.data)
+}
+
+export async function clearUserRequestLimit(userId: number): Promise<void> {
+  const res = await api.delete(`/api/user/${userId}/rate_limit_override`)
+  requireServerSuccess(res.data)
 }

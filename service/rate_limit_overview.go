@@ -37,7 +37,7 @@ func BuildRateLimitOverview(subjectType string, subjectId int) (*RateLimitOvervi
 	case RateLimitOverviewSubjectOrganization:
 		view.Layers = []RateLimitOverviewLayer{organizationOverviewLayer(subjectId)}
 	case RateLimitOverviewSubjectUser:
-		view.Layers = userOverviewLayers()
+		view.Layers = userOverviewLayers(subjectId)
 	case RateLimitOverviewSubjectChannel:
 		channel, err := model.GetChannelById(subjectId, false)
 		if err != nil {
@@ -60,17 +60,18 @@ func organizationOverviewLayer(organizationId int) RateLimitOverviewLayer {
 	return layer
 }
 
-// userOverviewLayers reports the global user limits. Per-user overrides are not part of
-// the overview yet, so every user shows the same values.
-func userOverviewLayers() []RateLimitOverviewLayer {
+// userOverviewLayers reports the user's effective limits: the administrator's override
+// where one is set, otherwise the global default.
+func userOverviewLayers(userId int) []RateLimitOverviewLayer {
 	window := userLimitWindowSeconds()
+	totalMax, successMax := EffectiveUserRateLimits(userId)
 	total := RateLimitOverviewLayer{Layer: "user_total", WindowSeconds: window}
-	if setting.ModelRequestRateLimitEnabled && setting.ModelRequestRateLimitCount > 0 {
-		total.Enabled, total.Limit = true, int64(setting.ModelRequestRateLimitCount)
+	if totalMax > 0 {
+		total.Enabled, total.Limit = true, int64(totalMax)
 	}
 	success := RateLimitOverviewLayer{Layer: "user_success", WindowSeconds: window}
-	if setting.ModelRequestRateLimitEnabled && setting.ModelRequestRateLimitSuccessCount > 0 {
-		success.Enabled, success.Limit = true, int64(setting.ModelRequestRateLimitSuccessCount)
+	if successMax > 0 {
+		success.Enabled, success.Limit = true, int64(successMax)
 	}
 	return []RateLimitOverviewLayer{total, success}
 }

@@ -112,13 +112,6 @@ export function RateLimitOverviewSection() {
               'Layers are listed in the order a request meets them. A request is refused by the first enabled layer with no requests left in its window.'
             )}
           </p>
-          {subjectType === 'user' ? (
-            <p className='text-muted-foreground text-sm'>
-              {t(
-                'User values are global until per-user overrides are available.'
-              )}
-            </p>
-          ) : null}
           <StaticDataTable
             columns={columns}
             data={overview.data?.layers ?? []}

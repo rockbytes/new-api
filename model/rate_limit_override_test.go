@@ -52,3 +52,35 @@ func TestRateLimitOverrideMigrationUpsertAndDelete(t *testing.T) {
 	require.Len(t, overrides, 1)
 	assert.Equal(t, 6, overrides[0].SubjectId)
 }
+
+// A user override keeps both counts across upserts. A count the new upsert leaves at
+// 0 is cleared, so that limit goes back to the global default.
+func TestRateLimitOverrideUserCountsRoundTrip(t *testing.T) {
+	db, _ := openOrganizationQuotaTestDatabase(t)
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	previousDB := DB
+	DB = db
+	t.Cleanup(func() { DB = previousDB })
+	require.NoError(t, DB.AutoMigrate(&RateLimitOverride{}))
+
+	require.NoError(t, UpsertRateLimitOverride(&RateLimitOverride{
+		SubjectType: RateLimitOverrideSubjectUser, SubjectId: 9, TotalCount: 30, SuccessCount: 10, UpdatedBy: 1, UpdatedTime: common.GetTimestamp(),
+	}))
+	require.NoError(t, UpsertRateLimitOverride(&RateLimitOverride{
+		SubjectType: RateLimitOverrideSubjectUser, SubjectId: 9, TotalCount: 40, UpdatedBy: 1, UpdatedTime: common.GetTimestamp(),
+	}))
+
+	override, err := GetRateLimitOverride(RateLimitOverrideSubjectUser, 9)
+	require.NoError(t, err)
+	require.NotNil(t, override)
+	assert.Equal(t, 40, override.TotalCount)
+	assert.Equal(t, 0, override.SuccessCount, "an upsert that leaves the success count at 0 must clear it")
+
+	missing, err := GetRateLimitOverride(RateLimitOverrideSubjectUser, 10)
+	require.NoError(t, err)
+	assert.Nil(t, missing)
+}

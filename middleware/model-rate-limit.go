@@ -506,29 +506,26 @@ func modelRequestSucceeded(c *gin.Context) bool {
 
 // ModelRequestRateLimit 模型请求限流中间件
 //
-// It applies the user limits when they are enabled, and the total
-// limit of the organization that pays for the token when that organization has
-// one. The organization limit applies even when the user limits are off.
+// It applies the user limits, which are the global defaults unless an administrator
+// overrides them for this user, and the total limit of the organization that pays for
+// the token when that organization has one. An override or organization limit
+// applies even when the global user limit is off.
 func ModelRequestRateLimit() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		userId := c.GetInt("id")
+		totalMaxCount, successMaxCount := service.EffectiveUserRateLimits(userId)
 		organizationId := common.GetContextKeyInt(c, constant.ContextKeyTokenBillingOrganizationId)
 		organizationMax := 0
 		if organizationId > 0 {
 			organizationMax = service.OrganizationTotalRateLimit(organizationId)
 		}
-		userLimitEnabled := setting.ModelRequestRateLimitEnabled
-		if !userLimitEnabled && organizationMax == 0 {
+		if totalMaxCount == 0 && successMaxCount == 0 && organizationMax == 0 {
 			c.Next()
 			return
 		}
 
 		duration := rateLimitDurationSeconds(setting.ModelRequestRateLimitDurationMinutes)
-		totalMaxCount, successMaxCount, subject := 0, 0, ""
-		if userLimitEnabled {
-			totalMaxCount = setting.ModelRequestRateLimitCount
-			successMaxCount = setting.ModelRequestRateLimitSuccessCount
-			subject = strconv.Itoa(c.GetInt("id"))
-		}
+		subject := strconv.Itoa(userId)
 
 		// 根据存储类型选择并执行限流处理器
 		if common.RedisEnabled {

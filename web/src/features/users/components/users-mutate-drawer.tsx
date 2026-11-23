@@ -80,6 +80,7 @@ import {
 } from '../lib'
 import type { User } from '../types'
 import { UserQuotaDialog } from './user-quota-dialog'
+import { UserRequestLimitSection } from './user-request-limit-section'
 import { useUsers } from './users-provider'
 
 type UsersMutateDrawerProps = {
@@ -158,6 +159,11 @@ export function UsersMutateDrawer({
   const selectedRole = form.watch('role')
   const selectedOrganizationId = form.watch('organization_id')
   const canEditAdminPermissions = currentUser?.role === ROLE.SUPER_ADMIN
+  // Mirrors the server rule: root may change any user's request limits, and any other
+  // administrator only those of a lower role.
+  const canManageRequestLimits =
+    currentUser?.role === ROLE.SUPER_ADMIN ||
+    (currentUser?.role ?? 0) > (currentRow?.role ?? 0)
   const targetIsAdmin = (selectedRole ?? currentRow?.role ?? 0) >= ROLE.ADMIN
 
   const onSubmit = async (data: UserFormValues) => {
@@ -541,6 +547,13 @@ export function UsersMutateDrawer({
                     )}
                   />
                 </SideDrawerSection>
+              )}
+
+              {isUpdate && currentRow && (
+                <UserRequestLimitSection
+                  userId={currentRow.id}
+                  canManage={canManageRequestLimits}
+                />
               )}
 
               {canEditAdminPermissions &&

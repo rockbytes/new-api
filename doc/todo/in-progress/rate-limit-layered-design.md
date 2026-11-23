@@ -2,7 +2,7 @@
 title: 多层限速模型设计
 status: in-progress
 created: 2026-11-18
-updated: 2026-11-20
+updated: 2026-11-23
 owner: Rock
 completed:
 ---
@@ -152,8 +152,8 @@ rate_limit_overrides
   subject_type   user | organization
   subject_id     用户 ID 或组织 ID
   group_name     分组覆盖时填写，否则为空
-  total_count    总请求上限
-  success_count  成功请求上限（若沿用准入计，可与总请求上限合并，待 Phase 0 确认）
+  total_count    总请求上限；0 = 不覆盖，沿用全局默认（组织总量只用此列，且须 ≥ 1）
+  success_count  成功请求上限；0 = 不覆盖，沿用全局默认（仅用户覆盖使用）
   updated_by     最后修改人
   updated_time   最后修改时间
   唯一索引 (subject_type, subject_id, group_name)
@@ -331,7 +331,7 @@ Phase 0 已完成。Phase 1 的实施尚未开始。
 **未完成：**
 
 - `x-ratelimit-*` 响应头（决定：先做拒绝响应）：429 拒绝带 `x-ratelimit-limit` 与 `x-ratelimit-remaining: 0`。渠道预算拒绝另带 `x-ratelimit-reset`，即补充一个请求所需的准确时间。用户层与组织层的 `Retry-After` 已改为计算出的等待时间（第二步），不带 `x-ratelimit-reset`；成功量限制仍用窗口长度，是上限。成功响应也带 `x-ratelimit-limit` 与 `x-ratelimit-remaining`（取剩余请求数最少的一层），由 Lua 返回的剩余量得到，已实现（待核实事项 8 已解决）。
-- 限速总览页（只读）：已实现。`GET /api/rate-limit-overview/`（仅 root）按请求经过的顺序列出组织、用户、渠道的生效值，并由系统设置的限速页面展示。用户层目前显示全局值，等待 Phase 3b 的用户覆盖。不写入任何数据。
+- 限速总览页（只读）：已实现。`GET /api/rate-limit-overview/`（仅 root）按请求经过的顺序列出组织、用户、渠道的生效值，并由系统设置的限速页面展示。用户层显示生效值（用户覆盖优先，否则全局默认），见 Phase 3b。不写入任何数据。
 - 渠道重试路径的作用域：`controller/relay.go` 的 `getChannel` 在重试时产生的渠道拒绝，错误体还没有 `rate_limited_scope`。
 - 任务插件路由：`abortWithRateLimitedScope` 在任务插件路由上退回原有格式，因此不带作用域字段。
 
@@ -339,6 +339,51 @@ Phase 0 已完成。Phase 1 的实施尚未开始。
 
 - 错误日志默认关闭（`ERROR_LOG_ENABLED=false`）。关闭时，限速拒绝的 policy event 不会被持久化。生产是否开启，需要单独确认。
 - 用户层与组织层的拒绝现在会写入错误日志，日志量与被拒请求数相同。
+
+## Phase 3b 实施状态（2026-11-23）
+
+实施分支：`feature/user-rate-limit-overrides`，尚未合并。
+
+**已完成：**
+
+- 用户覆盖使用 `rate_limit_overrides` 中 `subject_type = user` 的行。`total_count`、`success_count` 各自为 0 时沿用全局默认；两者都为 0 时拒绝保存，移除用删除接口。
+- 覆盖不受全局用户限速开关影响：全局关闭时，覆盖设置的一项仍然生效，未覆盖的一项为关闭。
+- 生效值由 `service.EffectiveUserRateLimits` 计算，中间件的用户层与限速总览页使用同一来源。
+- 表结构：新增 `success_count` 列（`int not null default 0`），由 AutoMigrate 添加；唯一索引不变。
+- 缓存：用户覆盖与组织总量在同一次 `RefreshRateLimitOverrides` 中加载，两者都读取成功后才替换，任一读取失败则保持两者的旧状态。
+- 管理接口：`GET`、`PUT`、`DELETE /api/user/:id/rate_limit_override`，挂在管理员用户路由下（`AdminAuth`）。规则与 `UpdateUser` 一致：管理员只能修改角色低于自己的用户，root 可修改任何用户。写入与移除写审计日志（`user.rate_limit_set`、`user.rate_limit_clear`）。
+- 用户编辑抽屉的"请求限制"区块：显示生效值，通过弹窗编辑或移除。无权限时编辑按钮禁用并说明原因。前端不嵌套 `<form>`，弹窗内只用按钮触发提交。
+- 限速总览页：去掉"用户层为全局值"的说明，显示用户的生效值。
+
+**验证结果：**
+
+- 单元与集成测试（SQLite）：
+  - `model`：`TestRateLimitOverrideMigrationUpsertAndDelete`、`TestRateLimitOverrideUserCountsRoundTrip`。
+  - `service`：`TestEffectiveUserRateLimitsResolveOverridesAgainstTheGlobalDefault`、`TestRefreshRateLimitOverridesLoadsUserAndOrganizationRows`。
+  - `middleware`：`TestModelRateLimitUserOverrideAppliesWithTheGlobalLimitOff`（内存与 miniredis 两种后端）。
+  - `controller`：`TestUserRateLimitOverrideRoleRulesAndValidation`（角色规则、取值范围、移除后缓存即时生效）。
+- 前端：`vitest` 覆盖 `users` 与限速总览相关的 11 个文件、43 个用例通过；`typecheck`、`lint` 通过；七种语言的 19 个文案键已写入，`i18n:sync` 无缺失与多余键。
+- 数据库：
+  - SQLite：通过。
+  - PostgreSQL 18.3（本机，测试在临时库中执行后删除）：模型与控制器测试通过。
+  - 升级检查：在旧结构（不含 `success_count`，且已有行）的表上启动两次迁移，原有行保留、`success_count` 为 0、唯一索引仍生效、用户覆盖可写入。PostgreSQL 与 SQLite 均通过。
+  - MySQL：**未运行**。本机没有可用的 MySQL 测试 DSN，因此不能声称三库兼容。
+- 升级基线说明：`rate_limit_overrides` 表从未进入正式发布版本（`main` 上不存在），升级检查的基线是迁移前的开发构建（`e2e9759c3`）的表结构，不是正式发布版本。
+- 规模（验收条件 14）：SQLite 中 10 万条用户覆盖，`RefreshRateLimitOverrides` 耗时约 257–300 ms，堆增量约 3.4 MiB。这是一次性测量，测量代码未提交。
+- 端到端（本地后端，PostgreSQL `newapi_e2e`，Redis DB 14，分支构建，节点 A 在 3300，节点 B 在 3301，`SYNC_FREQUENCY=5`）：
+  - root 设置用户总量为 2（全局用户限速关闭）：用户请求 200、200、429，拒绝的 `rate_limited_scope` 为 `user`，带 `Retry-After`；同时段无覆盖的对照用户 200、200、200。
+  - 限速总览页显示该用户的 `user_total` 生效值为 2。
+  - 非管理员读取其他用户的覆盖：HTTP 403。
+  - 多节点（验收条件 13）：在节点 A 设置对照用户的覆盖，等待一个同步周期后，节点 B 返回 200、200、429；在 A 移除后，等待一个周期，B 返回 200。
+  - root 移除覆盖后，用户请求恢复 200。
+  - 测试用的渠道与令牌已删除。测试用户无法通过 API 删除或禁用（需要 step-up 验证），已在 E2E 库中直接禁用，并保留其行。
+
+**未完成或未验证：**
+
+- MySQL 三库验证（见上），以及 MySQL 5.7.8、PostgreSQL 9.6 的最低版本验证。
+- 管理员（角色 10）调用接口的端到端：创建管理员账号需要 step-up 验证，本次未在端到端中走通；角色规则由控制器测试覆盖。
+- 前端浏览器交互（Playwright）未做，仅有组件测试。
+- 文案键 `User values are global until per-user overrides are available.` 已无引用，留待 `prune-unused-locale-keys` 计划统一清理。
 
 ## 验收条件
 1. 任一层拒绝时，其他层的计数全部保持不变（通过测试断言）。
