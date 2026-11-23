@@ -45,6 +45,8 @@ const (
 	RateLimitScopeUser         = "user"
 	RateLimitScopeOrganization = "org"
 	RateLimitScopeChannel      = "channel"
+	// RateLimitScopeChannelOrgShare is the channel budget share of one organization.
+	RateLimitScopeChannelOrgShare = "channel_org_share"
 )
 
 // SetRateLimitRemaining reports the limit of the layer that admitted a request and how

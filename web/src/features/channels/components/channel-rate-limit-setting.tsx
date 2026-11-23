@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 
 import type { ChannelFormValues } from '../lib/channel-form'
+import { ChannelOrganizationShareSetting } from './channel-organization-share-setting'
 
 // Edits the channel request budget. The two numeric fields appear only while the
 // budget is enabled; their values stay in the form when it is switched off.
@@ -112,6 +113,11 @@ export function ChannelRateLimitSetting(props: { disabled?: boolean }) {
               </FormItem>
             )}
           />
+        </div>
+      ) : null}
+      {enabled === true ? (
+        <div className='px-4'>
+          <ChannelOrganizationShareSetting disabled={props.disabled} />
         </div>
       ) : null}
     </div>

@@ -342,6 +342,9 @@ export const ERROR_MESSAGES = {
     'Requests per window must be a whole number from 1 to 106751991167300',
   INVALID_RATE_LIMIT_WINDOW:
     'Window must be a whole number of seconds from 1 to 86400',
+  INVALID_ORG_SHARE_PERCENT: 'Share must be a whole number from 1 to 100',
+  MISSING_ORG_SHARE_ORGANIZATION: 'Select an organization for each share',
+  DUPLICATE_ORG_SHARE: 'Each organization can have one share',
   CREATE_FAILED: 'Failed to create channel',
   UPDATE_FAILED: 'Failed to update channel',
   DELETE_FAILED: 'Failed to delete channel',

@@ -1,8 +1,9 @@
 import { zodResolver } from '@hookform/resolvers/zod'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useForm } from 'react-hook-form'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 
 import { Form } from '@/components/ui/form'
 
@@ -13,6 +14,10 @@ import {
   type ChannelFormValues,
 } from '../../lib/channel-form'
 import { ChannelRateLimitSetting } from '../channel-rate-limit-setting'
+
+vi.mock('@/features/organizations/api', () => ({
+  getOrganizations: vi.fn(async () => ({ items: [] })),
+}))
 
 function BudgetForm(props: { onSave: (value: string) => void }) {
   const form = useForm<ChannelFormValues>({
@@ -26,16 +31,18 @@ function BudgetForm(props: { onSave: (value: string) => void }) {
     },
   })
   return (
-    <Form {...form}>
-      <form
-        onSubmit={form.handleSubmit((values) =>
-          props.onSave(buildSettingJSON(values))
-        )}
-      >
-        <ChannelRateLimitSetting />
-        <button type='submit'>Save</button>
-      </form>
-    </Form>
+    <QueryClientProvider client={new QueryClient()}>
+      <Form {...form}>
+        <form
+          onSubmit={form.handleSubmit((values) =>
+            props.onSave(buildSettingJSON(values))
+          )}
+        >
+          <ChannelRateLimitSetting />
+          <button type='submit'>Save</button>
+        </form>
+      </Form>
+    </QueryClientProvider>
   )
 }
 

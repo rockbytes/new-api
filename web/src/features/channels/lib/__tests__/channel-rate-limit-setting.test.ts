@@ -18,7 +18,10 @@ describe('channel request budget round trip', () => {
       rate_limit: budget,
     })
 
-    const setting = JSON.parse(buildSettingJSON(form)) as Record<string, unknown>
+    const setting = JSON.parse(buildSettingJSON(form)) as Record<
+      string,
+      unknown
+    >
 
     expect(setting.rate_limit).toEqual(budget)
   })
@@ -32,7 +35,10 @@ describe('channel request budget round trip', () => {
       models: 'gpt-4o',
     })
 
-    const setting = JSON.parse(buildSettingJSON(form)) as Record<string, unknown>
+    const setting = JSON.parse(buildSettingJSON(form)) as Record<
+      string,
+      unknown
+    >
 
     expect(setting).not.toHaveProperty('rate_limit')
   })
@@ -87,5 +93,57 @@ describe('channel request budget validation', () => {
     })
 
     expect(result.success).toBe(true)
+  })
+})
+
+describe('channel organization share round trip', () => {
+  test('a stored share map is edited as rows and saved back as the same map', () => {
+    const budget = {
+      enabled: true,
+      requests: 60,
+      duration_seconds: 60,
+      org_shares: { '7': 50, '8': 25 },
+    }
+    const form = channelFormSchema.parse({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'Shared',
+      type: 1,
+      key: 'test-key',
+      models: 'gpt-4o',
+      rate_limit: {
+        enabled: true,
+        requests: 60,
+        duration_seconds: 60,
+        org_shares: [
+          { organization_id: 7, percent: 50 },
+          { organization_id: 8, percent: 25 },
+        ],
+      },
+    })
+
+    const setting = JSON.parse(buildSettingJSON(form)) as Record<
+      string,
+      unknown
+    >
+
+    expect(setting.rate_limit).toEqual(budget)
+  })
+
+  test('an incomplete share row is refused while the budget is enabled', () => {
+    const result = channelFormSchema.safeParse({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'Shared',
+      type: 1,
+      key: 'test-key',
+      models: 'gpt-4o',
+      rate_limit: {
+        enabled: true,
+        requests: 60,
+        duration_seconds: 60,
+        org_shares: [{ organization_id: 7 }],
+      },
+    })
+
+    expect(result.success).toBe(false)
   })
 })
