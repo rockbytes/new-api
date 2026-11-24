@@ -189,6 +189,12 @@ func UpdateOption(c *gin.Context) {
 		common.ApiErrorStatus(c, http.StatusBadRequest, common.NewMessage("Invalid parameters"))
 		return
 	}
+	if option.Key == model.GroupNotesOptionKey {
+		if _, ok := option.Value.(string); !ok {
+			common.ApiErrorT(c, "Group notes must be provided as a JSON string")
+			return
+		}
+	}
 	switch option.Value.(type) {
 	case bool:
 		option.Value = common.Interface2String(option.Value.(bool))

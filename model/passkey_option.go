@@ -96,14 +96,23 @@ func validatePasskeyRPIDWithTx(tx *gorm.DB, rpID string) error {
 func UpdatePasskeyDomainOptions(values map[string]string, preview bool, confirmation string) (*PasskeyDomainChange, error) {
 	passkeyOptionMutex.Lock()
 	defer passkeyOptionMutex.Unlock()
-	values = maps.Clone(values)
+	values, err := normalizeGroupNotesWrite(values)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := values[GroupNotesOptionKey]; ok {
+		groupNotesOptionMutex.Lock()
+		defer groupNotesOptionMutex.Unlock()
+	} else {
+		values = maps.Clone(values)
+	}
 	for key, value := range values {
 		if err := validateOptionValue(key, value); err != nil {
 			return nil, err
 		}
 	}
 	var change *PasskeyDomainChange
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	err = DB.Transaction(func(tx *gorm.DB) error {
 		settings, serverAddress, err := lockPasskeyDomainSettings(tx)
 		if err != nil {
 			return err
@@ -228,6 +237,12 @@ func UpdatePasskeyDomainOptions(values map[string]string, preview bool, confirma
 		values["ServerAddress"] = serverAddress
 		keys := slices.Sorted(maps.Keys(values))
 		for _, key := range keys {
+			if key == GroupNotesOptionKey {
+				if err := saveGroupNotesOption(tx, values[key]); err != nil {
+					return errGroupNotesSave
+				}
+				continue
+			}
 			if err := tx.Save(&Option{Key: key, Value: values[key]}).Error; err != nil {
 				return err
 			}
@@ -241,8 +256,11 @@ func UpdatePasskeyDomainOptions(values map[string]string, preview bool, confirma
 		return change, err
 	}
 	applyPasskeyDomainOptions(values)
+	if value, ok := values[GroupNotesOptionKey]; ok {
+		publishGroupNotes(value)
+	}
 	for key, value := range values {
-		if !IsPasskeyDomainOption(key) {
+		if key != GroupNotesOptionKey && !IsPasskeyDomainOption(key) {
 			if err := updateOptionMap(key, value); err != nil {
 				return change, err
 			}

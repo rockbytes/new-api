@@ -1,5 +1,12 @@
 import { Code2, Eye, HelpCircle } from 'lucide-react'
-import { memo, useCallback, useState, type ReactNode } from 'react'
+import {
+  memo,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { useWatch, type UseFormReturn } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
@@ -42,12 +49,15 @@ import {
 } from '../components/settings-form-layout'
 import { SettingsPageActionsPortal } from '../components/settings-page-context'
 import { safeNumberFieldProps } from '../utils/numeric-field'
+import { getPricingGroupNames, parseGroupNotes } from './group-notes'
 import {
   GroupRatioVisualEditor,
+  type GroupNotesDraft,
   type GroupSettingsSection,
 } from './group-ratio-visual-editor'
 
-type GroupFormValues = {
+export type GroupFormValues = {
+  GroupNotes: string
   GroupRatio: string
   TopupGroupRatio: string
   GroupGroupRatio: string
@@ -61,32 +71,151 @@ type GroupRatioFormProps = {
   form: UseFormReturn<GroupFormValues>
   onSave: (values: GroupFormValues) => Promise<void>
   isSaving: boolean
+  onDraftChange?: () => void
+  baseline?: GroupFormValues
+  saveMessage?: string
 }
 
 export const GroupRatioForm = memo(function GroupRatioForm({
   form,
   onSave,
   isSaving,
+  onDraftChange,
+  baseline,
+  saveMessage,
 }: GroupRatioFormProps) {
   const { t } = useTranslation()
   const values = useWatch({ control: form.control })
   const [editMode, setEditMode] = useState<'visual' | 'json'>('visual')
   const [guideOpen, setGuideOpen] = useState(false)
   const [section, setSection] = useState<GroupSettingsSection>('pricing')
+  const notesDraft = useRef<() => GroupNotesDraft | undefined>(null)
+  const [noteError, setNoteError] = useState<string>()
+  const orphanedNotes = useMemo(() => {
+    const notes = parseGroupNotes(baseline?.GroupNotes ?? '{}')
+    if (!baseline || !('notes' in notes)) return []
+    const names = getPricingGroupNames(
+      baseline.GroupRatio,
+      baseline.TopupGroupRatio
+    )
+    return [...notes.notes.keys()]
+      .filter((name) => !names.has(name))
+      .slice(0, 5)
+  }, [baseline])
+
+  const markNotesEdited = useCallback(() => {
+    onDraftChange?.()
+    setNoteError(undefined)
+  }, [onDraftChange])
 
   const handleFieldChange = useCallback(
     (field: keyof GroupFormValues, value: string) => {
+      onDraftChange?.()
+      setNoteError(undefined)
       form.setValue(field, value, {
         shouldValidate: true,
         shouldDirty: true,
       })
     },
-    [form]
+    [form, onDraftChange]
   )
 
-  const toggleEditMode = useCallback(() => {
-    setEditMode((prev) => (prev === 'visual' ? 'json' : 'visual'))
-  }, [])
+  const validateNotes = (raw: string) => {
+    const result = parseGroupNotes(raw)
+    if ('notes' in result) return result
+    const messages = {
+      format: t(
+        'Group notes must be a JSON object mapping group names to strings'
+      ),
+      noteLength: t('Each group note must be at most 200 characters'),
+      size: t('Group notes JSON must be at most 2 MiB'),
+    }
+    setNoteError(messages[result.error])
+  }
+
+  const collectVisualNotes = () => {
+    const draft = notesDraft.current?.()
+    if (draft && 'invalidName' in draft) {
+      setNoteError(t('Enter a unique name for each pricing group'))
+      setSection('pricing')
+      return null
+    }
+    return draft?.json ?? form.getValues('GroupNotes')
+  }
+
+  const toggleEditMode = () => {
+    if (editMode === 'json') {
+      if (!validateNotes(form.getValues('GroupNotes'))) return
+      setNoteError(undefined)
+      setEditMode('visual')
+      return
+    }
+    const notes = collectVisualNotes()
+    if (notes === null) return
+    form.setValue('GroupNotes', notes, { shouldDirty: true })
+    if (notes !== values.GroupNotes) onDraftChange?.()
+    setNoteError(undefined)
+    setEditMode('json')
+  }
+
+  const saveForm = form.handleSubmit(
+    async (submittedValues) => {
+      if (isSaving) return
+      const raw =
+        editMode === 'visual'
+          ? collectVisualNotes()
+          : submittedValues.GroupNotes
+      if (raw === null) return
+      const result = validateNotes(raw)
+      if (!result) return
+
+      const names = getPricingGroupNames(
+        submittedValues.GroupRatio,
+        submittedValues.TopupGroupRatio
+      )
+      const originalNames = baseline
+        ? getPricingGroupNames(baseline.GroupRatio, baseline.TopupGroupRatio)
+        : names
+      const originalNotes = parseGroupNotes(
+        baseline?.GroupNotes ?? submittedValues.GroupNotes
+      )
+      const changed =
+        !('json' in originalNotes) ||
+        result.json !== originalNotes.json ||
+        names.size !== originalNames.size ||
+        [...names].some((name) => !originalNames.has(name))
+      if (changed) {
+        const unknown = [...result.notes.keys()].filter(
+          (name) => !names.has(name)
+        )
+        if (unknown.length) {
+          setNoteError(
+            t('Group notes reference unknown groups: {{names}}', {
+              names: unknown.slice(0, 5).join(', '),
+            })
+          )
+          return
+        }
+      }
+      setNoteError(undefined)
+      await onSave({ ...submittedValues, GroupNotes: result.json })
+    },
+    (invalid) => {
+      if (invalid.MaxTokenAutoGroups) {
+        if (editMode === 'json' && !validateNotes(form.getValues('GroupNotes'))) {
+          return
+        }
+        setEditMode('visual')
+        setSection('auto')
+        requestAnimationFrame(() => form.setFocus('MaxTokenAutoGroups'))
+      }
+    }
+  )
+
+  const submit: typeof saveForm = (event) => {
+    setNoteError(undefined)
+    return saveForm(event)
+  }
 
   return (
     <div className='space-y-6'>
@@ -109,7 +238,12 @@ export const GroupRatioForm = memo(function GroupRatioForm({
             <HelpCircle className='mr-2 h-4 w-4' />
             {t('Usage guide')}
           </Button>
-          <Button variant='outline' size='sm' onClick={toggleEditMode}>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={toggleEditMode}
+            disabled={isSaving}
+          >
             {editMode === 'visual' ? (
               <>
                 <Code2 className='mr-2 h-4 w-4' />
@@ -129,30 +263,249 @@ export const GroupRatioForm = memo(function GroupRatioForm({
 
       <Form {...form}>
         <SettingsPageActionsPortal>
-          <Button
-            type='button'
-            size='sm'
-            onClick={form.handleSubmit(onSave, (errors) => {
-              if (errors.MaxTokenAutoGroups) {
-                setEditMode('visual')
-                setSection('auto')
-                requestAnimationFrame(() => form.setFocus('MaxTokenAutoGroups'))
-              }
-            })}
-            disabled={isSaving}
-          >
+          <Button type='button' size='sm' onClick={submit} disabled={isSaving}>
             {isSaving ? t('Saving...') : t('Save group settings')}
           </Button>
         </SettingsPageActionsPortal>
-        {editMode === 'visual' ? (
-          <GroupRatioVisualEditor
-            section={section}
-            onSectionChange={setSection}
-            groupRatio={values.GroupRatio ?? ''}
-            topupGroupRatio={values.TopupGroupRatio ?? ''}
-            groupGroupRatio={values.GroupGroupRatio ?? ''}
-            autoGroups={values.AutoGroups ?? ''}
-            maxTokenAutoGroupsField={
+        {saveMessage && (
+          <p role='alert' className='text-destructive text-sm'>
+            {saveMessage}
+          </p>
+        )}
+        {editMode === 'visual' && noteError && (
+          <p role='alert' className='text-destructive text-sm'>
+            {noteError}
+          </p>
+        )}
+        {editMode === 'visual' && !noteError && orphanedNotes.length > 0 && (
+          <p className='text-muted-foreground text-sm'>
+            {t('Group notes reference unknown groups: {{names}}', {
+              names: orphanedNotes.join(', '),
+            })}
+          </p>
+        )}
+        <fieldset className='min-w-0' disabled={isSaving}>
+          {editMode === 'visual' ? (
+            <GroupRatioVisualEditor
+              groupNotes={values.GroupNotes ?? '{}'}
+              notesDraftRef={notesDraft}
+              onNoteEdit={markNotesEdited}
+              section={section}
+              onSectionChange={setSection}
+              groupRatio={values.GroupRatio ?? ''}
+              topupGroupRatio={values.TopupGroupRatio ?? ''}
+              groupGroupRatio={values.GroupGroupRatio ?? ''}
+              autoGroups={values.AutoGroups ?? ''}
+              maxTokenAutoGroupsField={
+                <FormField
+                  control={form.control}
+                  name='MaxTokenAutoGroups'
+                  render={({ field, fieldState }) => (
+                    <FormItem data-invalid={fieldState.invalid}>
+                      <FormLabel>
+                        {t('Maximum custom groups per token')}
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          {...safeNumberFieldProps(field)}
+                          onInput={onDraftChange}
+                          type='number'
+                          min={1}
+                          step={1}
+                          aria-invalid={fieldState.invalid}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Limits only token-specific Auto snapshots. Global Auto inheritance remains unlimited.'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              }
+              defaultUseAutoGroupField={
+                <FormField
+                  control={form.control}
+                  name='DefaultUseAutoGroup'
+                  render={({ field }) => (
+                    <SettingsSwitchItem>
+                      <SettingsSwitchContent>
+                        <FormLabel>{t('Default to auto groups')}</FormLabel>
+                        <FormDescription>
+                          {t(
+                            'If default auto group is enabled, newly created tokens start with auto instead of an empty group.'
+                          )}
+                        </FormDescription>
+                      </SettingsSwitchContent>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={(checked) => {
+                            onDraftChange?.()
+                            field.onChange(checked)
+                          }}
+                        />
+                      </FormControl>
+                    </SettingsSwitchItem>
+                  )}
+                />
+              }
+              groupSpecialUsableGroup={values.GroupSpecialUsableGroup ?? ''}
+              onChange={(field, value) =>
+                handleFieldChange(field as keyof GroupFormValues, value)
+              }
+            />
+          ) : (
+            <SettingsForm onSubmit={submit}>
+              <FormField
+                control={form.control}
+                name='GroupNotes'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Internal note')}</FormLabel>
+                    <FormControl aria-invalid={Boolean(noteError)}>
+                      <JsonCodeEditor
+                        disabled={isSaving}
+                        value={field.value}
+                        onChange={(value) => {
+                          markNotesEdited()
+                          field.onChange(value)
+                        }}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        textareaRef={field.ref}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      <code>{'{ "vip": "..." }'}</code>
+                    </FormDescription>
+                    {noteError && (
+                      <p role='alert' className='text-destructive text-sm'>
+                        {noteError}
+                      </p>
+                    )}
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='GroupRatio'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Group ratios')}</FormLabel>
+                    <FormControl>
+                      <JsonCodeEditor
+                        value={field.value}
+                        onChange={(value) => {
+                          onDraftChange?.()
+                          field.onChange(value)
+                        }}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        textareaRef={field.ref}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'JSON map of group → ratio applied when the user selects the group explicitly.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='TopupGroupRatio'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Top-up group ratios')}</FormLabel>
+                    <FormControl>
+                      <JsonCodeEditor
+                        value={field.value}
+                        onChange={(value) => {
+                          onDraftChange?.()
+                          field.onChange(value)
+                        }}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        textareaRef={field.ref}
+                        heightClassName='h-40 min-h-40 max-h-40'
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Optional multiplier per user group used when calculating recharge pricing. Provide a JSON object such as'
+                      )}
+                      {` { "default": 1, "vip": 1.2 }`}.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='GroupGroupRatio'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Inter-group overrides')}</FormLabel>
+                    <FormControl>
+                      <JsonCodeEditor
+                        value={field.value}
+                        onChange={(value) => {
+                          onDraftChange?.()
+                          field.onChange(value)
+                        }}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        textareaRef={field.ref}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Nested JSON: source group →')}{' '}
+                      {`{ targetGroup: ratio }`}{' '}
+                      {t(
+                        'to override billing when a user in one group uses a token of another group.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='AutoGroups'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Auto group order')}</FormLabel>
+                    <FormControl>
+                      <JsonCodeEditor
+                        value={field.value}
+                        onChange={(value) => {
+                          onDraftChange?.()
+                          field.onChange(value)
+                        }}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        textareaRef={field.ref}
+                        heightClassName='h-40 min-h-40 max-h-40'
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Priority order for tokens in the auto group. The system tries groups from top to bottom.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name='MaxTokenAutoGroups'
@@ -164,6 +517,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                     <FormControl>
                       <Input
                         {...safeNumberFieldProps(field)}
+                        onInput={onDraftChange}
                         type='number'
                         min={1}
                         step={1}
@@ -179,8 +533,35 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                   </FormItem>
                 )}
               />
-            }
-            defaultUseAutoGroupField={
+
+              <FormField
+                control={form.control}
+                name='GroupSpecialUsableGroup'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Special usable group rules')}</FormLabel>
+                    <FormControl>
+                      <JsonCodeEditor
+                        value={field.value}
+                        onChange={(value) => {
+                          onDraftChange?.()
+                          field.onChange(value)
+                        }}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        textareaRef={field.ref}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Nested JSON defining per-group rules for adding (+:), removing (-:), or appending usable groups.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name='DefaultUseAutoGroup'
@@ -203,193 +584,9 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                   </SettingsSwitchItem>
                 )}
               />
-            }
-            groupSpecialUsableGroup={values.GroupSpecialUsableGroup ?? ''}
-            onChange={(field, value) =>
-              handleFieldChange(field as keyof GroupFormValues, value)
-            }
-          />
-        ) : (
-          <SettingsForm onSubmit={form.handleSubmit(onSave)}>
-            <FormField
-              control={form.control}
-              name='GroupRatio'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Group ratios')}</FormLabel>
-                  <FormControl>
-                    <JsonCodeEditor
-                      value={field.value}
-                      onChange={field.onChange}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      textareaRef={field.ref}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'JSON map of group → ratio applied when the user selects the group explicitly.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='TopupGroupRatio'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Top-up group ratios')}</FormLabel>
-                  <FormControl>
-                    <JsonCodeEditor
-                      value={field.value}
-                      onChange={field.onChange}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      textareaRef={field.ref}
-                      heightClassName='h-40 min-h-40 max-h-40'
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Optional multiplier per user group used when calculating recharge pricing. Provide a JSON object such as'
-                    )}
-                    {` { "default": 1, "vip": 1.2 }`}.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='GroupGroupRatio'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Inter-group overrides')}</FormLabel>
-                  <FormControl>
-                    <JsonCodeEditor
-                      value={field.value}
-                      onChange={field.onChange}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      textareaRef={field.ref}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t('Nested JSON: source group →')}{' '}
-                    {`{ targetGroup: ratio }`}{' '}
-                    {t(
-                      'to override billing when a user in one group uses a token of another group.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='AutoGroups'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Auto group order')}</FormLabel>
-                  <FormControl>
-                    <JsonCodeEditor
-                      value={field.value}
-                      onChange={field.onChange}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      textareaRef={field.ref}
-                      heightClassName='h-40 min-h-40 max-h-40'
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Priority order for tokens in the auto group. The system tries groups from top to bottom.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='MaxTokenAutoGroups'
-              render={({ field, fieldState }) => (
-                <FormItem data-invalid={fieldState.invalid}>
-                  <FormLabel>{t('Maximum custom groups per token')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...safeNumberFieldProps(field)}
-                      type='number'
-                      min={1}
-                      step={1}
-                      aria-invalid={fieldState.invalid}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Limits only token-specific Auto snapshots. Global Auto inheritance remains unlimited.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='GroupSpecialUsableGroup'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Special usable group rules')}</FormLabel>
-                  <FormControl>
-                    <JsonCodeEditor
-                      value={field.value}
-                      onChange={field.onChange}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      textareaRef={field.ref}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Nested JSON defining per-group rules for adding (+:), removing (-:), or appending usable groups.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='DefaultUseAutoGroup'
-              render={({ field }) => (
-                <SettingsSwitchItem>
-                  <SettingsSwitchContent>
-                    <FormLabel>{t('Default to auto groups')}</FormLabel>
-                    <FormDescription>
-                      {t(
-                        'If default auto group is enabled, newly created tokens start with auto instead of an empty group.'
-                      )}
-                    </FormDescription>
-                  </SettingsSwitchContent>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                </SettingsSwitchItem>
-              )}
-            />
-          </SettingsForm>
-        )}
+            </SettingsForm>
+          )}
+        </fieldset>
       </Form>
     </div>
   )

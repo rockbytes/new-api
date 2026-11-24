@@ -158,6 +158,7 @@ func InitOptionMap() {
 	common.OptionMap["CacheRatio"] = ratio_setting.CacheRatio2JSONString()
 	common.OptionMap["CreateCacheRatio"] = ratio_setting.CreateCacheRatio2JSONString()
 	common.OptionMap["GroupRatio"] = ratio_setting.GroupRatio2JSONString()
+	common.OptionMap[GroupNotesOptionKey] = "{}"
 	common.OptionMap["GroupGroupRatio"] = ratio_setting.GroupGroupRatio2JSONString()
 	common.OptionMap["CompletionRatio"] = ratio_setting.CompletionRatio2JSONString()
 	common.OptionMap["ImageRatio"] = ratio_setting.ImageRatio2JSONString()
@@ -207,11 +208,26 @@ func loadOptionsFromDatabase() {
 	}()
 	passkeyOptionMutex.Lock()
 	defer passkeyOptionMutex.Unlock()
-	options, _ := AllOption()
+	groupNotesOptionMutex.Lock()
+	defer groupNotesOptionMutex.Unlock()
+	options, err := AllOption()
+	if err != nil {
+		common.SysError(common.LogText("failed to load database options"))
+		return
+	}
 	passkeyOptions := make(map[string]string)
 	for _, option := range options {
 		if IsPasskeyDomainOption(option.Key) {
 			passkeyOptions[option.Key] = option.Value
+			continue
+		}
+		if option.Key == GroupNotesOptionKey {
+			value, err := normalizeGroupNotes(option.Value)
+			if err != nil {
+				common.SysLog(common.LogText("failed to load %s: %s", GroupNotesOptionKey, err.Error()))
+				continue
+			}
+			publishGroupNotes(value)
 			continue
 		}
 		err := updateOptionMap(option.Key, option.Value)
@@ -274,6 +290,9 @@ func validateOptionValue(key string, value string) error {
 }
 
 func UpdateOption(key string, value string) error {
+	if key == GroupNotesOptionKey {
+		return UpdateOptionsBulk(map[string]string{key: value})
+	}
 	if IsRequestPolicyOption(key) {
 		return UpdateRequestPolicyOptions(map[string]string{key: value})
 	}
@@ -342,8 +361,23 @@ func UpdateOptionsBulk(values map[string]string) error {
 		}
 	}
 
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	values, err := normalizeGroupNotesWrite(values)
+	if err != nil {
+		return err
+	}
+	_, hasGroupNotes := values[GroupNotesOptionKey]
+	if hasGroupNotes {
+		groupNotesOptionMutex.Lock()
+		defer groupNotesOptionMutex.Unlock()
+	}
+	err = DB.Transaction(func(tx *gorm.DB) error {
 		for k, v := range values {
+			if k == GroupNotesOptionKey {
+				if err := saveGroupNotesOption(tx, v); err != nil {
+					return err
+				}
+				continue
+			}
 			option := Option{Key: k}
 			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {
 				return err
@@ -356,9 +390,18 @@ func UpdateOptionsBulk(values map[string]string) error {
 		return nil
 	})
 	if err != nil {
+		if hasGroupNotes {
+			return errGroupNotesSave
+		}
 		return err
 	}
+	if hasGroupNotes {
+		publishGroupNotes(values[GroupNotesOptionKey])
+	}
 	for k, v := range values {
+		if k == GroupNotesOptionKey {
+			continue
+		}
 		if err := updateOptionMap(k, v); err != nil {
 			return err
 		}

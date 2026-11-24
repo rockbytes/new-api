@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   fireEvent,
   render,
@@ -12,13 +13,17 @@ import { useForm } from 'react-hook-form'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import { api } from '@/lib/api'
+
 import { SettingsPageProvider } from '../../components/settings-page-context'
 import { positiveIntegerSchema } from '../../utils/numeric-field'
 import { GroupRatioForm } from '../group-ratio-form'
+import { RatioSettingsCard } from '../ratio-settings-card'
 
 const defaults = {
   GroupRatio: '{"default":1,"vip":0.8}',
   TopupGroupRatio: '{"vip":1.2}',
+  GroupNotes: '{}',
   GroupGroupRatio: '{}',
   AutoGroups: '["default","vip"]',
   MaxTokenAutoGroups: 5,
@@ -28,6 +33,7 @@ const defaults = {
 
 const schema = z.object({
   GroupRatio: z.string(),
+  GroupNotes: z.string(),
   TopupGroupRatio: z.string(),
   GroupGroupRatio: z.string(),
   AutoGroups: z.string(),
@@ -57,6 +63,112 @@ function Fixture(props: {
     </SettingsPageProvider>
   )
 }
+
+function RatioSettingsFixture() {
+  const [actions, setActions] = useState<HTMLDivElement | null>(null)
+  return (
+    <SettingsPageProvider actionsContainer={actions}>
+      <div ref={setActions} />
+      <RatioSettingsCard
+        modelDefaults={{
+          ModelPrice: '{}',
+          ModelRatio: '{}',
+          CacheRatio: '{}',
+          CreateCacheRatio: '{}',
+          CompletionRatio: '{}',
+          ImageRatio: '{}',
+          AudioRatio: '{}',
+          AudioCompletionRatio: '{}',
+          ExposeRatioEnabled: false,
+          BillingMode: '{}',
+          BillingExpr: '{}',
+          PluginBillingExpr: '{}',
+        }}
+        groupDefaults={{
+          ...defaults,
+          GroupNotes: '{"vip":"first","default":"second"}',
+        }}
+        toolPricesDefault='{}'
+        visibleTabs={['groups']}
+      />
+    </SettingsPageProvider>
+  )
+}
+
+it('saves notes independently and retries only uncommitted fields after partial failure', async () => {
+  const user = userEvent.setup()
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { enabled: false },
+      mutations: { retry: false },
+    },
+  })
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const view = render(
+    <QueryClientProvider client={client}>
+      <RatioSettingsFixture />
+    </QueryClientProvider>
+  )
+  const save = () =>
+    user.click(screen.getByRole('button', { name: 'Save group settings' }))
+  try {
+    const note = screen.getByRole('textbox', { name: 'Internal note for vip' })
+    fireEvent.change(note, { target: { value: 'saved' } })
+    await save()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Save group settings' })
+      ).toBeEnabled()
+    )
+    expect(put.mock.calls).toEqual([
+      [
+        '/api/option/',
+        { key: 'GroupNotes', value: '{"default":"second","vip":"saved"}' },
+      ],
+    ])
+    put.mockClear()
+    put.mockResolvedValueOnce({ data: { success: true } })
+    put.mockResolvedValueOnce({
+      data: { success: false, message: 'Write failed' },
+    })
+    fireEvent.change(screen.getAllByRole('spinbutton', { name: 'Ratio' })[1], {
+      target: { value: '0.5' },
+    })
+    fireEvent.change(note, { target: { value: 'retry me' } })
+    await save()
+    expect(
+      await screen.findByText(
+        'Some group settings were saved. Retry to save the remaining changes.'
+      )
+    ).toBeVisible()
+    expect(note).toHaveValue('retry me')
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Save group settings' })
+      ).toBeEnabled()
+    )
+    expect(put.mock.calls.map(([, body]) => body)).toEqual([
+      { key: 'GroupRatio', value: '{"default":1,"vip":0.5}' },
+      { key: 'GroupNotes', value: '{"default":"second","vip":"retry me"}' },
+    ])
+    put.mockClear()
+    await save()
+    await waitFor(() =>
+      expect(put.mock.calls).toEqual([
+        [
+          '/api/option/',
+          { key: 'GroupNotes', value: '{"default":"second","vip":"retry me"}' },
+        ],
+      ])
+    )
+  } finally {
+    view.unmount()
+    client.clear()
+    put.mockRestore()
+  }
+})
 
 describe('group settings workspace', () => {
   it('filters by group name and clears search without discarding edits', async () => {
@@ -284,7 +396,6 @@ describe('group settings workspace', () => {
   })
 
   it('shows empty state guidance and disables save during a pending request', async () => {
-    const user = userEvent.setup()
     render(
       <Fixture
         isSaving
@@ -299,12 +410,115 @@ describe('group settings workspace', () => {
       screen.getByText('No groups yet. Add a group to get started.')
     ).toBeVisible()
     expect(screen.getByRole('button', { name: 'Saving...' })).toBeDisabled()
-    await user.click(screen.getByRole('tab', { name: 'Special ratio rules' }))
+    expect(screen.getByRole('button', { name: 'Add group' })).toBeDisabled()
+  })
+
+  it('finds notes case-insensitively and keeps a focused row until editing ends', async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn(async (_values: typeof defaults) => {})
+    render(
+      <Fixture
+        initial={{ GroupNotes: '{"vip":"Fallback","default":"Primary"}' }}
+        onSave={onSave}
+      />
+    )
+    await user.type(
+      screen.getByRole('textbox', { name: 'Search groups...' }),
+      'FALLBACK'
+    )
+    const note = screen.getByRole('textbox', { name: 'Internal note for vip' })
+    await user.clear(note)
+    await user.type(note, 'Edited')
+    expect(note).toHaveFocus()
+    expect(note).toHaveValue('Edited')
+    await user.tab()
+    expect(note).toBeVisible()
+    await user.click(screen.getByRole('textbox', { name: 'Search groups...' }))
     expect(
-      screen.getByText('Base group ratios apply until you add an override.')
+      screen.queryByRole('textbox', { name: 'Internal note for vip' })
+    ).not.toBeInTheDocument()
+    await user.click(
+      screen.getByRole('button', { name: 'Save group settings' })
+    )
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith({
+        ...defaults,
+        GroupNotes: '{"default":"Primary","vip":"Edited"}',
+      })
+    )
+  })
+
+  it('moves a note with a renamed row and removes it when that row is deleted', async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn(async (_values: typeof defaults) => {})
+    render(
+      <Fixture
+        initial={{ GroupNotes: '{"vip":"Fallback","default":"Primary"}' }}
+        onSave={onSave}
+      />
+    )
+    const names = screen.getAllByRole('textbox', { name: 'Group name' })
+    fireEvent.change(names[1], { target: { value: 'default' } })
+    await user.click(
+      screen.getByRole('button', { name: 'Save group settings' })
+    )
+    expect(
+      await screen.findByText('Enter a unique name for each pricing group')
     ).toBeVisible()
-    await user.click(screen.getByRole('tab', { name: 'Auto group order' }))
-    expect(screen.getByText('No auto groups configured')).toBeVisible()
+    expect(onSave).not.toHaveBeenCalled()
+    fireEvent.change(names[1], { target: { value: 'renamed' } })
+    expect(
+      screen.getByRole('textbox', { name: 'Internal note for renamed' })
+    ).toHaveValue('Fallback')
+    await user.click(screen.getAllByRole('button', { name: 'Delete' })[0])
+    await user.click(
+      screen.getByRole('button', { name: 'Save group settings' })
+    )
+    await waitFor(() =>
+      expect(onSave.mock.calls[0]?.[0].GroupNotes).toBe(
+        '{"renamed":"Fallback"}'
+      )
+    )
+  })
+
+  it('keeps invalid JSON visible and restores edited notes in the visual editor when corrected', async () => {
+    const user = userEvent.setup()
+    render(<Fixture initial={{ GroupNotes: '{"vip":"initial"}' }} />)
+    const note = screen.getByRole('textbox', { name: 'Internal note for vip' })
+    fireEvent.change(note, { target: { value: 'draft' } })
+    await user.click(screen.getByRole('button', { name: 'Switch to JSON' }))
+    const editor = screen.getByRole('textbox', { name: 'Internal note' })
+    expect(editor).toHaveValue('{"vip":"draft"}')
+    fireEvent.input(editor, { target: { value: '{"vip":null}' } })
+    await user.click(screen.getByRole('button', { name: 'Switch to Visual' }))
+    expect(editor).toHaveValue('{"vip":null}')
+    expect(
+      screen.getByText(
+        'Group notes must be a JSON object mapping group names to strings'
+      )
+    ).toBeVisible()
+    fireEvent.input(editor, { target: { value: '{"vip":"changed"}' } })
+    await user.click(screen.getByRole('button', { name: 'Switch to Visual' }))
+    expect(
+      screen.getByRole('textbox', { name: 'Internal note for vip' })
+    ).toHaveValue('changed')
+  })
+
+  it('rejects a note over 200 Unicode code points without truncating the draft', async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn(async (_values: typeof defaults) => {})
+    render(<Fixture onSave={onSave} />)
+    const note = screen.getByRole('textbox', { name: 'Internal note for vip' })
+    const text = '🙂'.repeat(201)
+    fireEvent.change(note, { target: { value: text } })
+    await user.click(
+      screen.getByRole('button', { name: 'Save group settings' })
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Each group note must be at most 200 characters'
+    )
+    expect(note).toHaveValue(text)
+    expect(onSave).not.toHaveBeenCalled()
   })
 
   it('preserves pricing edits when switching between visual and JSON editors', async () => {

@@ -13,8 +13,10 @@ import {
   useMemo,
   useEffect,
   useCallback,
+  useImperativeHandle,
   memo,
   type ReactNode,
+  type Ref,
 } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -64,6 +66,12 @@ import { toIntlLocale } from '@/i18n/languages'
 import { formatNumber } from '@/lib/format'
 
 import { safeJsonParse } from '../utils/json-parser'
+import {
+  getPricingGroupNames,
+  maxGroupNoteLength,
+  parseGroupNotes,
+  trimGroupNote,
+} from './group-notes'
 import { GroupSpecialUsableRulesEditor } from './group-special-usable-editor'
 
 export type GroupSettingsSection =
@@ -72,7 +80,12 @@ export type GroupSettingsSection =
   | 'visibility'
   | 'auto'
 
+export type GroupNotesDraft = { json: string } | { invalidName: true }
+
 type GroupRatioVisualEditorProps = {
+  groupNotes?: string
+  notesDraftRef?: Ref<() => GroupNotesDraft | undefined>
+  onNoteEdit?: () => void
   section: GroupSettingsSection
   onSectionChange: (section: GroupSettingsSection) => void
   defaultUseAutoGroupField: ReactNode
@@ -90,6 +103,7 @@ type GroupPricingRow = {
   name: string
   ratio: string
   topupRatio: string
+  note: string
 }
 
 type RegistryEntry = {
@@ -129,7 +143,8 @@ function parseNestedRatioMap(
 
 function buildGroupPricingRows(
   groupRatio: string,
-  topupGroupRatio: string
+  topupGroupRatio: string,
+  notes: ReadonlyMap<string, string>
 ): GroupPricingRow[] {
   const ratioMap = parseRatioMap(groupRatio)
   const topupMap = parseRatioMap(topupGroupRatio)
@@ -138,6 +153,7 @@ function buildGroupPricingRows(
   return [...names].map((name) => ({
     _id: createGroupPricingId(),
     name,
+    note: notes.get(name) ?? '',
     ratio: String(normalizeRatio(ratioMap[name])),
     topupRatio: Object.hasOwn(topupMap, name) ? String(topupMap[name]) : '',
   }))
@@ -227,6 +243,9 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
   defaultUseAutoGroupField,
   groupRatio,
   topupGroupRatio,
+  groupNotes = '{}',
+  notesDraftRef,
+  onNoteEdit,
   groupGroupRatio,
   autoGroups,
   maxTokenAutoGroupsField,
@@ -318,6 +337,9 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
         <GroupPricingTable
           groupRatio={groupRatio}
           topupGroupRatio={topupGroupRatio}
+          groupNotes={groupNotes}
+          notesDraftRef={notesDraftRef}
+          onNoteEdit={onNoteEdit}
           onChange={onChange}
           onShowDetail={setDetailGroup}
         />
@@ -421,6 +443,9 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
 type GroupPricingTableProps = {
   groupRatio: string
   topupGroupRatio: string
+  groupNotes: string
+  notesDraftRef?: Ref<() => GroupNotesDraft | undefined>
+  onNoteEdit?: () => void
   onChange: (field: string, value: string) => void
   onShowDetail: (name: string) => void
 }
@@ -428,14 +453,31 @@ type GroupPricingTableProps = {
 function GroupPricingTable({
   groupRatio,
   topupGroupRatio,
+  groupNotes,
+  notesDraftRef,
+  onNoteEdit,
   onChange,
   onShowDetail,
 }: GroupPricingTableProps) {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
-  const [rows, setRows] = useState<GroupPricingRow[]>(() =>
-    buildGroupPricingRows(groupRatio, topupGroupRatio)
+  const [focusedRow, setFocusedRow] = useState<string | null>(null)
+  const parsedNotes = useMemo(() => parseGroupNotes(groupNotes), [groupNotes])
+  const savedNotes = useMemo(
+    () =>
+      'notes' in parsedNotes ? parsedNotes.notes : new Map<string, string>(),
+    [parsedNotes]
   )
+  const [rows, setRows] = useState<GroupPricingRow[]>(() =>
+    buildGroupPricingRows(groupRatio, topupGroupRatio, savedNotes)
+  )
+  const [lastNotes, setLastNotes] = useState(savedNotes)
+  const sourceNames = useMemo(
+    () => getPricingGroupNames(groupRatio, topupGroupRatio),
+    [groupRatio, topupGroupRatio]
+  )
+  const [attachedNames, setAttachedNames] =
+    useState<ReadonlySet<string>>(sourceNames)
 
   useEffect(() => {
     const incomingSignature = sourceGroupPricingSignature(
@@ -446,13 +488,52 @@ function GroupPricingTable({
       if (groupPricingSignature(currentRows) === incomingSignature) {
         return currentRows
       }
-      return buildGroupPricingRows(groupRatio, topupGroupRatio)
+      return buildGroupPricingRows(groupRatio, topupGroupRatio, savedNotes)
     })
-  }, [groupRatio, topupGroupRatio])
+  }, [groupRatio, topupGroupRatio, savedNotes])
+
+  // A clean form can be refreshed without any changes to the ratio keys.
+  if (savedNotes !== lastNotes) {
+    setLastNotes(savedNotes)
+    setRows((current) =>
+      current.map((row) => ({
+        ...row,
+        note: savedNotes.get(row.name.trim()) ?? '',
+      }))
+    )
+  }
+
+  useImperativeHandle(
+    notesDraftRef,
+    () => () => {
+      const names = new Set<string>()
+      for (const row of rows) {
+        const name = row.name.trim()
+        if (!name || names.has(name)) return { invalidName: true }
+        names.add(name)
+      }
+      if (!('notes' in parsedNotes)) return undefined
+
+      // Preserve orphaned keys so switching to JSON lets the operator repair them.
+      const notes = new Map(savedNotes)
+      for (const name of attachedNames) notes.delete(name)
+      for (const name of sourceNames) notes.delete(name)
+      for (const row of rows) {
+        if (trimGroupNote(row.note)) notes.set(row.name.trim(), row.note)
+      }
+      return { json: JSON.stringify(Object.fromEntries(notes)) }
+    },
+    [attachedNames, parsedNotes, rows, savedNotes, sourceNames]
+  )
 
   const emitRows = useCallback(
     (nextRows: GroupPricingRow[]) => {
       setRows(nextRows)
+      setAttachedNames((previous) => {
+        const names = nextRows.map((row) => row.name.trim())
+        if (names.every((name) => previous.has(name))) return previous
+        return new Set([...previous, ...names])
+      })
       const serialized = serializeGroupPricingRows(nextRows)
       onChange('GroupRatio', serialized.GroupRatio)
       onChange('TopupGroupRatio', serialized.TopupGroupRatio)
@@ -464,13 +545,19 @@ function GroupPricingTable({
     (
       id: string,
       field: Exclude<keyof GroupPricingRow, '_id'>,
-      value: string | number | boolean
+      value: string
     ) => {
-      emitRows(
-        rows.map((row) => (row._id === id ? { ...row, [field]: value } : row))
+      const nextRows = rows.map((row) =>
+        row._id === id ? { ...row, [field]: value } : row
       )
+      if (field === 'note') {
+        setRows(nextRows)
+        onNoteEdit?.()
+      } else {
+        emitRows(nextRows)
+      }
     },
-    [emitRows, rows]
+    [emitRows, onNoteEdit, rows]
   )
 
   const addRow = useCallback(() => {
@@ -488,6 +575,7 @@ function GroupPricingTable({
         name,
         ratio: '1',
         topupRatio: '',
+        note: '',
       },
       ...rows,
     ])
@@ -514,7 +602,11 @@ function GroupPricingTable({
 
   const query = search.trim().toLowerCase()
   const visibleRows = rows.filter(
-    (row) => !query || row.name.toLowerCase().includes(query)
+    (row) =>
+      !query ||
+      row._id === focusedRow ||
+      row.name.toLowerCase().includes(query) ||
+      row.note.toLowerCase().includes(query)
   )
 
   return (
@@ -561,7 +653,22 @@ function GroupPricingTable({
           </InputGroup>
           <StaticDataTable
             tableClassName='min-w-[760px]'
-            tableProps={{ 'aria-label': t('Pricing groups') }}
+            tableProps={{
+              'aria-label': t('Pricing groups'),
+              onFocus: (event) => {
+                const index = event.target.closest('tr')?.sectionRowIndex
+                setFocusedRow(
+                  index === undefined ? null : (visibleRows[index]?._id ?? null)
+                )
+              },
+              onBlur: (event) => {
+                if (
+                  !event.target.closest('tr')?.contains(event.relatedTarget)
+                ) {
+                  setFocusedRow(null)
+                }
+              },
+            }}
             data={visibleRows}
             getRowKey={(row) => row._id}
             emptyClassName='text-muted-foreground h-20 text-sm'
@@ -598,7 +705,10 @@ function GroupPricingTable({
                     onChange={(event) =>
                       updateRow(row._id, 'name', event.target.value)
                     }
-                    aria-invalid={duplicateNames.includes(row.name.trim())}
+                    aria-invalid={
+                      !row.name.trim() ||
+                      duplicateNames.includes(row.name.trim())
+                    }
                   />
                 ),
               },
@@ -633,6 +743,25 @@ function GroupPricingTable({
                     placeholder={t('Not set')}
                     onChange={(event) =>
                       updateRow(row._id, 'topupRatio', event.target.value)
+                    }
+                  />
+                ),
+              },
+              {
+                id: 'note',
+                header: t('Internal note'),
+                className: 'min-w-40',
+                cell: (row) => (
+                  <Input
+                    value={row.note}
+                    aria-label={t('Internal note for {{group}}', {
+                      group: row.name,
+                    })}
+                    aria-invalid={
+                      [...trimGroupNote(row.note)].length > maxGroupNoteLength
+                    }
+                    onChange={(event) =>
+                      updateRow(row._id, 'note', event.target.value)
                     }
                   />
                 ),
