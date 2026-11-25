@@ -291,6 +291,103 @@ func TestGetUserModelsExpandsAutoGroupsInConfiguredOrder(t *testing.T) {
 	assert.Equal(t, "zz-default-model", models[2])
 }
 
+func TestGetPricingScopesCatalogEndpointsToSelectableChannelGroups(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	model.InvalidatePricingCache()
+	t.Cleanup(model.InvalidatePricingCache)
+
+	rules := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup
+	originalRules := rules.ReadAll()
+	t.Cleanup(func() {
+		rules.Clear()
+		rules.AddAll(originalRules)
+	})
+	previousRatios := ratio_setting.GroupRatio2JSONString()
+	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(previousRatios)) })
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":1}`))
+	rules.Set("catalog-basic", map[string]string{"+:default": "Basic", "+:retired-catalog": "Retired", "+:auto": "Auto"})
+	rules.Set("catalog-plus", map[string]string{"+:default": "Basic", "+:vip": "VIP"})
+	require.NoError(t, db.Create(&[]model.User{
+		{Id: 8121, Username: "catalog-basic", Group: "catalog-basic", Status: common.UserStatusEnabled, Role: common.RoleCommonUser, AffCode: "c8121"},
+		{Id: 8122, Username: "catalog-plus", Group: "catalog-plus", Status: common.UserStatusEnabled, Role: common.RoleCommonUser, AffCode: "c8122"},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Channel{
+		{Id: 8121, Name: "Catalog Chat", Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled},
+		{Id: 8122, Name: "Catalog Responses", Type: constant.ChannelTypeCodex, Status: common.ChannelStatusEnabled},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "default", Model: "catalog-shared", ChannelId: 8121, Enabled: true},
+		{Group: "vip", Model: "catalog-shared", ChannelId: 8122, Enabled: true},
+		{Group: "retired-catalog", Model: "catalog-retired", ChannelId: 8122, Enabled: true},
+		{Group: "auto", Model: "catalog-auto", ChannelId: 8122, Enabled: true},
+		{Group: "all", Model: "catalog-all", ChannelId: 8122, Enabled: true},
+		{Group: "vip", Model: "catalog-vip", ChannelId: 8122, Enabled: true},
+		{Group: "default", Model: "catalog-disabled", ChannelId: 8121, Enabled: false},
+	}).Error)
+	require.NoError(t, db.Create(&model.Model{
+		ModelName: "catalog-vip", Endpoints: `{"openai":"/unrelated/chat","openai-response":{"path":"/custom/responses","method":"post"}}`, Status: 1,
+	}).Error)
+
+	for _, tc := range []struct {
+		name   string
+		userID int
+		groups []string
+	}{
+		{name: "basic", userID: 8121, groups: []string{"default"}},
+		{name: "plus after basic", userID: 8122, groups: []string{"default", "vip"}},
+		{name: "basic after plus", userID: 8121, groups: []string{"default"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodGet, "/api/pricing", nil)
+			ctx.Set("id", tc.userID)
+			GetPricing(ctx)
+			require.Equal(t, http.StatusOK, recorder.Code)
+			var payload struct {
+				Success bool `json:"success"`
+				Data    []struct {
+					ModelName         string                             `json:"model_name"`
+					Groups            []string                           `json:"enable_groups"`
+					Endpoints         []constant.EndpointType            `json:"supported_endpoint_types"`
+					EndpointsByGroup  map[string][]constant.EndpointType `json:"supported_endpoints_by_group"`
+					EndpointOverrides map[string]common.EndpointInfo     `json:"endpoint_overrides"`
+				} `json:"data"`
+				SupportedEndpoint map[string]common.EndpointInfo `json:"supported_endpoint"`
+			}
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+			require.True(t, payload.Success)
+			require.Len(t, payload.Data, len(tc.groups))
+			responseEndpoints := []constant.EndpointType{constant.EndpointTypeOpenAIResponse, constant.EndpointTypeOpenAIResponseCompact, constant.EndpointTypeOpenAIAlphaSearch}
+			for _, row := range payload.Data {
+				if row.ModelName == "catalog-shared" {
+					wantGroups := map[string][]constant.EndpointType{"default": {constant.EndpointTypeOpenAI}}
+					wantEndpoints := []constant.EndpointType{constant.EndpointTypeOpenAI}
+					if len(tc.groups) == 2 {
+						wantGroups["vip"] = responseEndpoints
+						wantEndpoints = append(wantEndpoints, responseEndpoints...)
+					}
+					assert.ElementsMatch(t, tc.groups, row.Groups)
+					assert.ElementsMatch(t, wantEndpoints, row.Endpoints)
+					assert.Equal(t, wantGroups, row.EndpointsByGroup)
+					assert.Empty(t, row.EndpointOverrides)
+				} else {
+					assert.Equal(t, "catalog-vip", row.ModelName)
+					assert.Equal(t, []string{"vip"}, row.Groups)
+					assert.Equal(t, responseEndpoints, row.Endpoints)
+					assert.Equal(t, map[string]common.EndpointInfo{
+						"openai-response": {Path: "/custom/responses", Method: "POST"},
+					}, row.EndpointOverrides)
+				}
+			}
+			assert.Equal(t, "/v1/chat/completions", payload.SupportedEndpoint["openai"].Path)
+			if len(tc.groups) == 1 {
+				assert.NotContains(t, payload.SupportedEndpoint, "openai-response")
+			}
+		})
+	}
+}
+
 func TestListModelsIncludesTieredBillingModel(t *testing.T) {
 	withSelfUseModeDisabled(t)
 	withTieredBillingConfig(t, map[string]string{

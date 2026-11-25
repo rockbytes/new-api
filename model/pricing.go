@@ -1,6 +1,7 @@
 package model
 
 import (
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -25,29 +26,31 @@ type PricingPluginVariant struct {
 }
 
 type Pricing struct {
-	BillingPluginVariants  []PricingPluginVariant               `json:"billing_plugin_variants,omitempty"`
-	ModelName              string                               `json:"model_name"`
-	Description            string                               `json:"description,omitempty"`
-	Icon                   string                               `json:"icon,omitempty"`
-	Tags                   string                               `json:"tags,omitempty"`
-	VendorID               int                                  `json:"vendor_id,omitempty"`
-	QuotaType              int                                  `json:"quota_type"`
-	ModelRatio             float64                              `json:"model_ratio"`
-	ModelPrice             float64                              `json:"model_price"`
-	OwnerBy                string                               `json:"owner_by"`
-	CompletionRatio        float64                              `json:"completion_ratio"`
-	CacheRatio             *float64                             `json:"cache_ratio,omitempty"`
-	CreateCacheRatio       *float64                             `json:"create_cache_ratio,omitempty"`
-	ImageRatio             *float64                             `json:"image_ratio,omitempty"`
-	AudioRatio             *float64                             `json:"audio_ratio,omitempty"`
-	AudioCompletionRatio   *float64                             `json:"audio_completion_ratio,omitempty"`
-	EnableGroup            []string                             `json:"enable_groups"`
-	SupportedEndpointTypes []constant.EndpointType              `json:"supported_endpoint_types"`
-	BillingMode            string                               `json:"billing_mode,omitempty"`
-	BillingExpr            string                               `json:"billing_expr,omitempty"`
-	BillingUsageSchema     map[string]jsplugin.UsageFieldSchema `json:"billing_usage_schema,omitempty"`
-	BillingUsageExamples   []jsplugin.UsageExample              `json:"billing_usage_examples,omitempty"`
-	PricingVersion         string                               `json:"pricing_version,omitempty"`
+	BillingPluginVariants     []PricingPluginVariant                        `json:"billing_plugin_variants,omitempty"`
+	ModelName                 string                                        `json:"model_name"`
+	Description               string                                        `json:"description,omitempty"`
+	Icon                      string                                        `json:"icon,omitempty"`
+	Tags                      string                                        `json:"tags,omitempty"`
+	VendorID                  int                                           `json:"vendor_id,omitempty"`
+	QuotaType                 int                                           `json:"quota_type"`
+	ModelRatio                float64                                       `json:"model_ratio"`
+	ModelPrice                float64                                       `json:"model_price"`
+	OwnerBy                   string                                        `json:"owner_by"`
+	CompletionRatio           float64                                       `json:"completion_ratio"`
+	CacheRatio                *float64                                      `json:"cache_ratio,omitempty"`
+	CreateCacheRatio          *float64                                      `json:"create_cache_ratio,omitempty"`
+	ImageRatio                *float64                                      `json:"image_ratio,omitempty"`
+	AudioRatio                *float64                                      `json:"audio_ratio,omitempty"`
+	AudioCompletionRatio      *float64                                      `json:"audio_completion_ratio,omitempty"`
+	EnableGroup               []string                                      `json:"enable_groups"`
+	SupportedEndpointTypes    []constant.EndpointType                       `json:"supported_endpoint_types"`
+	SupportedEndpointsByGroup map[string][]constant.EndpointType            `json:"supported_endpoints_by_group,omitempty"`
+	EndpointOverrides         map[constant.EndpointType]common.EndpointInfo `json:"endpoint_overrides,omitempty"`
+	BillingMode               string                                        `json:"billing_mode,omitempty"`
+	BillingExpr               string                                        `json:"billing_expr,omitempty"`
+	BillingUsageSchema        map[string]jsplugin.UsageFieldSchema          `json:"billing_usage_schema,omitempty"`
+	BillingUsageExamples      []jsplugin.UsageExample                       `json:"billing_usage_examples,omitempty"`
+	PricingVersion            string                                        `json:"pricing_version,omitempty"`
 }
 
 type PricingVendor struct {
@@ -58,11 +61,10 @@ type PricingVendor struct {
 }
 
 var (
-	pricingMap           []Pricing
-	vendorsList          []PricingVendor
-	supportedEndpointMap map[string]common.EndpointInfo
-	lastGetPricingTime   time.Time
-	updatePricingLock    sync.Mutex
+	pricingMap         []Pricing
+	vendorsList        []PricingVendor
+	lastGetPricingTime time.Time
+	updatePricingLock  sync.Mutex
 
 	// 缓存映射：模型名 -> 启用分组 / 计费类型
 	modelEnableGroups     = make(map[string][]string)
@@ -182,8 +184,8 @@ func loadPricingAdvancedCustomConfigs(enableAbilities []AbilityWithChannel) map[
 	return configs
 }
 
-func appendPricingEndpoint(endpoints []string, endpoint string) []string {
-	if endpoint == "" || common.StringsContains(endpoints, endpoint) {
+func appendPricingEndpoint(endpoints []constant.EndpointType, endpoint constant.EndpointType) []constant.EndpointType {
+	if endpoint == "" || slices.Contains(endpoints, endpoint) {
 		return endpoints
 	}
 	return append(endpoints, endpoint)
@@ -238,88 +240,58 @@ func updatePricing() {
 		groups.Add(ability.Group)
 	}
 
-	//这里使用切片而不是Set，因为一个模型可能支持多个端点类型，并且第一个端点是优先使用端点
-	modelSupportEndpointsStr := make(map[string][]string)
+	// Keep ordered endpoint lists for both the global model cache and each channel group.
+	modelSupportEndpointTypes = make(map[string][]constant.EndpointType)
+	endpointsByModelGroup := make(map[string]map[string][]constant.EndpointType)
 	advancedCustomConfigs := loadPricingAdvancedCustomConfigs(enableAbilities)
-
-	// 先根据已有能力填充原生端点
 	for _, ability := range enableAbilities {
-		endpoints := modelSupportEndpointsStr[ability.Model]
-		channelTypes := getPricingEndpointTypesForAbility(ability, advancedCustomConfigs)
-		for _, channelType := range channelTypes {
-			if !common.StringsContains(endpoints, string(channelType)) {
-				endpoints = append(endpoints, string(channelType))
-			}
+		byGroup := endpointsByModelGroup[ability.Model]
+		if byGroup == nil {
+			byGroup = make(map[string][]constant.EndpointType)
+			endpointsByModelGroup[ability.Model] = byGroup
 		}
-		modelSupportEndpointsStr[ability.Model] = endpoints
+		if _, exists := byGroup[ability.Group]; !exists {
+			byGroup[ability.Group] = []constant.EndpointType{}
+		}
+		for _, endpoint := range getPricingEndpointTypesForAbility(ability, advancedCustomConfigs) {
+			byGroup[ability.Group] = appendPricingEndpoint(byGroup[ability.Group], endpoint)
+			modelSupportEndpointTypes[ability.Model] = appendPricingEndpoint(modelSupportEndpointTypes[ability.Model], endpoint)
+		}
 	}
 
-	// 再补充模型自定义端点：若配置有效则追加到已有推断，不再裁剪渠道真实能力
+	// Custom endpoint metadata still augments the legacy model-wide list. It
+	// documents paths and methods, not which channel groups can serve them.
+	endpointOverrides := make(map[string]map[constant.EndpointType]common.EndpointInfo)
 	for modelName, meta := range metaMap {
 		if strings.TrimSpace(meta.Endpoints) == "" {
 			continue
 		}
 		var raw map[string]any
-		if err := common.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
-			endpoints := modelSupportEndpointsStr[modelName]
-			for k, v := range raw {
-				switch v.(type) {
-				case string, map[string]any:
-					endpoints = appendPricingEndpoint(endpoints, k)
-				}
-			}
-			if len(endpoints) > 0 {
-				modelSupportEndpointsStr[modelName] = endpoints
-			}
-		}
-	}
-
-	modelSupportEndpointTypes = make(map[string][]constant.EndpointType)
-	for model, endpoints := range modelSupportEndpointsStr {
-		supportedEndpoints := make([]constant.EndpointType, 0)
-		for _, endpointStr := range endpoints {
-			endpointType := constant.EndpointType(endpointStr)
-			supportedEndpoints = append(supportedEndpoints, endpointType)
-		}
-		modelSupportEndpointTypes[model] = supportedEndpoints
-	}
-
-	// 构建全局 supportedEndpointMap（默认 + 自定义覆盖）
-	supportedEndpointMap = make(map[string]common.EndpointInfo)
-	// 1. 默认端点
-	for _, endpoints := range modelSupportEndpointTypes {
-		for _, et := range endpoints {
-			if info, ok := common.GetDefaultEndpointInfo(et); ok {
-				if _, exists := supportedEndpointMap[string(et)]; !exists {
-					supportedEndpointMap[string(et)] = info
-				}
-			}
-		}
-	}
-	// 2. 自定义端点（models 表）覆盖默认
-	for _, meta := range metaMap {
-		if strings.TrimSpace(meta.Endpoints) == "" {
+		if err := common.Unmarshal([]byte(meta.Endpoints), &raw); err != nil {
 			continue
 		}
-		var raw map[string]any
-		if err := common.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
-			for k, v := range raw {
-				switch val := v.(type) {
-				case string:
-					supportedEndpointMap[k] = common.EndpointInfo{Path: val, Method: "POST"}
-				case map[string]any:
-					ep := common.EndpointInfo{Method: "POST"}
-					if p, ok := val["path"].(string); ok {
-						ep.Path = p
-					}
-					if m, ok := val["method"].(string); ok {
-						ep.Method = strings.ToUpper(m)
-					}
-					supportedEndpointMap[k] = ep
-				default:
-					// ignore unsupported types
-				}
+		for key, value := range raw {
+			if key == "" {
+				continue
 			}
+			info := common.EndpointInfo{Method: "POST"}
+			switch value := value.(type) {
+			case string:
+				info.Path = value
+			case map[string]any:
+				info.Path, _ = value["path"].(string)
+				if method, ok := value["method"].(string); ok {
+					info.Method = strings.ToUpper(method)
+				}
+			default:
+				continue
+			}
+			endpoint := constant.EndpointType(key)
+			modelSupportEndpointTypes[modelName] = appendPricingEndpoint(modelSupportEndpointTypes[modelName], endpoint)
+			if endpointOverrides[modelName] == nil {
+				endpointOverrides[modelName] = make(map[constant.EndpointType]common.EndpointInfo)
+			}
+			endpointOverrides[modelName][endpoint] = info
 		}
 	}
 
@@ -327,9 +299,11 @@ func updatePricing() {
 	pluginGeneration := jsplugin.DefaultRegistry.Generation()
 	for model, groups := range modelGroupsMap {
 		pricing := Pricing{
-			ModelName:              model,
-			EnableGroup:            groups.Items(),
-			SupportedEndpointTypes: modelSupportEndpointTypes[model],
+			ModelName:                 model,
+			EnableGroup:               groups.Items(),
+			SupportedEndpointTypes:    modelSupportEndpointTypes[model],
+			SupportedEndpointsByGroup: endpointsByModelGroup[model],
+			EndpointOverrides:         endpointOverrides[model],
 		}
 
 		// 补充模型元数据（描述、标签、供应商、状态）
@@ -444,9 +418,4 @@ func updatePricing() {
 	modelEnableGroupsLock.Unlock()
 
 	lastGetPricingTime = time.Now()
-}
-
-// GetSupportedEndpointMap 返回全局端点到路径的映射
-func GetSupportedEndpointMap() map[string]common.EndpointInfo {
-	return supportedEndpointMap
 }

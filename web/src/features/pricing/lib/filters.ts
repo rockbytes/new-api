@@ -1,19 +1,8 @@
-import {
-  SORT_OPTIONS,
-  FILTER_ALL,
-  QUOTA_TYPES,
-  QUOTA_TYPE_VALUES,
-  ENDPOINT_TYPES,
-  type QuotaTypeOption,
-  type SortOption,
-} from '../constants'
+import { SORT_OPTIONS, ENDPOINT_TYPES, type SortOption } from '../constants'
 import type { PricingModel } from '../types'
-import { compileBillingExpression } from './billing-expression/parser'
-import { visitExpression } from './billing-expression/types'
 import {
   getCardExamplePrice,
   getDynamicPricingSummary,
-  hasTaskUsageSchema,
   isUnconfiguredTaskUsageModel,
 } from './dynamic-price'
 import { isTokenBasedModel } from './model-helpers'
@@ -37,69 +26,6 @@ function filterBySearch(models: PricingModel[], query: string): PricingModel[] {
       m.tags?.toLowerCase().includes(lowerQuery) ||
       m.vendor_name?.toLowerCase().includes(lowerQuery)
   )
-}
-
-/**
- * Filter models by vendor
- */
-function filterByVendor(
-  models: PricingModel[],
-  vendor: string
-): PricingModel[] {
-  if (vendor === FILTER_ALL) return models
-  return models.filter((m) => m.vendor_name === vendor)
-}
-
-/**
- * Filter models by group
- */
-function filterByGroup(models: PricingModel[], group: string): PricingModel[] {
-  if (group === FILTER_ALL) return models
-  return models.filter((m) => m.enable_groups?.includes(group))
-}
-
-/** Pricing category of the active configuration, shared by filters and counts. */
-export function getModelQuotaType(
-  model: PricingModel
-): Exclude<QuotaTypeOption, 'all'> | undefined {
-  // Task-usage models retain their own category.
-  if (hasTaskUsageSchema(model)) return QUOTA_TYPES.TASK
-
-  if (model.billing_mode === 'tiered_expr' && model.billing_expr) {
-    const compiled = compileBillingExpression(model.billing_expr)
-    if (compiled.status === 'ready') {
-      if (!compiled.functions.has('fixed')) return QUOTA_TYPES.TOKEN
-
-      // Only models whose pricing leaves are all fixed count as per-request.
-      let hasTokenPricing = false
-      visitExpression(compiled.ast, (node) => {
-        if (node.kind !== 'call' || node.name !== 'tier') return
-        const price = node.args[1]
-        if (price.kind !== 'call' || price.name !== 'fixed') {
-          hasTokenPricing = true
-        }
-      })
-      return hasTokenPricing ? QUOTA_TYPES.TOKEN : QUOTA_TYPES.REQUEST
-    }
-  }
-
-  // Preserve legacy classification when the expression cannot be parsed.
-  if (model.quota_type === QUOTA_TYPE_VALUES.TOKEN) return QUOTA_TYPES.TOKEN
-  if (model.quota_type === QUOTA_TYPE_VALUES.REQUEST) {
-    return QUOTA_TYPES.REQUEST
-  }
-  return undefined
-}
-
-/**
- * Filter models by quota type
- */
-export function filterByQuotaType(
-  models: PricingModel[],
-  quotaType: string
-): PricingModel[] {
-  if (quotaType === QUOTA_TYPES.ALL) return models
-  return models.filter((model) => getModelQuotaType(model) === quotaType)
 }
 
 /**
@@ -207,23 +133,15 @@ export function filterAndSortModels(
   models: PricingModel[],
   filters: {
     search: string
-    vendor: string
-    group: string
-    quotaType: string
     endpointType: string
-    tag: string
     sortBy: string
   }
 ): PricingModel[] {
-  let result = filterBySearch(models, filters.search)
-  result = filterByVendor(result, filters.vendor)
-  result = filterByGroup(result, filters.group)
-  result = filterByQuotaType(result, filters.quotaType)
-  result = filterByEndpointType(result, filters.endpointType)
-  result = filterByTag(result, filters.tag)
-  result = sortModels(result, filters.sortBy)
-
-  return result
+  const matchingSearch = filterBySearch(models, filters.search)
+  return sortModels(
+    filterByEndpointType(matchingSearch, filters.endpointType),
+    filters.sortBy
+  )
 }
 
 /**
@@ -235,36 +153,4 @@ export function parseTags(tagsString?: string): string[] {
     .split(/[,;|\s]+/)
     .map((t) => t.trim())
     .filter(Boolean)
-}
-
-/**
- * Extract all unique tags from models
- */
-export function extractAllTags(models: PricingModel[]): string[] {
-  const tagSet = new Set<string>()
-
-  models.forEach((model) => {
-    if (model.tags) {
-      const tags = parseTags(model.tags)
-      tags.forEach((tag) => {
-        tagSet.add(tag.toLowerCase())
-      })
-    }
-  })
-
-  return [...tagSet].sort((a, b) => a.localeCompare(b))
-}
-
-/**
- * Filter models by tag
- */
-function filterByTag(models: PricingModel[], tag: string): PricingModel[] {
-  if (tag === FILTER_ALL) return models
-
-  const tagLower = tag.toLowerCase()
-  return models.filter((m) => {
-    if (!m.tags) return false
-    const modelTags = parseTags(m.tags).map((t) => t.toLowerCase())
-    return modelTags.includes(tagLower)
-  })
 }

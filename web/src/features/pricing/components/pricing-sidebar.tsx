@@ -1,5 +1,5 @@
 import { ChevronDown, RotateCcw } from 'lucide-react'
-import { memo, useMemo, type ReactNode } from 'react'
+import { memo, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
@@ -9,25 +9,17 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
-import { getLobeIcon } from '@/lib/lobe-icon'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-import {
-  ENDPOINT_TYPES,
-  FILTER_ALL,
-  QUOTA_TYPES,
-  getEndpointTypeLabels,
-  getQuotaTypeLabels,
-} from '../constants'
-import { getModelQuotaType, parseTags } from '../lib/filters'
-import type { PricingModel, PricingVendor } from '../types'
+import { ENDPOINT_TYPES, FILTER_ALL, getEndpointTypeLabels } from '../constants'
+import type { PricingModel } from '../types'
 
 type FilterOption = {
   value: string
   label: string
-  count?: number
-  suffix?: string
-  icon?: ReactNode
+  count: number
 }
 
 type FilterSectionProps = {
@@ -38,21 +30,13 @@ type FilterSectionProps = {
 }
 
 export interface PricingSidebarProps {
-  quotaTypeFilter: string
   endpointTypeFilter: string
-  vendorFilter: string
   groupFilter: string
-  tagFilter: string
-  onQuotaTypeChange: (value: string) => void
   onEndpointTypeChange: (value: string) => void
-  onVendorChange: (value: string) => void
   onGroupChange: (value: string) => void
-  onTagChange: (value: string) => void
-  vendors: PricingVendor[]
-  groups: string[]
-  groupRatios?: Record<string, number>
-  tags: string[]
-  models: PricingModel[]
+  groupCounts: ReadonlyMap<string, number>
+  totalCount: number
+  endpointCountsModels: PricingModel[]
   hasActiveFilters: boolean
   onClearFilters: () => void
   className?: string
@@ -63,6 +47,9 @@ function FilterChip(props: {
   active: boolean
   onClick: () => void
 }) {
+  const { i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+
   return (
     <Button
       type='button'
@@ -73,22 +60,17 @@ function FilterChip(props: {
       className='h-auto max-w-full gap-1.5 px-2 py-1 text-xs'
       title={props.option.label}
     >
-      {props.option.icon && (
-        <span className='shrink-0'>{props.option.icon}</span>
-      )}
       <span className='truncate'>{props.option.label}</span>
-      {(props.option.suffix || props.option.count != null) && (
-        <span
-          className={cn(
-            'rounded-md px-1.5 py-0.5 text-[12px]',
-            props.active
-              ? 'bg-background text-foreground'
-              : 'bg-muted text-muted-foreground'
-          )}
-        >
-          {props.option.suffix ?? props.option.count}
-        </span>
-      )}
+      <span
+        className={cn(
+          'rounded-md px-1.5 py-0.5 text-[12px]',
+          props.active
+            ? 'bg-background text-foreground'
+            : 'bg-muted text-muted-foreground'
+        )}
+      >
+        {formatNumber(props.option.count, locale)}
+      </span>
     </Button>
   )
 }
@@ -125,98 +107,38 @@ export const PricingSidebar = memo(function PricingSidebar(
   props: PricingSidebarProps
 ) {
   const { t } = useTranslation()
-  const counts = useMemo(() => {
-    const vendors = new Map<string, number>()
-    const tags = new Map<string, number>()
+  const endpointCounts = useMemo(() => {
     const endpoints = new Map<string, number>()
-    const quotas = { token: 0, request: 0, task: 0 }
-    for (const model of props.models) {
-      if (model.vendor_name) {
-        vendors.set(
-          model.vendor_name,
-          (vendors.get(model.vendor_name) ?? 0) + 1
-        )
-      }
-      for (const tag of new Set(
-        parseTags(model.tags).map((tag) => tag.toLowerCase())
-      )) {
-        tags.set(tag, (tags.get(tag) ?? 0) + 1)
-      }
+    for (const model of props.endpointCountsModels) {
       for (const endpoint of new Set(model.supported_endpoint_types ?? [])) {
         endpoints.set(endpoint, (endpoints.get(endpoint) ?? 0) + 1)
       }
-      const quotaType = getModelQuotaType(model)
-      if (quotaType) quotas[quotaType]++
     }
-    return { vendors, tags, endpoints, quotas }
-  }, [props.models])
-  const quotaTypeLabels = getQuotaTypeLabels(t)
+    return endpoints
+  }, [props.endpointCountsModels])
   const endpointTypeLabels = getEndpointTypeLabels(t)
 
-  const vendorOptions: FilterOption[] = [
-    {
-      value: FILTER_ALL,
-      label: t('All Vendors'),
-      count: props.models.length,
-    },
-    ...props.vendors
-      .map((vendor) => ({
-        value: vendor.name,
-        label: vendor.name,
-        count: counts.vendors.get(vendor.name) ?? 0,
-        icon: vendor.icon ? getLobeIcon(vendor.icon, 14) : undefined,
-      }))
-      .filter((vendor) => vendor.count > 0),
-  ]
-
-  const quotaOptions: FilterOption[] = [
-    {
-      value: QUOTA_TYPES.ALL,
-      label: quotaTypeLabels[QUOTA_TYPES.ALL],
-      count: props.models.length,
-    },
-    {
-      value: QUOTA_TYPES.TOKEN,
-      label: quotaTypeLabels[QUOTA_TYPES.TOKEN],
-      count: counts.quotas.token,
-    },
-    {
-      value: QUOTA_TYPES.REQUEST,
-      label: quotaTypeLabels[QUOTA_TYPES.REQUEST],
-      count: counts.quotas.request,
-    },
-    {
-      value: QUOTA_TYPES.TASK,
-      label: quotaTypeLabels[QUOTA_TYPES.TASK],
-      count: counts.quotas.task,
-    },
-  ]
-
-  const tagOptions: FilterOption[] = [
-    {
-      value: FILTER_ALL,
-      label: t('All Tags'),
-      count: props.models.length,
-    },
-    ...props.tags.map((tag) => ({
-      value: tag,
-      label: tag,
-      count: counts.tags.get(tag.toLowerCase()) ?? 0,
-    })),
+  const groupOptions: FilterOption[] = [
+    { value: FILTER_ALL, label: t('All Groups'), count: props.totalCount },
+    ...Array.from(props.groupCounts, ([group, count]) => ({
+      value: group,
+      label: group,
+      count,
+    })).sort((a, b) => a.label.localeCompare(b.label)),
   ]
 
   const endpointOptions: FilterOption[] = [
     {
       value: ENDPOINT_TYPES.ALL,
       label: endpointTypeLabels[ENDPOINT_TYPES.ALL],
-      count: props.models.length,
+      count: props.endpointCountsModels.length,
     },
     ...Object.entries(endpointTypeLabels)
       .filter(([value]) => value !== ENDPOINT_TYPES.ALL)
       .map(([value, label]) => ({
         value,
         label,
-        count: counts.endpoints.get(value) ?? 0,
+        count: endpointCounts.get(value) ?? 0,
       })),
   ]
 
@@ -226,7 +148,7 @@ export const PricingSidebar = memo(function PricingSidebar(
         <div>
           <h2 className='text-foreground text-sm font-bold'>{t('Filter')}</h2>
           <p className='text-muted-foreground mt-1 text-xs'>
-            {t('Refine models by provider, group, type, and tags.')}
+            {t('Filter models by channel group and endpoint type.')}
           </p>
         </div>
         <Button
@@ -249,24 +171,14 @@ export const PricingSidebar = memo(function PricingSidebar(
       )}
 
       <div className='space-y-1'>
-        <FilterSection
-          title={t('All Vendors')}
-          value={props.vendorFilter}
-          options={vendorOptions}
-          onChange={props.onVendorChange}
-        />
-        <FilterSection
-          title={t('Model Tags')}
-          value={props.tagFilter}
-          options={tagOptions}
-          onChange={props.onTagChange}
-        />
-        <FilterSection
-          title={t('Pricing Type')}
-          value={props.quotaTypeFilter}
-          options={quotaOptions}
-          onChange={props.onQuotaTypeChange}
-        />
+        {props.groupCounts.size > 0 && (
+          <FilterSection
+            title={t('Channel Groups')}
+            value={props.groupFilter}
+            options={groupOptions}
+            onChange={props.onGroupChange}
+          />
+        )}
         <FilterSection
           title={t('Endpoint Type')}
           value={props.endpointTypeFilter}

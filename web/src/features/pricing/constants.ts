@@ -34,28 +34,6 @@ export function getSortLabels(t: TFunction): Record<SortOption, string> {
 /** Filter values */
 export const FILTER_ALL = 'all'
 
-/** Quota type options */
-export const QUOTA_TYPES = {
-  ALL: 'all',
-  TOKEN: 'token',
-  REQUEST: 'request',
-  TASK: 'task',
-} as const
-
-export type QuotaTypeOption = (typeof QUOTA_TYPES)[keyof typeof QUOTA_TYPES]
-
-/** Quota type labels */
-export function getQuotaTypeLabels(
-  t: TFunction
-): Record<QuotaTypeOption, string> {
-  return {
-    [QUOTA_TYPES.ALL]: t('All Models'),
-    [QUOTA_TYPES.TOKEN]: t('Token-based'),
-    [QUOTA_TYPES.REQUEST]: t('Per Request'),
-    [QUOTA_TYPES.TASK]: t('Task billing'),
-  }
-}
-
 /** Endpoint type options */
 export const ENDPOINT_TYPES = {
   ALL: 'all',
