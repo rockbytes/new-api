@@ -354,6 +354,7 @@ func TestGetPricingScopesCatalogEndpointsToSelectableChannelGroups(t *testing.T)
 					EndpointOverrides map[string]common.EndpointInfo     `json:"endpoint_overrides"`
 				} `json:"data"`
 				SupportedEndpoint map[string]common.EndpointInfo `json:"supported_endpoint"`
+				DefaultEndpoints  map[string]common.EndpointInfo `json:"default_endpoints"`
 			}
 			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
 			require.True(t, payload.Success)
@@ -383,9 +384,27 @@ func TestGetPricingScopesCatalogEndpointsToSelectableChannelGroups(t *testing.T)
 			assert.Equal(t, "/v1/chat/completions", payload.SupportedEndpoint["openai"].Path)
 			if len(tc.groups) == 1 {
 				assert.NotContains(t, payload.SupportedEndpoint, "openai-response")
+			} else {
+				assert.NotContains(t, payload.SupportedEndpoint, "openai-response", "legacy clients must not receive a guessed endpoint path")
+				assert.Equal(t, "/v1/responses", payload.DefaultEndpoints["openai-response"].Path)
 			}
 		})
 	}
+
+	require.NoError(t, db.Where("model = ?", "catalog-shared").Where("channel_id = ?", 8122).Delete(&model.Ability{}).Error)
+	model.InvalidatePricingCache()
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/pricing", nil)
+	ctx.Set("id", 8122)
+	GetPricing(ctx)
+	var legacy struct {
+		SupportedEndpoint map[string]common.EndpointInfo `json:"supported_endpoint"`
+		Version           int                            `json:"catalog_capabilities_version"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &legacy))
+	assert.Equal(t, 1, legacy.Version)
+	assert.Equal(t, "/custom/responses", legacy.SupportedEndpoint["openai-response"].Path)
 }
 
 func TestListModelsIncludesTieredBillingModel(t *testing.T) {

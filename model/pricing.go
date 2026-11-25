@@ -26,31 +26,29 @@ type PricingPluginVariant struct {
 }
 
 type Pricing struct {
-	BillingPluginVariants     []PricingPluginVariant                        `json:"billing_plugin_variants,omitempty"`
-	ModelName                 string                                        `json:"model_name"`
-	Description               string                                        `json:"description,omitempty"`
-	Icon                      string                                        `json:"icon,omitempty"`
-	Tags                      string                                        `json:"tags,omitempty"`
-	VendorID                  int                                           `json:"vendor_id,omitempty"`
-	QuotaType                 int                                           `json:"quota_type"`
-	ModelRatio                float64                                       `json:"model_ratio"`
-	ModelPrice                float64                                       `json:"model_price"`
-	OwnerBy                   string                                        `json:"owner_by"`
-	CompletionRatio           float64                                       `json:"completion_ratio"`
-	CacheRatio                *float64                                      `json:"cache_ratio,omitempty"`
-	CreateCacheRatio          *float64                                      `json:"create_cache_ratio,omitempty"`
-	ImageRatio                *float64                                      `json:"image_ratio,omitempty"`
-	AudioRatio                *float64                                      `json:"audio_ratio,omitempty"`
-	AudioCompletionRatio      *float64                                      `json:"audio_completion_ratio,omitempty"`
-	EnableGroup               []string                                      `json:"enable_groups"`
-	SupportedEndpointTypes    []constant.EndpointType                       `json:"supported_endpoint_types"`
-	SupportedEndpointsByGroup map[string][]constant.EndpointType            `json:"supported_endpoints_by_group,omitempty"`
-	EndpointOverrides         map[constant.EndpointType]common.EndpointInfo `json:"endpoint_overrides,omitempty"`
-	BillingMode               string                                        `json:"billing_mode,omitempty"`
-	BillingExpr               string                                        `json:"billing_expr,omitempty"`
-	BillingUsageSchema        map[string]jsplugin.UsageFieldSchema          `json:"billing_usage_schema,omitempty"`
-	BillingUsageExamples      []jsplugin.UsageExample                       `json:"billing_usage_examples,omitempty"`
-	PricingVersion            string                                        `json:"pricing_version,omitempty"`
+	BillingPluginVariants  []PricingPluginVariant               `json:"billing_plugin_variants,omitempty"`
+	ModelName              string                               `json:"model_name"`
+	Description            string                               `json:"description,omitempty"`
+	Icon                   string                               `json:"icon,omitempty"`
+	Tags                   string                               `json:"tags,omitempty"`
+	VendorID               int                                  `json:"vendor_id,omitempty"`
+	QuotaType              int                                  `json:"quota_type"`
+	ModelRatio             float64                              `json:"model_ratio"`
+	ModelPrice             float64                              `json:"model_price"`
+	OwnerBy                string                               `json:"owner_by"`
+	CompletionRatio        float64                              `json:"completion_ratio"`
+	CacheRatio             *float64                             `json:"cache_ratio,omitempty"`
+	CreateCacheRatio       *float64                             `json:"create_cache_ratio,omitempty"`
+	ImageRatio             *float64                             `json:"image_ratio,omitempty"`
+	AudioRatio             *float64                             `json:"audio_ratio,omitempty"`
+	AudioCompletionRatio   *float64                             `json:"audio_completion_ratio,omitempty"`
+	EnableGroup            []string                             `json:"enable_groups"`
+	SupportedEndpointTypes []constant.EndpointType              `json:"supported_endpoint_types"`
+	BillingMode            string                               `json:"billing_mode,omitempty"`
+	BillingExpr            string                               `json:"billing_expr,omitempty"`
+	BillingUsageSchema     map[string]jsplugin.UsageFieldSchema `json:"billing_usage_schema,omitempty"`
+	BillingUsageExamples   []jsplugin.UsageExample              `json:"billing_usage_examples,omitempty"`
+	PricingVersion         string                               `json:"pricing_version,omitempty"`
 }
 
 type PricingVendor struct {
@@ -61,10 +59,12 @@ type PricingVendor struct {
 }
 
 var (
-	pricingMap         []Pricing
-	vendorsList        []PricingVendor
-	lastGetPricingTime time.Time
-	updatePricingLock  sync.Mutex
+	pricingMap               []Pricing
+	pricingGroupEndpoints    map[string]map[string][]constant.EndpointType
+	pricingEndpointOverrides map[string]map[constant.EndpointType]common.EndpointInfo
+	vendorsList              []PricingVendor
+	lastGetPricingTime       time.Time
+	updatePricingLock        sync.Mutex
 
 	// 缓存映射：模型名 -> 启用分组 / 计费类型
 	modelEnableGroups     = make(map[string][]string)
@@ -77,18 +77,21 @@ var (
 	modelSupportEndpointsLock = sync.RWMutex{}
 )
 
-func GetPricing() []Pricing {
-	if time.Since(lastGetPricingTime) > time.Minute*1 || len(pricingMap) == 0 {
-		updatePricingLock.Lock()
-		defer updatePricingLock.Unlock()
-		// Double check after acquiring the lock
-		if time.Since(lastGetPricingTime) > time.Minute*1 || len(pricingMap) == 0 {
-			modelSupportEndpointsLock.Lock()
-			defer modelSupportEndpointsLock.Unlock()
-			updatePricing()
-		}
+// GetPricingCatalog returns the rows and immutable endpoint metadata from the same cache refresh.
+func GetPricingCatalog() ([]Pricing, []PricingVendor, map[string]map[string][]constant.EndpointType, map[string]map[constant.EndpointType]common.EndpointInfo) {
+	updatePricingLock.Lock()
+	defer updatePricingLock.Unlock()
+	if time.Since(lastGetPricingTime) > time.Minute || len(pricingMap) == 0 {
+		modelSupportEndpointsLock.Lock()
+		defer modelSupportEndpointsLock.Unlock()
+		updatePricing()
 	}
-	return pricingMap
+	return pricingMap, vendorsList, pricingGroupEndpoints, pricingEndpointOverrides
+}
+
+func GetPricing() []Pricing {
+	pricing, _, _, _ := GetPricingCatalog()
+	return pricing
 }
 
 func InvalidatePricingCache() {
@@ -96,17 +99,16 @@ func InvalidatePricingCache() {
 	defer updatePricingLock.Unlock()
 
 	pricingMap = nil
+	pricingGroupEndpoints = nil
+	pricingEndpointOverrides = nil
 	vendorsList = nil
 	lastGetPricingTime = time.Time{}
 }
 
 // GetVendors 返回当前定价接口使用到的供应商信息
 func GetVendors() []PricingVendor {
-	if time.Since(lastGetPricingTime) > time.Minute*1 || len(pricingMap) == 0 {
-		// 保证先刷新一次
-		GetPricing()
-	}
-	return vendorsList
+	_, vendors, _, _ := GetPricingCatalog()
+	return vendors
 }
 
 func GetModelSupportEndpointTypes(model string) []constant.EndpointType {
@@ -299,11 +301,9 @@ func updatePricing() {
 	pluginGeneration := jsplugin.DefaultRegistry.Generation()
 	for model, groups := range modelGroupsMap {
 		pricing := Pricing{
-			ModelName:                 model,
-			EnableGroup:               groups.Items(),
-			SupportedEndpointTypes:    modelSupportEndpointTypes[model],
-			SupportedEndpointsByGroup: endpointsByModelGroup[model],
-			EndpointOverrides:         endpointOverrides[model],
+			ModelName:              model,
+			EnableGroup:            groups.Items(),
+			SupportedEndpointTypes: modelSupportEndpointTypes[model],
 		}
 
 		// 补充模型元数据（描述、标签、供应商、状态）
@@ -417,5 +417,7 @@ func updatePricing() {
 	}
 	modelEnableGroupsLock.Unlock()
 
+	pricingGroupEndpoints = endpointsByModelGroup
+	pricingEndpointOverrides = endpointOverrides
 	lastGetPricingTime = time.Now()
 }

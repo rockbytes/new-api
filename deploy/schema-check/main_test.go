@@ -12,6 +12,8 @@ import (
 )
 
 func TestSchemaGuardReleaseRange(t *testing.T) {
+	checkerSource, err := os.ReadFile("main.go")
+	require.NoError(t, err)
 	t.Chdir(t.TempDir())
 	gitCommand := func(args ...string) string {
 		t.Helper()
@@ -46,7 +48,8 @@ func save() { db.Create(&Option{}); _ = "Could not create notes" }
 	write("model/group_notes_test.go", `package model
 func fixture() { db.AutoMigrate(&Option{}); db.Exec("DROP TABLE fixture") }
 `)
-	commit("ordinary data writes and test fixtures")
+	write("deploy/schema-check/main.go", string(checkerSource))
+	commit("ordinary data writes, test fixtures, and standalone schema checker")
 	require.NoError(t, run("v1.0.29", "HEAD"))
 	require.NoError(t, run("dev-"+strings.TrimSpace(baseHash), "HEAD"))
 	assert.ErrorContains(t, run("v1.0.28", "HEAD"), "rev-parse")
@@ -73,4 +76,21 @@ func writeOption(o Option) { db.Create(&o) }
 
 	gitCommand("branch", "-f", "v1.0.29", "HEAD")
 	assert.ErrorContains(t, run("v1.0.29", "HEAD"), "model/option.go", "a same-named branch must not shadow the release tag")
+}
+
+func TestSchemaGuardChecksOtherGoSource(t *testing.T) {
+	for _, tc := range []struct {
+		name, file, packageName string
+	}{
+		{"same path with an importable package", "deploy/schema-check/main.go", "schemacheck"},
+		{"sibling Go file", "deploy/schema-check/sql.go", "main"},
+		{"different command", "deploy/other/main.go", "main"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := "package " + tc.packageName + "\nconst query = `ALTER TABLE options ADD COLUMN extra text`\n"
+			decls, err := schemaDecls(tc.file, source)
+			require.NoError(t, err)
+			assert.Len(t, decls, 1)
+		})
+	}
 }

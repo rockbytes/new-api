@@ -108,6 +108,7 @@ export type ModelCapability =
   | 'embeddings'
 
 export type PricingData = {
+  catalog_capabilities_version?: number
   success: boolean
   message?: string
   data: PricingModel[]
@@ -115,6 +116,7 @@ export type PricingData = {
   group_ratio: Record<string, number>
   usable_group: Record<string, { desc: string; ratio: number }>
   supported_endpoint: Record<string, PricingEndpointInfo>
+  default_endpoints?: Record<string, PricingEndpointInfo>
   auto_groups: string[]
 }
 
