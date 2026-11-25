@@ -37,6 +37,8 @@ export type BillingPluginVariant = {
   billing_usage_examples?: BillingUsageExample[]
 }
 
+export type PricingEndpointInfo = { path?: string; method?: string }
+
 export type PricingModel = {
   billing_plugin_variants?: BillingPluginVariant[]
   id: number
@@ -59,6 +61,8 @@ export type PricingModel = {
   enable_groups: string[]
   tags?: string
   supported_endpoint_types?: string[]
+  supported_endpoints_by_group?: Record<string, string[]>
+  endpoint_overrides?: Record<string, PricingEndpointInfo>
   key?: string
   group_ratio?: Record<string, number>
   /** Billing mode (e.g. "tiered_expr") used to flag dynamic pricing */
@@ -110,7 +114,7 @@ export type PricingData = {
   vendors: PricingVendor[]
   group_ratio: Record<string, number>
   usable_group: Record<string, { desc: string; ratio: number }>
-  supported_endpoint: Record<string, string>
+  supported_endpoint: Record<string, PricingEndpointInfo>
   auto_groups: string[]
 }
 

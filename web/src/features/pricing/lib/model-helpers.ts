@@ -16,9 +16,22 @@ export function getAvailableGroups(
     ? model.enable_groups
     : []
 
-  return Object.keys(usableGroup)
-    .filter((g) => !EXCLUDED_GROUPS.includes(g))
-    .filter((g) => modelEnableGroups.includes(g))
+  return modelEnableGroups.filter(
+    (g) =>
+      g !== FILTER_ALL &&
+      !EXCLUDED_GROUPS.includes(g) &&
+      Object.hasOwn(usableGroup, g) &&
+      (!model.group_ratio || Object.hasOwn(model.group_ratio, g))
+  )
+}
+
+/** Resolve catalog endpoints for the current group, or the authorized union. */
+export function getModelEndpoints(
+  model: PricingModel,
+  group: string
+): string[] {
+  if (group === FILTER_ALL) return model.supported_endpoint_types ?? []
+  return model.supported_endpoints_by_group?.[group] ?? []
 }
 
 /**

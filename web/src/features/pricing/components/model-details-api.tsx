@@ -440,7 +440,10 @@ function CodeSamplesSection(props: {
     const types = props.model.supported_endpoint_types || []
     return types
       .map((type) => {
-        const info = props.endpointMap[type] || {}
+        const info =
+          props.model.endpoint_overrides?.[type] ??
+          props.endpointMap[type] ??
+          {}
         let path = info.path || ''
         if (path && path.includes('{model}')) {
           path = replaceModelInPath(path, props.model.model_name || '')

@@ -1,9 +1,10 @@
 package controller
 
 import (
-	"maps"
+	"slices"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -11,26 +12,49 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string]string) []model.Pricing {
-	if len(pricing) == 0 {
-		return pricing
-	}
-	if len(usableGroup) == 0 {
+func filterPricingByUsableGroups(pricing []model.Pricing, usableGroups map[string]float64) []model.Pricing {
+	if len(usableGroups) == 0 {
 		return []model.Pricing{}
 	}
 
 	filtered := make([]model.Pricing, 0, len(pricing))
 	for _, item := range pricing {
-		if common.StringsContains(item.EnableGroup, "all") {
-			filtered = append(filtered, item)
-			continue
-		}
+		groups := make([]string, 0, len(item.EnableGroup))
+		endpointsByGroup := make(map[string][]constant.EndpointType)
+		availableEndpoints := make(map[constant.EndpointType]struct{})
 		for _, group := range item.EnableGroup {
-			if _, ok := usableGroup[group]; ok {
-				filtered = append(filtered, item)
-				break
+			if _, ok := usableGroups[group]; !ok {
+				continue
+			}
+			groups = append(groups, group)
+			endpoints := item.SupportedEndpointsByGroup[group]
+			endpointsByGroup[group] = endpoints
+			for _, endpoint := range endpoints {
+				availableEndpoints[endpoint] = struct{}{}
 			}
 		}
+		if len(groups) == 0 {
+			continue
+		}
+
+		// The cached record and its maps/slices are shared across viewers.
+		slices.Sort(groups)
+		item.EnableGroup = groups
+		item.SupportedEndpointsByGroup = endpointsByGroup
+		endpoints := make([]constant.EndpointType, 0, len(availableEndpoints))
+		overrides := make(map[constant.EndpointType]common.EndpointInfo)
+		for _, endpoint := range item.SupportedEndpointTypes {
+			if _, ok := availableEndpoints[endpoint]; !ok {
+				continue
+			}
+			endpoints = append(endpoints, endpoint)
+			if info, ok := item.EndpointOverrides[endpoint]; ok {
+				overrides[endpoint] = info
+			}
+		}
+		item.SupportedEndpointTypes = endpoints
+		item.EndpointOverrides = overrides
+		filtered = append(filtered, item)
 	}
 	return filtered
 }
@@ -38,9 +62,7 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string
 func GetPricing(c *gin.Context) {
 	pricing := model.GetPricing()
 	userId, exists := c.Get("id")
-	usableGroup := map[string]string{}
-	groupRatio := map[string]float64{}
-	maps.Copy(groupRatio, ratio_setting.GetGroupRatioCopy())
+	groupRatio := ratio_setting.GetGroupRatioCopy()
 	var group string
 	role := common.RoleCommonUser
 	if exists {
@@ -57,12 +79,27 @@ func GetPricing(c *gin.Context) {
 		}
 	}
 
-	usableGroup = service.GetUserUsableGroups(group, role)
-	pricing = filterPricingByUsableGroups(pricing, usableGroup)
-	// check groupRatio contains usableGroup
-	for group := range ratio_setting.GetGroupRatioCopy() {
-		if _, ok := usableGroup[group]; !ok {
+	usableGroup := service.GetUserUsableGroups(group, role)
+	for group := range groupRatio {
+		if _, ok := usableGroup[group]; !ok || group == "" || group == "auto" || group == "all" {
 			delete(groupRatio, group)
+		}
+	}
+	for name := range usableGroup {
+		if name == "auto" {
+			continue
+		}
+		if _, ok := groupRatio[name]; !ok {
+			delete(usableGroup, name)
+		}
+	}
+	pricing = filterPricingByUsableGroups(pricing, groupRatio)
+	supportedEndpoints := make(map[string]common.EndpointInfo)
+	for _, item := range pricing {
+		for _, endpoint := range item.SupportedEndpointTypes {
+			if info, ok := common.GetDefaultEndpointInfo(endpoint); ok {
+				supportedEndpoints[string(endpoint)] = info
+			}
 		}
 	}
 
@@ -72,7 +109,7 @@ func GetPricing(c *gin.Context) {
 		"vendors":            model.GetVendors(),
 		"group_ratio":        groupRatio,
 		"usable_group":       usableGroup,
-		"supported_endpoint": model.GetSupportedEndpointMap(),
+		"supported_endpoint": supportedEndpoints,
 		"auto_groups":        service.GetUserAutoGroup(group, role),
 		"pricing_version":    "a42d372ccf0b5dd13ecf71203521f9d2",
 	})

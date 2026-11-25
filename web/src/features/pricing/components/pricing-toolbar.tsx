@@ -28,12 +28,14 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 
 import { getSortLabels, type SortOption, type ViewMode } from '../constants'
-import type { PricingModel, PricingVendor, TokenUnit } from '../types'
-import { PricingSidebar } from './pricing-sidebar'
+import type { TokenUnit } from '../types'
+import { PricingSidebar, type PricingSidebarProps } from './pricing-sidebar'
 
-export interface PricingToolbarProps {
+export interface PricingToolbarProps extends Omit<
+  PricingSidebarProps,
+  'className'
+> {
   filteredCount: number
-  totalCount?: number
   sortBy: string
   onSortChange: (value: string) => void
   tokenUnit: TokenUnit
@@ -42,24 +44,7 @@ export interface PricingToolbarProps {
   onRechargePriceChange: (value: boolean) => void
   viewMode: ViewMode
   onViewModeChange: (value: ViewMode) => void
-  quotaTypeFilter: string
-  endpointTypeFilter: string
-  vendorFilter: string
-  groupFilter: string
-  tagFilter: string
-  onQuotaTypeChange: (value: string) => void
-  onEndpointTypeChange: (value: string) => void
-  onVendorChange: (value: string) => void
-  onGroupChange: (value: string) => void
-  onTagChange: (value: string) => void
-  vendors: PricingVendor[]
-  groups: string[]
-  groupRatios?: Record<string, number>
-  tags: string[]
-  models: PricingModel[]
-  hasActiveFilters: boolean
   activeFilterCount: number
-  onClearFilters: () => void
 }
 
 export function PricingToolbar(props: PricingToolbarProps) {
@@ -92,12 +77,11 @@ export function PricingToolbar(props: PricingToolbarProps) {
               {props.filteredCount.toLocaleString()}
             </span>
             <span>{props.filteredCount === 1 ? t('model') : t('models')}</span>
-            {props.totalCount != null &&
-              props.filteredCount !== props.totalCount && (
-                <span className='text-muted-foreground/60 text-xs'>
-                  / {props.totalCount.toLocaleString()}
-                </span>
-              )}
+            {props.filteredCount !== props.totalCount && (
+              <span className='text-muted-foreground/60 text-xs'>
+                / {props.totalCount.toLocaleString()}
+              </span>
+            )}
           </div>
         </div>
 
@@ -181,26 +165,18 @@ export function PricingToolbar(props: PricingToolbarProps) {
           <SheetHeader className={sideDrawerHeaderClassName()}>
             <SheetTitle>{t('Filter')}</SheetTitle>
             <SheetDescription>
-              {t('Filter models by provider, group, type, endpoint, and tags.')}
+              {t('Filter models by channel group and endpoint type.')}
             </SheetDescription>
           </SheetHeader>
           <div className={sideDrawerFormClassName('gap-0')}>
             <PricingSidebar
-              quotaTypeFilter={props.quotaTypeFilter}
               endpointTypeFilter={props.endpointTypeFilter}
-              vendorFilter={props.vendorFilter}
               groupFilter={props.groupFilter}
-              tagFilter={props.tagFilter}
-              onQuotaTypeChange={props.onQuotaTypeChange}
               onEndpointTypeChange={props.onEndpointTypeChange}
-              onVendorChange={props.onVendorChange}
               onGroupChange={props.onGroupChange}
-              onTagChange={props.onTagChange}
-              vendors={props.vendors}
-              groups={props.groups}
-              groupRatios={props.groupRatios}
-              tags={props.tags}
-              models={props.models}
+              groupCounts={props.groupCounts}
+              totalCount={props.totalCount}
+              endpointCountsModels={props.endpointCountsModels}
               hasActiveFilters={props.hasActiveFilters}
               onClearFilters={props.onClearFilters}
               className='border-0 bg-transparent p-0 shadow-none'
