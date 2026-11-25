@@ -802,11 +802,12 @@ export function useCommonLogsColumns(
           const log = row.original
           const other = parseLogOther(log.other)
 
-          const pricingData = usePricingData(
-            log.type === 2 &&
+          const pricingData = usePricingData({
+            enabled:
+              log.type === 2 &&
               other?.is_task === true &&
-              other.billing_mode === 'tiered_expr'
-          )
+              other.billing_mode === 'tiered_expr',
+          })
           const usageSchema = pluginUsageSchema(
             pricingData.models.find(
               (model) => model.model_name === log.model_name

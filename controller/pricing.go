@@ -12,12 +12,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func filterPricingByUsableGroups(pricing []model.Pricing, usableGroups map[string]float64) []model.Pricing {
+type catalogPricing struct {
+	model.Pricing
+	SupportedEndpointsByGroup map[string][]constant.EndpointType            `json:"supported_endpoints_by_group"`
+	EndpointOverrides         map[constant.EndpointType]common.EndpointInfo `json:"endpoint_overrides,omitempty"`
+}
+
+func filterPricingByUsableGroups(pricing []model.Pricing, usableGroups map[string]float64, groupEndpoints map[string]map[string][]constant.EndpointType, endpointOverrides map[string]map[constant.EndpointType]common.EndpointInfo) []catalogPricing {
 	if len(usableGroups) == 0 {
-		return []model.Pricing{}
+		return []catalogPricing{}
 	}
 
-	filtered := make([]model.Pricing, 0, len(pricing))
+	filtered := make([]catalogPricing, 0, len(pricing))
 	for _, item := range pricing {
 		groups := make([]string, 0, len(item.EnableGroup))
 		endpointsByGroup := make(map[string][]constant.EndpointType)
@@ -27,7 +33,7 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroups map[strin
 				continue
 			}
 			groups = append(groups, group)
-			endpoints := item.SupportedEndpointsByGroup[group]
+			endpoints := groupEndpoints[item.ModelName][group]
 			endpointsByGroup[group] = endpoints
 			for _, endpoint := range endpoints {
 				availableEndpoints[endpoint] = struct{}{}
@@ -40,7 +46,6 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroups map[strin
 		// The cached record and its maps/slices are shared across viewers.
 		slices.Sort(groups)
 		item.EnableGroup = groups
-		item.SupportedEndpointsByGroup = endpointsByGroup
 		endpoints := make([]constant.EndpointType, 0, len(availableEndpoints))
 		overrides := make(map[constant.EndpointType]common.EndpointInfo)
 		for _, endpoint := range item.SupportedEndpointTypes {
@@ -48,19 +53,20 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroups map[strin
 				continue
 			}
 			endpoints = append(endpoints, endpoint)
-			if info, ok := item.EndpointOverrides[endpoint]; ok {
+			if info, ok := endpointOverrides[item.ModelName][endpoint]; ok {
 				overrides[endpoint] = info
 			}
 		}
 		item.SupportedEndpointTypes = endpoints
-		item.EndpointOverrides = overrides
-		filtered = append(filtered, item)
+		filtered = append(filtered, catalogPricing{
+			Pricing: item, SupportedEndpointsByGroup: endpointsByGroup, EndpointOverrides: overrides,
+		})
 	}
 	return filtered
 }
 
 func GetPricing(c *gin.Context) {
-	pricing := model.GetPricing()
+	pricing, vendors, groupEndpoints, endpointOverrides := model.GetPricingCatalog()
 	userId, exists := c.Get("id")
 	groupRatio := ratio_setting.GetGroupRatioCopy()
 	var group string
@@ -93,25 +99,50 @@ func GetPricing(c *gin.Context) {
 			delete(usableGroup, name)
 		}
 	}
-	pricing = filterPricingByUsableGroups(pricing, groupRatio)
+	catalog := filterPricingByUsableGroups(pricing, groupRatio, groupEndpoints, endpointOverrides)
+	// A shared legacy map is safe only when all visible models resolve the
+	// endpoint to the same path. Per-model overrides remain authoritative for
+	// new clients when those paths differ.
 	supportedEndpoints := make(map[string]common.EndpointInfo)
-	for _, item := range pricing {
+	defaultEndpoints := make(map[string]common.EndpointInfo)
+	conflicting := make(map[string]bool)
+	for _, item := range catalog {
 		for _, endpoint := range item.SupportedEndpointTypes {
-			if info, ok := common.GetDefaultEndpointInfo(endpoint); ok {
-				supportedEndpoints[string(endpoint)] = info
+			key := string(endpoint)
+			defaultInfo, hasDefault := common.GetDefaultEndpointInfo(endpoint)
+			if hasDefault {
+				defaultEndpoints[key] = defaultInfo
+			}
+			info, hasOverride := item.EndpointOverrides[endpoint]
+			if !hasOverride {
+				info = defaultInfo
+			}
+			if info.Path == "" {
+				conflicting[key] = true
+				continue
+			}
+			if previous, exists := supportedEndpoints[key]; exists && previous != info {
+				conflicting[key] = true
+			} else if !exists {
+				supportedEndpoints[key] = info
 			}
 		}
 	}
+	for endpoint := range conflicting {
+		delete(supportedEndpoints, endpoint)
+	}
 
 	c.JSON(200, gin.H{
-		"success":            true,
-		"data":               pricing,
-		"vendors":            model.GetVendors(),
-		"group_ratio":        groupRatio,
-		"usable_group":       usableGroup,
-		"supported_endpoint": supportedEndpoints,
-		"auto_groups":        service.GetUserAutoGroup(group, role),
-		"pricing_version":    "a42d372ccf0b5dd13ecf71203521f9d2",
+		"catalog_capabilities_version": 1,
+		"success":                      true,
+		"data":                         catalog,
+		"vendors":                      vendors,
+		"group_ratio":                  groupRatio,
+		"usable_group":                 usableGroup,
+		"supported_endpoint":           supportedEndpoints,
+		"default_endpoints":            defaultEndpoints,
+		"auto_groups":                  service.GetUserAutoGroup(group, role),
+		"pricing_version":              "a42d372ccf0b5dd13ecf71203521f9d2",
 	})
 }
 

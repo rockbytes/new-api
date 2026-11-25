@@ -6,7 +6,7 @@ import {
   createRouter,
   RouterProvider,
 } from '@tanstack/react-router'
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
 
@@ -29,14 +29,19 @@ const model = (id: number, name: string, groups: string[]): PricingModel => ({
 
 async function renderCatalog(
   initialEntry: string,
-  groups: Record<string, string>
+  groups: Record<string, string>,
+  options: { legacyRequests?: number[]; emptyStandard?: boolean } = {}
 ) {
+  let pricingRequests = 0
   vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined)
   vi.spyOn(api, 'get').mockImplementation(async (url) => {
     if (url === '/api/pricing') {
+      pricingRequests++
+      const legacy = options.legacyRequests?.includes(pricingRequests)
       return {
         data: {
           success: true,
+          catalog_capabilities_version: legacy ? undefined : 1,
           data: [
             {
               ...model(1, 'common-model', [
@@ -47,10 +52,12 @@ async function renderCatalog(
                 'retired',
               ]),
               supported_endpoint_types: ['openai', 'openai-response'],
-              supported_endpoints_by_group: {
-                standard: ['openai'],
-                premium: ['openai-response'],
-              },
+              supported_endpoints_by_group: legacy
+                ? undefined
+                : {
+                    standard: options.emptyStandard ? [] : ['openai'],
+                    premium: ['openai-response'],
+                  },
             },
             model(2, 'standard-model', ['standard']),
             model(3, 'premium-model', ['premium']),
@@ -85,8 +92,81 @@ async function renderCatalog(
       <RouterProvider router={router} />
     </QueryClientProvider>
   )
-  await screen.findByRole('heading', { name: 'common-model' })
+  if (!options.legacyRequests?.includes(1)) {
+    await screen.findByRole('heading', { name: 'common-model' })
+  }
+  return { client, pricingRequests: () => pricingRequests }
 }
+
+it('holds the catalog safely until a newer response becomes available', async () => {
+  const { pricingRequests } = await renderCatalog(
+    '/pricing/?group=standard',
+    { standard: '', premium: '' },
+    { legacyRequests: [1] }
+  )
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Model catalog is being updated. Group endpoints are temporarily unavailable.'
+  )
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled()
+  expect(
+    screen.queryByRole('heading', { name: 'common-model' })
+  ).not.toBeInTheDocument()
+  expect(
+    await screen.findByRole(
+      'heading',
+      { name: 'common-model' },
+      { timeout: 7000 }
+    )
+  ).toBeVisible()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /^Response\s*0$/ })).toBeVisible()
+  expect(pricingRequests()).toBe(2)
+})
+
+it('keeps the last verified catalog visible when a background refresh hits an old node', async () => {
+  const { client, pricingRequests } = await renderCatalog(
+    '/pricing/?group=standard',
+    { standard: '', premium: '' },
+    { legacyRequests: [2] }
+  )
+  const refresh = client.invalidateQueries({ queryKey: ['pricing'] })
+  await waitFor(() => expect(pricingRequests()).toBe(2))
+  expect(screen.getByRole('heading', { name: 'common-model' })).toBeVisible()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  await act(async () => {
+    await refresh
+  })
+  expect(pricingRequests()).toBe(3)
+  expect(screen.getByRole('button', { name: /^Response\s*0$/ })).toBeVisible()
+})
+
+it('stops automatic retries after five old responses and lets the viewer retry', async () => {
+  const { pricingRequests } = await renderCatalog(
+    '/pricing/?group=standard',
+    { standard: '', premium: '' },
+    { legacyRequests: [1, 2, 3, 4, 5] }
+  )
+  const retry = await screen.findByRole('button', { name: 'Retry' })
+  await waitFor(() => expect(retry).toBeEnabled(), { timeout: 35_000 })
+  expect(pricingRequests()).toBe(5)
+  await userEvent.click(retry)
+  expect(
+    await screen.findByRole('heading', { name: 'common-model' })
+  ).toBeVisible()
+  expect(pricingRequests()).toBe(6)
+}, 45_000)
+
+it('accepts a supported catalog with an explicitly empty group endpoint list', async () => {
+  const { pricingRequests } = await renderCatalog(
+    '/pricing/?group=standard',
+    { standard: '', premium: '' },
+    { emptyStandard: true }
+  )
+  expect(screen.getByRole('button', { name: /^Chat\s*0$/ })).toBeVisible()
+  expect(screen.queryByTitle('openai')).not.toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(pricingRequests()).toBe(1)
+})
 
 it('filters by a usable channel group and restores the deduplicated union', async () => {
   const user = userEvent.setup()

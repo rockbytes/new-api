@@ -3840,6 +3840,7 @@
     "Model assignments": "模型归属",
     "model billing support": "模型计费支持",
     "Model Call Analytics": "模型调用分析",
+    "Model catalog is being updated. Group endpoints are temporarily unavailable.": "模型目录正在更新，分组端点信息暂不可用。",
     "Model context usage": "模型上下文用量",
     "Model deleted": "模型已删除",
     "Model deleted successfully": "模型删除成功",

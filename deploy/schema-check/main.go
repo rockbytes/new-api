@@ -58,6 +58,11 @@ func schemaDecls(file, source string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The guard's own command is not importable by the gateway. Its detector
+	// declarations are not production schema changes.
+	if file == "deploy/schema-check/main.go" && syntax.Name.Name == "main" {
+		return nil, nil
+	}
 	var sensitive []string
 	for _, decl := range syntax.Decls {
 		found := false

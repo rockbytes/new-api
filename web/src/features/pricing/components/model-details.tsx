@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next'
 import { CopyButton } from '@/components/copy-button'
 import { StaticDataTable } from '@/components/data-table'
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
+import { ErrorState } from '@/components/error-state'
 import { GroupBadge } from '@/components/group-badge'
 import { PublicLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
@@ -39,7 +40,10 @@ import {
 } from '@/features/performance-metrics/lib/format'
 import { PluginIcon } from '@/features/task-plugins/components/plugin-icon'
 import { getLobeIcon } from '@/lib/lobe-icon'
-import { requireServerSuccess } from '@/lib/server-error-message'
+import {
+  getServerErrorMessage,
+  requireServerSuccess,
+} from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
@@ -82,6 +86,7 @@ import type {
   PricingModel,
   TokenUnit,
 } from '../types'
+import { CatalogUpdateNotice } from './catalog-update-notice'
 import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelDetailsApi } from './model-details-api'
@@ -1603,10 +1608,14 @@ export function ModelDetails() {
     usableGroup,
     endpointMap,
     autoGroups,
+    compatibilityPending,
+    loadingError,
+    refetch,
+    isFetching,
     isLoading,
     priceRate,
     usdExchangeRate,
-  } = usePricingData()
+  } = usePricingData({ requireCatalog: true })
 
   const tokenUnit: TokenUnit =
     search.tokenUnit === 'K' ? 'K' : DEFAULT_TOKEN_UNIT
@@ -1620,7 +1629,7 @@ export function ModelDetails() {
     navigate({ to: '/pricing', search })
   }
 
-  if (isLoading) {
+  if (isLoading && !compatibilityPending) {
     return (
       <PublicLayout>
         <div className='mx-auto max-w-5xl px-4 sm:px-6'>
@@ -1641,6 +1650,29 @@ export function ModelDetails() {
             ))}
           </div>
         </div>
+      </PublicLayout>
+    )
+  }
+
+  if (loadingError) {
+    return (
+      <PublicLayout>
+        <ErrorState
+          title={t('Failed to load models')}
+          description={getServerErrorMessage(loadingError)}
+          onRetry={() => void refetch()}
+        />
+      </PublicLayout>
+    )
+  }
+
+  if (compatibilityPending) {
+    return (
+      <PublicLayout>
+        <CatalogUpdateNotice
+          isFetching={isFetching}
+          onRetry={() => void refetch()}
+        />
       </PublicLayout>
     )
   }

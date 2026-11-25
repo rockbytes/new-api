@@ -2,19 +2,58 @@ import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 
 import { useStatus } from '@/hooks/use-status'
-import { requireServerSuccess } from '@/lib/server-error-message'
+import {
+  getServerErrorStatus,
+  isServerErrorCancelled,
+  requireServerSuccess,
+} from '@/lib/server-error-message'
 
 import { getPricing } from '../api'
 
-export function usePricingData(enabled = true) {
+class CatalogUpdatingError extends Error {}
+
+export function usePricingData({
+  enabled = true,
+  requireCatalog = false,
+} = {}) {
   const { status } = useStatus()
 
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['pricing'],
-    queryFn: async () => requireServerSuccess(await getPricing()),
+  // Pricing-only consumers keep their existing request contract. The model
+  // catalog never caches an older response as a successful catalog snapshot.
+  const {
+    data: catalog,
+    isLoading,
+    error,
+    refetch,
+    isFetching,
+    failureReason,
+  } = useQuery({
+    queryKey: requireCatalog ? ['pricing', 'catalog'] : ['pricing'],
+    queryFn: async (context) => {
+      const result = requireServerSuccess(
+        await getPricing(requireCatalog ? context.signal : undefined)
+      )
+      if (requireCatalog && result.catalog_capabilities_version !== 1) {
+        throw new CatalogUpdatingError()
+      }
+      return result
+    },
     staleTime: 5 * 60 * 1000,
     enabled,
+    ...(requireCatalog && {
+      retry: (failureCount: number, error: Error) =>
+        failureCount < 4 &&
+        !isServerErrorCancelled(error) &&
+        ![401, 403, 429].includes(getServerErrorStatus(error) ?? 0),
+      retryDelay: (attempt: number) => 2000 * 2 ** attempt,
+      meta: { errorToast: false },
+    }),
   })
+
+  const compatibilityPending =
+    !catalog && failureReason instanceof CatalogUpdatingError
+  const loadingError =
+    requireCatalog && !catalog && !compatibilityPending ? error : null
 
   // Ensure rates never reach zero to prevent division errors
   const priceRate = useMemo(
@@ -27,11 +66,11 @@ export function usePricingData(enabled = true) {
   )
 
   const models = useMemo(() => {
-    if (!data?.data || !data?.vendors) return []
+    if (!catalog?.data || !catalog?.vendors) return []
 
-    const vendorMap = new Map(data.vendors.map((v) => [v.id, v]))
+    const vendorMap = new Map(catalog.vendors.map((v) => [v.id, v]))
 
-    return data.data.map((model) => {
+    return catalog.data.map((model) => {
       const vendor = model.vendor_id
         ? vendorMap.get(model.vendor_id)
         : undefined
@@ -41,21 +80,25 @@ export function usePricingData(enabled = true) {
         vendor_name: vendor?.name,
         vendor_icon: vendor?.icon,
         vendor_description: vendor?.description,
-        group_ratio: data.group_ratio,
+        group_ratio: catalog.group_ratio,
       }
     })
-  }, [data])
+  }, [catalog])
 
   return {
     models,
-    vendors: data?.vendors ?? [],
-    groupRatio: data?.group_ratio ?? {},
-    usableGroup: data?.usable_group ?? {},
-    endpointMap: data?.supported_endpoint ?? {},
-    autoGroups: data?.auto_groups ?? [],
+    vendors: catalog?.vendors ?? [],
+    groupRatio: catalog?.group_ratio ?? {},
+    usableGroup: catalog?.usable_group ?? {},
+    endpointMap:
+      catalog?.default_endpoints ?? catalog?.supported_endpoint ?? {},
+    autoGroups: catalog?.auto_groups ?? [],
+    compatibilityPending,
+    loadingError,
     isLoading,
     error,
     refetch,
+    isFetching,
     priceRate,
     usdExchangeRate,
   }

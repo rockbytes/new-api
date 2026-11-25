@@ -3840,6 +3840,7 @@
     "Model assignments": "モデルの割り当て",
     "model billing support": "モデル課金対応",
     "Model Call Analytics": "モデル呼び出し分析",
+    "Model catalog is being updated. Group endpoints are temporarily unavailable.": "モデルカタログを更新しています。グループ別エンドポイントは一時的に利用できません。",
     "Model context usage": "モデルのコンテキスト使用量",
     "Model deleted": "モデルが削除されました",
     "Model deleted successfully": "モデルが正常に削除されました",

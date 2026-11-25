@@ -1,8 +1,10 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { ErrorState } from '@/components/error-state'
 import { PublicLayout } from '@/components/layout'
 import { PageTransition } from '@/components/page-transition'
+import { getServerErrorMessage } from '@/lib/server-error-message'
 
 import {
   LoadingSkeleton,
@@ -14,6 +16,7 @@ import {
   ModelCardGrid,
   ModelDetailsDrawer,
 } from './components'
+import { CatalogUpdateNotice } from './components/catalog-update-notice'
 import { VIEW_MODES } from './constants'
 import { useFilters } from './hooks/use-filters'
 import { usePricingData } from './hooks/use-pricing-data'
@@ -31,10 +34,14 @@ export function Pricing() {
     usableGroup,
     endpointMap,
     autoGroups,
+    compatibilityPending,
+    loadingError,
+    refetch,
+    isFetching,
     isLoading,
     priceRate,
     usdExchangeRate,
-  } = usePricingData()
+  } = usePricingData({ requireCatalog: true })
 
   const groupCounts = useMemo(() => {
     const counts = new Map<string, number>()
@@ -121,12 +128,35 @@ export function Pricing() {
     )
   }
 
-  if (isLoading) {
+  if (isLoading && !compatibilityPending) {
     return (
       <PublicLayout showMainContainer={false}>
         <div className='mx-auto w-full max-w-[1800px] px-3 pt-16 pb-8 sm:px-6 sm:pt-20 sm:pb-10 xl:px-8'>
           <LoadingSkeleton viewMode={viewMode} />
         </div>
+      </PublicLayout>
+    )
+  }
+
+  if (loadingError) {
+    return (
+      <PublicLayout>
+        <ErrorState
+          title={t('Failed to load models')}
+          description={getServerErrorMessage(loadingError)}
+          onRetry={() => void refetch()}
+        />
+      </PublicLayout>
+    )
+  }
+
+  if (compatibilityPending) {
+    return (
+      <PublicLayout>
+        <CatalogUpdateNotice
+          isFetching={isFetching}
+          onRetry={() => void refetch()}
+        />
       </PublicLayout>
     )
   }
