@@ -473,7 +473,7 @@ export function UsageReport() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle>{t('Export usage')}</CardTitle>
+              <CardTitle>{t('Export history')}</CardTitle>
             </CardHeader>
             <CardContent>
               {scopeReady && <UsageExportHistory key={user?.id} />}

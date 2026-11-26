@@ -2505,6 +2505,7 @@
     "Expires at": "到期時間",
     "Expires in": "剩餘到期時間",
     "Export": "匯出",
+    "Export history": "匯出紀錄",
     "Export limits are temporarily unavailable. Try again shortly.": "匯出限制服務暫時無法使用，請稍後再試。",
     "Export logs": "匯出日誌",
     "Export queued. Download it from the list when ready.": "匯出已加入佇列，完成後可在列表中下載。",

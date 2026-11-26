@@ -2505,6 +2505,7 @@
     "Expires at": "有効期限",
     "Expires in": "期限まで",
     "Export": "エクスポート",
+    "Export history": "エクスポート履歴",
     "Export limits are temporarily unavailable. Try again shortly.": "エクスポートの制限機能が一時的に利用できません。しばらくしてから再試行してください。",
     "Export logs": "ログをエクスポート",
     "Export queued. Download it from the list when ready.": "エクスポートをキューに追加しました。完了後に一覧からダウンロードできます。",

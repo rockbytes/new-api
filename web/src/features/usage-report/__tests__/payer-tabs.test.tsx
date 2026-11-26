@@ -94,7 +94,8 @@ describe('payer tabs', () => {
     expect(
       screen.getAllByRole('button', { name: 'Export usage summary' })
     ).toHaveLength(1)
-    const history = screen.getByText('No exports yet')
+    const history = screen.getByText('Export history', { exact: true })
+    expect(screen.getByText('No exports yet')).toBeVisible()
     expect(
       screen
         .getByText('Records', { exact: true })
