@@ -1,6 +1,9 @@
 package model
 
-import "gorm.io/gorm"
+import (
+	"github.com/QuantumNous/new-api/internal/usagequery"
+	"gorm.io/gorm"
+)
 
 // UsageScope limits a usage report to the logs of one payer and, optionally, one user.
 // Zero means the report does not restrict that field. The caller resolves the scope from
@@ -9,7 +12,19 @@ type UsageScope struct {
 	OrganizationId int    // billing organization snapshot; 0 means every payer
 	UserId         int    // user who made the request; 0 means every user
 	ModelName      string // model the report is narrowed to; "" means every model
-	PayerType      string // empty retains legacy behavior
+}
+
+// UsageQueryScope includes the payer filter on top of the authorized report scope.
+type UsageQueryScope = usagequery.Scope
+
+// WithPayer builds a query scope; an empty payer preserves the original scope.
+func (scope UsageScope) WithPayer(payerType string) UsageQueryScope {
+	return UsageQueryScope{
+		OrganizationId: scope.OrganizationId,
+		UserId:         scope.UserId,
+		ModelName:      scope.ModelName,
+		PayerType:      payerType,
+	}
 }
 
 // UsageWindow is the time range of a report. TzOffsetSeconds shifts day boundaries to the
@@ -27,13 +42,14 @@ const (
 
 // usageScoped applies the window and scope to a logs query. Only consume rows are reported.
 // Logs are written at settlement, so pre-consumed amounts and failed requests are not counted.
-func usageScoped(scope UsageScope, window UsageWindow) func(tx *gorm.DB) *gorm.DB {
+func usageScoped(scope UsageQueryScope, window UsageWindow) func(tx *gorm.DB) *gorm.DB {
 	return func(tx *gorm.DB) *gorm.DB {
 		tx = tx.Where("logs.created_at >= ? AND logs.created_at <= ?", window.Start, window.End).
 			Where("logs.type = ?", LogTypeConsume)
-		if scope.PayerType == "personal" {
+		switch scope.PayerType {
+		case "personal":
 			tx = tx.Where("logs.billing_organization_id = ?", 0)
-		} else if scope.PayerType == "organization" {
+		case "organization":
 			tx = tx.Where("logs.billing_organization_id > ?", 0)
 		}
 		if scope.OrganizationId > 0 {
@@ -51,7 +67,7 @@ func usageScoped(scope UsageScope, window UsageWindow) func(tx *gorm.DB) *gorm.D
 
 // GetUsageModelNames returns every model with consume rows in the scope's window, ordered by
 // name. The model filter is ignored, so the choices do not shrink when one model is selected.
-func GetUsageModelNames(scope UsageScope, window UsageWindow) ([]string, error) {
+func GetUsageModelNames(scope UsageQueryScope, window UsageWindow) ([]string, error) {
 	scope.ModelName = ""
 	var names []string
 	err := usageScoped(scope, window)(LOG_DB.Model(&Log{})).
@@ -68,7 +84,7 @@ type UsageSummary struct {
 }
 
 // GetUsageSummary returns the totals of the scope within the window.
-func GetUsageSummary(scope UsageScope, window UsageWindow) (UsageSummary, error) {
+func GetUsageSummary(scope UsageQueryScope, window UsageWindow) (UsageSummary, error) {
 	var summary UsageSummary
 	err := usageScoped(scope, window)(LOG_DB.Model(&Log{})).Select(
 		"COALESCE(SUM(logs.quota), 0) AS consume_quota, " +
@@ -88,7 +104,7 @@ type UsageTrendPoint struct {
 }
 
 // GetUsageTrend returns one point per local day that has usage, oldest first.
-func GetUsageTrend(scope UsageScope, window UsageWindow) ([]UsageTrendPoint, error) {
+func GetUsageTrend(scope UsageQueryScope, window UsageWindow) ([]UsageTrendPoint, error) {
 	// Integer arithmetic only, so the bucket works the same on SQLite, MySQL and PostgreSQL.
 	bucket := "(logs.created_at + ?) - ((logs.created_at + ?) % ?)"
 	var points []UsageTrendPoint
@@ -117,7 +133,7 @@ type UsageModelRow struct {
 }
 
 // GetUsageModels returns the scope's consumption per model, largest first.
-func GetUsageModels(scope UsageScope, window UsageWindow) ([]UsageModelRow, error) {
+func GetUsageModels(scope UsageQueryScope, window UsageWindow) ([]UsageModelRow, error) {
 	var rows []UsageModelRow
 	err := usageScoped(scope, window)(LOG_DB.Model(&Log{})).Select(
 		"logs.model_name AS model_name, " +
@@ -130,7 +146,7 @@ func GetUsageModels(scope UsageScope, window UsageWindow) ([]UsageModelRow, erro
 }
 
 // GetUsageExportModels returns all model groups in the scope and window, without the report ranking limit.
-func GetUsageExportModels(scope UsageScope, window UsageWindow) ([]UsageModelRow, error) {
+func GetUsageExportModels(scope UsageQueryScope, window UsageWindow) ([]UsageModelRow, error) {
 	var rows []UsageModelRow
 	err := usageScoped(scope, window)(LOG_DB.Model(&Log{})).Select(
 		"logs.model_name AS model_name, " +
@@ -160,7 +176,7 @@ const (
 )
 
 // GetUsageRanking returns the largest consumers within the scope, largest first.
-func GetUsageRanking(scope UsageScope, window UsageWindow, by UsageRankBy) ([]UsageRankRow, error) {
+func GetUsageRanking(scope UsageQueryScope, window UsageWindow, by UsageRankBy) ([]UsageRankRow, error) {
 	keyColumn := "logs.user_id"
 	nameColumn := "MAX(logs.username)"
 	if by == UsageRankByOrganization {
@@ -176,20 +192,12 @@ func GetUsageRanking(scope UsageScope, window UsageWindow, by UsageRankBy) ([]Us
 	return rows, err
 }
 
-// UsageExportGroupRow is the complete consumption of one user or billing organization.
-// Name follows the ranking semantics: the maximum logged username for users, empty for organizations.
-type UsageExportGroupRow struct {
-	Key              int64  `json:"key" gorm:"column:rank_key"`
-	Name             string `json:"name"`
-	ConsumeQuota     int64  `json:"consume_quota"`
-	Requests         int64  `json:"requests"`
-	PromptTokens     int64  `json:"prompt_tokens"`
-	CompletionTokens int64  `json:"completion_tokens"`
-}
+// UsageExportGroupRow is a read-only aggregate for a user or billing organization.
+type UsageExportGroupRow = usagequery.ExportGroupRow
 
 // GetUsageExportGroups returns all user or organization groups within the scope and window.
 // Callers choose the groups appropriate for the authorized view.
-func GetUsageExportGroups(scope UsageScope, window UsageWindow, by UsageRankBy) ([]UsageExportGroupRow, error) {
+func GetUsageExportGroups(scope UsageQueryScope, window UsageWindow, by UsageRankBy) ([]UsageExportGroupRow, error) {
 	keyColumn := "logs.user_id"
 	nameColumn := "MAX(logs.username)"
 	if by == UsageRankByOrganization {
@@ -203,13 +211,14 @@ func GetUsageExportGroups(scope UsageScope, window UsageWindow, by UsageRankBy) 
 			"COUNT(*) AS requests, " +
 			"COALESCE(SUM(logs.prompt_tokens), 0) AS prompt_tokens, " +
 			"COALESCE(SUM(logs.completion_tokens), 0) AS completion_tokens",
-	).Group(keyColumn).Order("consume_quota DESC, " + keyColumn + " ASC").Scan(&rows).Error
+	).Group(keyColumn).Order("consume_quota DESC, " + keyColumn + " ASC").
+		MapColumns(map[string]string{"rank_key": "key"}).Scan(&rows).Error
 	return rows, err
 }
 
 // GetUsageRecords returns one page of the scope's consume rows, newest first, with the total
 // number of rows. Callers must whitelist the fields they return.
-func GetUsageRecords(scope UsageScope, window UsageWindow, page int, pageSize int) ([]Log, int64, error) {
+func GetUsageRecords(scope UsageQueryScope, window UsageWindow, page int, pageSize int) ([]Log, int64, error) {
 	base := usageScoped(scope, window)(LOG_DB.Model(&Log{}))
 	var total int64
 	if err := base.Count(&total).Error; err != nil {

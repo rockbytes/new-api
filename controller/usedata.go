@@ -109,7 +109,7 @@ func GetOverviewAccountStatus(c *gin.Context) {
 	end := time.Now()
 	window := model.UsageWindow{Start: end.Add(-24 * time.Hour).Unix(), End: end.Unix()}
 	var status overviewAccountStatus
-	personal, err := model.GetUsageSummary(model.UsageScope{UserId: userId, PayerType: "personal"}, window)
+	personal, err := model.GetUsageSummary(model.UsageScope{UserId: userId}.WithPayer("personal"), window)
 	if err != nil {
 		common.SysError("overview personal usage: " + err.Error())
 	} else {
@@ -138,7 +138,7 @@ func GetOverviewAccountStatus(c *gin.Context) {
 	} else {
 		current.RemainingQuota = &remaining
 	}
-	usage, err := model.GetUsageSummary(model.UsageScope{UserId: userId, OrganizationId: organization.Id}, window)
+	usage, err := model.GetUsageSummary(model.UsageScope{UserId: userId, OrganizationId: organization.Id}.WithPayer(""), window)
 	if err != nil {
 		common.SysError("overview organization usage: " + err.Error())
 	} else {

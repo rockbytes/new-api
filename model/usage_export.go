@@ -126,7 +126,7 @@ func MarkUsageExportJobExpired(jobId string) error {
 }
 
 // CountUsageRecords returns how many consume and refund rows a scope has in the window.
-func CountUsageRecords(scope UsageScope, window UsageWindow) (int64, error) {
+func CountUsageRecords(scope UsageQueryScope, window UsageWindow) (int64, error) {
 	var total int64
 	err := usageScoped(scope, window)(LOG_DB.Model(&Log{})).Count(&total).Error
 	return total, err
@@ -134,7 +134,7 @@ func CountUsageRecords(scope UsageScope, window UsageWindow) (int64, error) {
 
 // ForEachUsageRecord streams the scope's consume and refund rows in batches, oldest id first.
 // Keyset paging keeps memory bounded however many rows the scope has.
-func ForEachUsageRecord(scope UsageScope, window UsageWindow, batchSize int, visit func(Log) error) error {
+func ForEachUsageRecord(scope UsageQueryScope, window UsageWindow, batchSize int, visit func(Log) error) error {
 	var lastId int
 	for {
 		var batch []Log

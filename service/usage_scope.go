@@ -40,7 +40,7 @@ type UsageScopeRequest struct {
 // ResolvedUsageScope is the authorized scope of one report.
 type ResolvedUsageScope struct {
 	View         UsageView
-	Scope        model.UsageScope
+	Scope        model.UsageQueryScope
 	Organization *model.Organization // nil when the scope spans organizations
 }
 
@@ -64,12 +64,12 @@ func resolveUsageScope(callerId int, callerRole int, request UsageScopeRequest) 
 				return ResolvedUsageScope{}, ErrUsageScopeMismatch
 			}
 			if callerRole >= common.RoleAdminUser {
-				return ResolvedUsageScope{View: UsageViewPlatform, Scope: model.UsageScope{PayerType: "personal", UserId: request.UserId}}, nil
+				return ResolvedUsageScope{View: UsageViewPlatform, Scope: model.UsageScope{UserId: request.UserId}.WithPayer("personal")}, nil
 			}
 			if request.UserId != 0 && request.UserId != callerId {
 				return ResolvedUsageScope{}, ErrUsageScopeMismatch
 			}
-			return ResolvedUsageScope{View: UsageViewSelf, Scope: model.UsageScope{PayerType: "personal", UserId: callerId}}, nil
+			return ResolvedUsageScope{View: UsageViewSelf, Scope: model.UsageScope{UserId: callerId}.WithPayer("personal")}, nil
 		}
 		if callerRole < common.RoleAdminUser {
 			membership, organization, err := model.GetActiveOrganizationMembership(callerId)
@@ -77,16 +77,14 @@ func resolveUsageScope(callerId int, callerRole int, request UsageScopeRequest) 
 				if request.OrganizationId != 0 || (request.UserId != 0 && request.UserId != callerId) {
 					return ResolvedUsageScope{}, ErrUsageScopeMismatch
 				}
-				return ResolvedUsageScope{View: UsageViewSelf, Scope: model.UsageScope{PayerType: "organization", UserId: callerId}}, nil
+				return ResolvedUsageScope{View: UsageViewSelf, Scope: model.UsageScope{UserId: callerId}.WithPayer("organization")}, nil
 			}
 			if request.OrganizationId != 0 && request.OrganizationId != organization.Id {
 				return ResolvedUsageScope{}, ErrUsageScopeMismatch
 			}
-			return ResolvedUsageScope{View: UsageViewOrganization, Scope: model.UsageScope{PayerType: "organization", OrganizationId: organization.Id, UserId: request.UserId}, Organization: organization}, nil
+			return ResolvedUsageScope{View: UsageViewOrganization, Scope: model.UsageScope{OrganizationId: organization.Id, UserId: request.UserId}.WithPayer("organization"), Organization: organization}, nil
 		}
-		resolved, err := platformUsageScope(UsageViewPlatform, request)
-		resolved.Scope.PayerType = "organization"
-		return resolved, err
+		return platformUsageScope(UsageViewPlatform, request)
 	}
 	isPlatform := callerRole >= common.RoleAdminUser
 	view := request.View
@@ -118,14 +116,14 @@ func resolveUsageScope(callerId int, callerRole int, request UsageScopeRequest) 
 		}
 		return ResolvedUsageScope{
 			View:         UsageViewOrganization,
-			Scope:        model.UsageScope{OrganizationId: organization.Id, UserId: request.UserId},
+			Scope:        model.UsageScope{OrganizationId: organization.Id, UserId: request.UserId}.WithPayer(""),
 			Organization: organization,
 		}, nil
 	case UsageViewSelf:
 		if request.OrganizationId != 0 || (request.UserId != 0 && request.UserId != callerId) {
 			return ResolvedUsageScope{}, ErrUsageScopeMismatch
 		}
-		return ResolvedUsageScope{View: UsageViewSelf, Scope: model.UsageScope{UserId: callerId}}, nil
+		return ResolvedUsageScope{View: UsageViewSelf, Scope: model.UsageScope{UserId: callerId}.WithPayer("")}, nil
 	default:
 		return ResolvedUsageScope{}, ErrUsageViewForbidden
 	}
@@ -145,7 +143,7 @@ func defaultUsageView(callerId int, isPlatform bool) UsageView {
 // platformUsageScope resolves a platform report. An organization that does not exist is an
 // error, so a typo cannot silently turn into an empty report.
 func platformUsageScope(view UsageView, request UsageScopeRequest) (ResolvedUsageScope, error) {
-	scope := ResolvedUsageScope{View: view, Scope: model.UsageScope{OrganizationId: request.OrganizationId, UserId: request.UserId}}
+	scope := ResolvedUsageScope{View: view, Scope: model.UsageScope{OrganizationId: request.OrganizationId, UserId: request.UserId}.WithPayer(request.PayerType)}
 	if request.OrganizationId == 0 {
 		return scope, nil
 	}
