@@ -22,7 +22,7 @@ import (
 const (
 	// UsageExportKindRecords is the detail table as CSV.
 	UsageExportKindRecords = "records"
-	// UsageExportKindSummary is the summary, model and ranking tables as CSV.
+	// UsageExportKindSummary is the summary report as CSV or XLSX.
 	UsageExportKindSummary = "summary"
 	// UsageExportKindWorkbook is the XLSX workbook: summary, model, ranking and detail sheets.
 	UsageExportKindWorkbook = "workbook"
@@ -83,6 +83,7 @@ func SetUsageExportStore(store ExportStore) ExportStore {
 // is authorized again against the caller's current role each time it runs.
 type UsageExportRequest struct {
 	View            UsageView
+	PayerType       string
 	OrganizationId  int
 	UserId          int
 	ModelName       string
@@ -94,8 +95,7 @@ type UsageExportRequest struct {
 	WithBom         bool
 }
 
-// usageExportPlan is a checked export request: the authorized scope, the window, and how many
-// detail rows the export will write.
+// usageExportPlan is a checked export request with the authorized scope, window and estimated rows.
 type usageExportPlan struct {
 	format   string
 	kind     string
@@ -117,6 +117,7 @@ func planUsageExport(callerId int, callerRole int, request UsageExportRequest) (
 	}
 	resolved, err := ResolveUsageScope(callerId, callerRole, UsageScopeRequest{
 		View:           request.View,
+		PayerType:      request.PayerType,
 		OrganizationId: request.OrganizationId,
 		UserId:         request.UserId,
 	})
@@ -145,36 +146,48 @@ func planUsageExport(callerId int, callerRole int, request UsageExportRequest) (
 		if err != nil {
 			return usageExportPlan{}, err
 		}
+		if count > usageExportRowLimit(format) {
+			return usageExportPlan{}, ErrUsageExportTooLarge
+		}
 		plan.rows = count
 	}
 	return plan, nil
 }
 
-// usageSummaryRowCount counts the rows a summary export writes: the totals row, one row per model,
-// and one row per ranked member or organization. It runs the same queries as the writer.
+// usageSummaryRowCount counts the total, model and authorized user and organization rows.
 func usageSummaryRowCount(resolved ResolvedUsageScope, window model.UsageWindow) (int64, error) {
-	models, err := model.GetUsageModels(resolved.Scope, window)
+	models, err := model.GetUsageExportModels(resolved.Scope, window)
 	if err != nil {
 		return 0, err
 	}
 	rows := int64(1 + len(models))
-	by, ranked := UsageRankingFor(resolved)
-	if !ranked {
-		return rows, nil
+	if resolved.View != UsageViewSelf {
+		users, err := model.GetUsageExportGroups(resolved.Scope, window, model.UsageRankByUser)
+		if err != nil {
+			return 0, err
+		}
+		rows += int64(len(users))
 	}
-	ranking, err := model.GetUsageRanking(resolved.Scope, window, by)
-	if err != nil {
-		return 0, err
+	if resolved.View == UsageViewPlatform && resolved.Scope.PayerType != "personal" {
+		orgs, err := model.GetUsageExportGroups(resolved.Scope, window, model.UsageRankByOrganization)
+		if err != nil {
+			return 0, err
+		}
+		rows += int64(len(orgs))
 	}
-	return rows + int64(len(ranking)), nil
+	return rows, nil
 }
 
 // newUsageExportJob builds the record of an export from its checked plan.
 func newUsageExportJob(callerId int, request UsageExportRequest, plan usageExportPlan) *model.UsageExportJob {
+	view := string(plan.resolved.View)
+	if request.PayerType != "" {
+		view = "v2:" + request.PayerType + ":" + view
+	}
 	return &model.UsageExportJob{
 		JobId:           common.GetUUID(),
 		UserId:          callerId,
-		View:            string(plan.resolved.View),
+		View:            view,
 		OrganizationId:  plan.resolved.Scope.OrganizationId,
 		TargetUserId:    plan.resolved.Scope.UserId,
 		ModelName:       plan.resolved.Scope.ModelName,
@@ -307,12 +320,16 @@ func RecordUsageDirectExport(c *gin.Context, direct *UsageDirectExport) {
 	recordUsageExportEvent(c, direct.job, "direct_downloaded", "")
 }
 
-// usageExportKind returns the stored kind for a request. XLSX is always the whole workbook;
-// CSV is either the detail table or the summary tables.
+// usageExportKind keeps legacy workbook requests while allowing summary-only XLSX exports.
 func usageExportKind(format string, kind string) (string, error) {
 	switch format {
 	case UsageExportFormatXLSX:
-		return UsageExportKindWorkbook, nil
+		if kind == UsageExportKindSummary {
+			return kind, nil
+		}
+		if kind == "" || kind == UsageExportKindWorkbook {
+			return UsageExportKindWorkbook, nil
+		}
 	case UsageExportFormatCSV:
 		if kind == UsageExportKindRecords || kind == UsageExportKindSummary {
 			return kind, nil
@@ -407,11 +424,7 @@ func generateUsageExport(job *model.UsageExportJob) (int64, string, string, erro
 	if err != nil {
 		return 0, "", "", ErrUsageViewForbidden
 	}
-	resolved, err := ResolveUsageScope(job.UserId, user.Role, UsageScopeRequest{
-		View:           UsageView(job.View),
-		OrganizationId: job.OrganizationId,
-		UserId:         job.TargetUserId,
-	})
+	resolved, err := ResolveUsageJobScope(job.UserId, user.Role, job.View, job.OrganizationId, job.TargetUserId)
 	if err != nil {
 		return 0, "", "", err
 	}
@@ -462,7 +475,7 @@ func writeUsageExport(w io.Writer, job *model.UsageExportJob, resolved ResolvedU
 			return 0, err
 		}
 	}
-	out := newUsageCSVWriter(w, job.Kind == UsageExportKindSummary)
+	out := newUsageCSVWriter(w, false)
 	rows, err := writeUsageTables(out, job, resolved, window, names)
 	if err != nil {
 		return rows, err
@@ -484,6 +497,7 @@ type usageCell struct {
 	text     string
 	number   int64
 	isNumber bool
+	isToken  bool
 	amount   float64
 	isAmount bool
 }
@@ -540,6 +554,12 @@ func usageNumberCell(value int64) usageCell {
 	return usageCell{text: strconv.FormatInt(value, 10), number: value, isNumber: true}
 }
 
+func usageTokenCell(value int64) usageCell {
+	cell := usageNumberCell(value)
+	cell.isToken = true
+	return cell
+}
+
 func usageBoolCell(value bool) usageCell {
 	return usageCell{text: strconv.FormatBool(value)}
 }
@@ -558,6 +578,8 @@ func (w *usageWorkbookWriter) workbookValues(cells []usageCell) []any {
 		switch {
 		case cell.isAmount:
 			values[i] = excelize.Cell{StyleID: w.amountStyle, Value: cell.amount}
+		case cell.isToken:
+			values[i] = excelize.Cell{StyleID: w.tokenStyle, Value: cell.number}
 		case cell.isNumber:
 			values[i] = cell.number
 		default:
@@ -615,6 +637,7 @@ type usageWorkbookWriter struct {
 	file        *excelize.File
 	stream      *excelize.StreamWriter
 	amountStyle int
+	tokenStyle  int
 	sheets      int
 	row         int
 }
@@ -627,7 +650,11 @@ func newUsageWorkbookWriter(out io.Writer) (*usageWorkbookWriter, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &usageWorkbookWriter{out: out, file: file, amountStyle: amountStyle}, nil
+	tokenStyle, err := file.NewStyle(&excelize.Style{NumFmt: 3})
+	if err != nil {
+		return nil, err
+	}
+	return &usageWorkbookWriter{out: out, file: file, amountStyle: amountStyle, tokenStyle: tokenStyle}, nil
 }
 
 func (w *usageWorkbookWriter) StartTable(_ string, title string, header []usageCell) error {
@@ -647,6 +674,21 @@ func (w *usageWorkbookWriter) StartTable(_ string, title string, header []usageC
 		return err
 	}
 	w.stream = stream
+	if err := stream.SetColWidth(1, 1, 24); err != nil {
+		return err
+	}
+	if len(header) > 1 {
+		width := 22.0
+		if title == "报表说明" {
+			width = 100
+		}
+		if err := stream.SetColWidth(2, len(header), width); err != nil {
+			return err
+		}
+	}
+	if err := w.file.SetPanes(title, &excelize.Panes{Freeze: true, YSplit: 1, TopLeftCell: "A2", ActivePane: "bottomLeft"}); err != nil {
+		return err
+	}
 	w.row = 0
 	return w.WriteRow(header)
 }
@@ -687,7 +729,7 @@ func writeUsageTables(out usageSheetWriter, job *model.UsageExportJob, resolved 
 	case UsageExportKindRecords:
 		return writeUsageRecordTable(out, job, resolved, window, names, currency)
 	case UsageExportKindSummary:
-		return writeUsageSummaryTables(out, resolved, window, names, currency)
+		return writeUsageSummaryExport(out, job, resolved, window, names, currency)
 	case UsageExportKindWorkbook:
 		if _, err := writeUsageSummaryTables(out, resolved, window, names, currency); err != nil {
 			return 0, err
@@ -757,6 +799,142 @@ func usageRecordCells(view UsageView, log model.Log, tzOffsetMinutes int, names 
 		return append(cells,
 			usageNumberCell(int64(log.BillingOrganizationId)), usageTextCell(names.nameOf(log.BillingOrganizationId)))
 	}
+}
+
+// writeUsageSummaryExport writes the same authorized aggregates in a flat CSV or separate workbook sheets.
+func writeUsageSummaryExport(out usageSheetWriter, job *model.UsageExportJob, resolved ResolvedUsageScope, window model.UsageWindow, names *usageOrganizationNames, currency usageCurrency) (int64, error) {
+	flat := job.Format == UsageExportFormatCSV
+	metrics := []string{"消费金额／额度", "币种／单位", "请求数", "输入 Token 数", "输出 Token 数"}
+	if flat {
+		if err := out.StartTable("summary", "用量汇总", usageHeader(append([]string{"汇总维度", "维度名称"}, metrics...)...)); err != nil {
+			return 0, err
+		}
+	} else {
+		if err := out.StartTable("info", "报表说明", usageHeader("项目", "内容")); err != nil {
+			return 0, err
+		}
+		offset := job.TzOffsetMinutes
+		sign := "+"
+		if offset < 0 {
+			sign = "-"
+			offset = -offset
+		}
+		organization := "全部组织"
+		if resolved.Scope.OrganizationId > 0 {
+			organization = names.nameOf(resolved.Scope.OrganizationId)
+			if organization == "" {
+				organization = "未知组织"
+			}
+		}
+		user := "全部用户"
+		if resolved.Scope.UserId > 0 {
+			user = fmt.Sprintf("用户 %d", resolved.Scope.UserId)
+		}
+		modelName := resolved.Scope.ModelName
+		if modelName == "" {
+			modelName = "全部模型"
+		}
+		view := map[UsageView]string{UsageViewPlatform: "平台", UsageViewOrganization: "组织", UsageViewSelf: "个人"}[resolved.View]
+		payer := map[string]string{"personal": "个人支付", "organization": "组织支付"}[resolved.Scope.PayerType]
+		if payer == "" {
+			payer = "全部付款方"
+		}
+		info := [][2]string{
+			{"统计范围", fmt.Sprintf("%s 至 %s（UTC%s%02d:%02d，起止均包含）", usageExportTime(job.StartTimestamp, job.TzOffsetMinutes), usageExportTime(job.EndTimestamp, job.TzOffsetMinutes), sign, offset/60, offset%60)},
+			{"付款类型", payer},
+			{"筛选条件", fmt.Sprintf("视图：%s；组织：%s；用户：%s；模型：%s", view, organization, user, modelName)},
+			{"生成时间", usageExportTime(time.Now().Unix(), job.TzOffsetMinutes)},
+			{"统计口径", "请求数按消费日志条数统计，不含退款及未记录请求，部分消费类型不一定与请求一一对应"},
+			{"金额与单位", "展示值按导出时配置换算，非历史货币金额快照"},
+			{"字段说明", "部分消费类型未记录 Token，默认值不代表已准确采集"},
+		}
+		for _, row := range info {
+			if err := out.WriteRow([]usageCell{usageTextCell(row[0]), usageTextCell(row[1])}); err != nil {
+				return 0, err
+			}
+		}
+		if err := out.StartTable("total", "总体汇总", usageHeader(metrics...)); err != nil {
+			return 0, err
+		}
+	}
+	total, err := model.GetUsageSummary(resolved.Scope, window)
+	if err != nil {
+		return 0, err
+	}
+	values := []usageCell{usageMoneyCell(currency, total.ConsumeQuota), usageTextCell(currency.code), usageNumberCell(total.Requests), usageTokenCell(total.PromptTokens), usageTokenCell(total.CompletionTokens)}
+	if flat {
+		values = append([]usageCell{usageTextCell("总体"), usageTextCell("全部")}, values...)
+	}
+	if err := out.WriteRow(values); err != nil {
+		return 0, err
+	}
+	rows := int64(1)
+	models, err := model.GetUsageExportModels(resolved.Scope, window)
+	if err != nil {
+		return rows, err
+	}
+	if !flat {
+		if err := out.StartTable("models", "模型汇总", usageHeader(append([]string{"模型"}, metrics...)...)); err != nil {
+			return rows, err
+		}
+	}
+	for _, row := range models {
+		values = []usageCell{usageTextCell(row.ModelName), usageMoneyCell(currency, row.ConsumeQuota), usageTextCell(currency.code), usageNumberCell(row.Requests), usageTokenCell(row.PromptTokens), usageTokenCell(row.CompletionTokens)}
+		if flat {
+			values = append([]usageCell{usageTextCell("模型")}, values...)
+		}
+		if err := out.WriteRow(values); err != nil {
+			return rows, err
+		}
+		rows++
+		if rows > usageExportRowLimit(job.Format) {
+			return rows, ErrUsageExportTooLarge
+		}
+	}
+	for _, group := range []struct {
+		by                   model.UsageRankBy
+		title, label, column string
+		enabled              bool
+	}{
+		{model.UsageRankByUser, "用户汇总", "用户", "用户名称", resolved.View != UsageViewSelf},
+		{model.UsageRankByOrganization, "组织汇总", "组织", "付款方名称", resolved.View == UsageViewPlatform && resolved.Scope.PayerType != "personal"},
+	} {
+		if !group.enabled {
+			continue
+		}
+		groups, err := model.GetUsageExportGroups(resolved.Scope, window, group.by)
+		if err != nil {
+			return rows, err
+		}
+		if !flat {
+			if err := out.StartTable(string(group.by), group.title, usageHeader(append([]string{group.column}, metrics...)...)); err != nil {
+				return rows, err
+			}
+		}
+		for _, row := range groups {
+			name := row.Name
+			if group.by == model.UsageRankByOrganization {
+				name = names.nameOf(int(row.Key))
+				if row.Key == 0 {
+					name = "个人支付"
+				} else if name == "" {
+					name = fmt.Sprintf("未知组织（%d）", row.Key)
+				}
+			}
+			values = []usageCell{usageTextCell(name), usageMoneyCell(currency, row.ConsumeQuota), usageTextCell(currency.code), usageNumberCell(row.Requests), usageTokenCell(row.PromptTokens), usageTokenCell(row.CompletionTokens)}
+			if flat {
+				values = append([]usageCell{usageTextCell(group.label)}, values...)
+			}
+			if err := out.WriteRow(values); err != nil {
+				return rows, err
+			}
+			rows++
+			if rows > usageExportRowLimit(job.Format) {
+				return rows, ErrUsageExportTooLarge
+			}
+		}
+	}
+	return rows, nil
 }
 
 // writeUsageSummaryTables writes the summary, model and ranking tables. The ranking table is
@@ -838,6 +1016,7 @@ func usageExportTime(timestamp int64, tzOffsetMinutes int) string {
 	return local.Format(usageExportTimeLayout)
 }
 
+// usageExportWindow shifts day boundaries by the caller's fixed UTC offset.
 func usageExportWindow(start int64, end int64, tzOffsetMinutes int) model.UsageWindow {
 	return model.UsageWindow{Start: start, End: end, TzOffsetSeconds: int64(tzOffsetMinutes) * 60}
 }

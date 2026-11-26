@@ -55,6 +55,75 @@ func usageReportWindow(tzOffsetSeconds int64) UsageWindow {
 	return UsageWindow{Start: usageReportBase - 86400, End: usageReportBase + 2*86400, TzOffsetSeconds: tzOffsetSeconds}
 }
 
+func TestUsagePayerQueryConsistency(t *testing.T) {
+	setupUsageReportTest(t)
+	cases := []struct {
+		name   string
+		scope  UsageScope
+		window UsageWindow
+		quota  int64
+		ids    []string
+		models []string
+		names  []string
+		users  []int64
+		orgs   []int64
+	}{
+		{"personal", UsageScope{PayerType: "personal"}, usageReportWindow(0), 70, []string{"r4"}, []string{"m1"}, []string{"m1"}, []int64{10}, []int64{0}},
+		{"organization", UsageScope{PayerType: "organization"}, usageReportWindow(0), 225, []string{"r1", "r2", "r3", "r7", "r8"}, []string{"m1", "m2", "m3"}, []string{"m1", "m2", "m3"}, []int64{10, 11, 12}, []int64{1, 2}},
+		{"personal user mismatch", UsageScope{PayerType: "personal", UserId: 11}, usageReportWindow(0), 0, nil, nil, nil, nil, nil},
+		{"historical organization user", UsageScope{PayerType: "organization", UserId: 10}, usageReportWindow(0), 155, []string{"r1", "r2", "r8"}, []string{"m1", "m2"}, []string{"m1", "m2"}, []int64{10}, []int64{1}},
+		{"organization model", UsageScope{PayerType: "organization", OrganizationId: 1, ModelName: "m2"}, usageReportWindow(0), 50, []string{"r2"}, []string{"m2"}, []string{"m1", "m2"}, []int64{10}, []int64{1}},
+		{"personal model exclusion", UsageScope{PayerType: "personal", ModelName: "m2"}, usageReportWindow(0), 0, nil, nil, []string{"m1"}, nil, nil},
+		{"inclusive time boundary", UsageScope{PayerType: "organization"}, UsageWindow{Start: usageReportBase + 3600, End: usageReportBase + 3600}, 140, []string{"r1", "r7"}, []string{"m1", "m3"}, []string{"m1", "m3"}, []int64{10, 12}, []int64{1, 2}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			summary, err := GetUsageSummary(tc.scope, tc.window)
+			require.NoError(t, err)
+			assert.Equal(t, tc.quota, summary.ConsumeQuota)
+			assert.Equal(t, int64(len(tc.ids)), summary.Requests)
+			rows, total, err := GetUsageRecords(tc.scope, tc.window, 1, 100)
+			require.NoError(t, err)
+			assert.Equal(t, int64(len(tc.ids)), total)
+			ids := make([]string, 0, len(rows))
+			for _, row := range rows {
+				ids = append(ids, row.RequestId)
+			}
+			assert.ElementsMatch(t, tc.ids, ids)
+			models, err := GetUsageModels(tc.scope, tc.window)
+			require.NoError(t, err)
+			exportModels, err := GetUsageExportModels(tc.scope, tc.window)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, models, exportModels)
+			modelNames := make([]string, 0, len(models))
+			for _, row := range models {
+				modelNames = append(modelNames, row.ModelName)
+			}
+			assert.ElementsMatch(t, tc.models, modelNames)
+			names, err := GetUsageModelNames(tc.scope, tc.window)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tc.names, names)
+			for _, group := range []struct {
+				by   UsageRankBy
+				keys []int64
+			}{{UsageRankByUser, tc.users}, {UsageRankByOrganization, tc.orgs}} {
+				groups, err := GetUsageExportGroups(tc.scope, tc.window, group.by)
+				require.NoError(t, err)
+				keys := make([]int64, 0, len(groups))
+				var quota, count int64
+				for _, row := range groups {
+					keys = append(keys, row.Key)
+					quota += row.ConsumeQuota
+					count += row.Requests
+				}
+				assert.ElementsMatch(t, group.keys, keys)
+				assert.Equal(t, tc.quota, quota)
+				assert.Equal(t, int64(len(tc.ids)), count)
+			}
+		})
+	}
+}
+
 func TestUsageSummaryCountsSettledConsumptionForEachScope(t *testing.T) {
 	setupUsageReportTest(t)
 	window := usageReportWindow(0)
@@ -129,6 +198,49 @@ func TestUsageModelsAndRankingsRespectScope(t *testing.T) {
 	assert.Equal(t, int64(185), byOrganization[0].ConsumeQuota)
 	assert.Equal(t, int64(0), byOrganization[1].Key)
 	assert.Equal(t, int64(70), byOrganization[1].ConsumeQuota)
+}
+
+func TestUsageExportGroupsCompleteAndScoped(t *testing.T) {
+	setupUsageReportTest(t)
+	window := usageReportWindow(0)
+	rows := make([]Log, 51)
+	for i := range rows {
+		rows[i] = Log{UserId: 100 + i, Username: "shared", Type: LogTypeConsume,
+			ModelName: fmt.Sprintf("extra-%02d", i), Quota: 1, PromptTokens: 2, CompletionTokens: 3,
+			CreatedAt: usageReportBase, BillingOrganizationId: 100 + i}
+	}
+	rows = append(rows, Log{UserId: 100, Username: "z-renamed", Type: LogTypeConsume,
+		ModelName: "extra-00", Quota: 4, PromptTokens: 5, CompletionTokens: 6,
+		CreatedAt: usageReportBase, BillingOrganizationId: 100})
+	require.NoError(t, LOG_DB.Create(&rows).Error)
+
+	models, err := GetUsageExportModels(UsageScope{}, window)
+	require.NoError(t, err)
+	assert.Len(t, models, 54)
+	users, err := GetUsageExportGroups(UsageScope{}, window, UsageRankByUser)
+	require.NoError(t, err)
+	assert.Len(t, users, 54)
+	organizations, err := GetUsageExportGroups(UsageScope{}, window, UsageRankByOrganization)
+	require.NoError(t, err)
+	assert.Len(t, organizations, 54)
+
+	filtered := UsageScope{OrganizationId: 100, ModelName: "extra-00"}
+	users, err = GetUsageExportGroups(filtered, window, UsageRankByUser)
+	require.NoError(t, err)
+	require.Equal(t, []UsageExportGroupRow{{Key: 100, Name: "z-renamed", ConsumeQuota: 5, Requests: 2, PromptTokens: 7, CompletionTokens: 9}}, users)
+	organizations, err = GetUsageExportGroups(UsageScope{UserId: 100}, window, UsageRankByOrganization)
+	require.NoError(t, err)
+	require.Equal(t, []UsageExportGroupRow{{Key: 100, ConsumeQuota: 5, Requests: 2, PromptTokens: 7, CompletionTokens: 9}}, organizations)
+	models, err = GetUsageExportModels(filtered, window)
+	require.NoError(t, err)
+	require.Equal(t, []UsageModelRow{{ModelName: "extra-00", ConsumeQuota: 5, Requests: 2, PromptTokens: 7, CompletionTokens: 9}}, models)
+
+	rankedModels, err := GetUsageModels(UsageScope{}, window)
+	require.NoError(t, err)
+	assert.Len(t, rankedModels, 50)
+	rankedUsers, err := GetUsageRanking(UsageScope{}, window, UsageRankByUser)
+	require.NoError(t, err)
+	assert.Len(t, rankedUsers, 50)
 }
 
 func TestUsageRecordsPageNewestFirstWithinScope(t *testing.T) {

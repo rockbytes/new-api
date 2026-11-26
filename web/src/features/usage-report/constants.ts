@@ -1,4 +1,4 @@
-import type { UsageExportFormat, UsageExportStatus, UsageRankBy } from './types'
+import type { UsageExportStatus, UsageRankBy } from './types'
 
 export const USAGE_RANK_BY_LABEL_KEYS: Record<UsageRankBy, string> = {
   user: 'Ranking by member',
@@ -11,30 +11,7 @@ export const USAGE_PERSONAL_BILLING_KEY =
 // The Trend, Models, and Ranking lists each show this many rows before an expand toggle appears.
 export const USAGE_DEFAULT_VISIBLE_ROWS = 10
 
-export interface UsageExportOption {
-  key: 'records' | 'summary' | 'workbook'
-  labelKey: string
-  format: UsageExportFormat
-  kind?: 'records' | 'summary'
-}
-
-// The three exports on the usage page. The workbook holds every table, so it takes no kind.
-export const USAGE_EXPORT_OPTIONS: UsageExportOption[] = [
-  {
-    key: 'records',
-    labelKey: 'Usage records (CSV)',
-    format: 'csv',
-    kind: 'records',
-  },
-  {
-    key: 'summary',
-    labelKey: 'Usage summary (CSV)',
-    format: 'csv',
-    kind: 'summary',
-  },
-  { key: 'workbook', labelKey: 'Usage workbook (XLSX)', format: 'xlsx' },
-]
-
+// Historical job labels remain available for exports created before summary-only exports.
 // A job's status is shown as a badge. The variant follows StatusBadge's color names.
 export const USAGE_EXPORT_STATUS_BADGES: Record<
   UsageExportStatus,

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -15,6 +16,7 @@ const usageExportListLimit = 50
 
 type usageExportCreateRequest struct {
 	View            string `json:"view" form:"view"`
+	PayerType       string `json:"payer_type" form:"payer_type"`
 	OrganizationId  int    `json:"organization_id" form:"organization_id"`
 	UserId          int    `json:"user_id" form:"user_id"`
 	ModelName       string `json:"model_name" form:"model_name"`
@@ -51,7 +53,16 @@ func usageExportRequestFrom(c *gin.Context, request usageExportCreateRequest) (s
 		writeUsageError(c, http.StatusBadRequest, "USAGE_INVALID_REQUEST", "Invalid model_name")
 		return service.UsageExportRequest{}, false
 	}
+	if strings.Contains(c.FullPath(), "/usage/v2/") {
+		if request.PayerType != "personal" && request.PayerType != "organization" {
+			writeUsageError(c, http.StatusBadRequest, "USAGE_INVALID_REQUEST", "Invalid payer_type")
+			return service.UsageExportRequest{}, false
+		}
+	} else {
+		request.PayerType = ""
+	}
 	return service.UsageExportRequest{
+		PayerType:       request.PayerType,
 		View:            service.UsageView(request.View),
 		OrganizationId:  request.OrganizationId,
 		UserId:          request.UserId,
@@ -181,10 +192,17 @@ func usageExportResponse(job *model.UsageExportJob, now int64) gin.H {
 	if status == model.UsageExportStatusSucceeded && job.ExpiresTime <= now {
 		status = model.UsageExportStatusExpired
 	}
+	view := job.View
+	payerType := ""
+	if scope, err := service.UsageJobScope(job.View, job.OrganizationId, job.TargetUserId); err == nil {
+		view = string(scope.View)
+		payerType = scope.PayerType
+	}
 	response := gin.H{
+		"payer_type":        payerType,
 		"job_id":            job.JobId,
 		"status":            status,
-		"view":              job.View,
+		"view":              view,
 		"organization_id":   job.OrganizationId,
 		"target_user_id":    job.TargetUserId,
 		"model_name":        job.ModelName,
@@ -203,7 +221,11 @@ func usageExportResponse(job *model.UsageExportJob, now int64) gin.H {
 		"expires_time":      job.ExpiresTime,
 	}
 	if status == model.UsageExportStatusSucceeded {
-		response["download_url"] = "/api/usage/exports/" + job.JobId + "/download"
+		path := "/api/usage/exports/"
+		if payerType != "" {
+			path = "/api/usage/v2/exports/"
+		}
+		response["download_url"] = path + job.JobId + "/download"
 	}
 	return response
 }
@@ -263,11 +285,7 @@ func DownloadUsageExport(c *gin.Context) {
 		writeUsageError(c, http.StatusForbidden, "USAGE_SCOPE_FORBIDDEN", "This usage view is not available")
 		return
 	}
-	if _, err := service.ResolveUsageScope(user.Id, user.Role, service.UsageScopeRequest{
-		View:           service.UsageView(job.View),
-		OrganizationId: job.OrganizationId,
-		UserId:         job.TargetUserId,
-	}); err != nil {
+	if _, err := service.ResolveUsageJobScope(user.Id, user.Role, job.View, job.OrganizationId, job.TargetUserId); err != nil {
 		writeUsageScopeError(c, err)
 		return
 	}

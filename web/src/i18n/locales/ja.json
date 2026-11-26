@@ -2510,6 +2510,7 @@
     "Export snapshot": "スナップショットを出力",
     "Export started": "エクスポートを開始しました",
     "Export usage": "利用状況をエクスポート",
+    "Export usage summary": "使用量の集計をエクスポート",
     "Exported {{count}} logs": "{{count}} 件のログをエクスポートしました",
     "Exports are being generated. Try again shortly.": "エクスポートを生成中です。しばらくしてから再試行してください。",
     "Expose ratio API": "倍率APIを公開",

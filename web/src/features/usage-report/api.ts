@@ -1,7 +1,10 @@
 import { isAxiosError } from 'axios'
 
 import { api } from '@/lib/api'
-import { requireServerSuccess } from '@/lib/server-error-message'
+import {
+  createServerError,
+  requireServerSuccess,
+} from '@/lib/server-error-message'
 
 import { usageExportFileName } from './lib/export'
 import type {
@@ -10,6 +13,7 @@ import type {
   UsageExportRequest,
   UsageMeta,
   UsageModelRow,
+  UsagePayerType,
   UsagePlatformRecord,
   UsageQueryParams,
   UsageRankBy,
@@ -62,7 +66,7 @@ export interface UsageModelOptionsResponse {
 }
 
 async function getUsage<T>(path: string, params: UsageQueryParams): Promise<T> {
-  const res = await api.get(`/api/usage/${path}`, { params })
+  const res = await api.get(`/api/usage/v2/${path}`, { params })
   return requireServerSuccess(res.data).data
 }
 
@@ -95,24 +99,41 @@ export function getUsageModelOptions(params: UsageQueryParams) {
 export async function createUsageExport(
   request: UsageExportRequest
 ): Promise<UsageExportJob> {
-  const res = await api.post('/api/usage/exports', request)
+  const res = await api.post('/api/usage/v2/exports', request)
   return requireServerSuccess(res.data).data
 }
 
 export async function getUsageExports(): Promise<UsageExportJob[]> {
-  const res = await api.get('/api/usage/exports')
+  const res = await api.get('/api/usage/v2/exports')
   return requireServerSuccess(res.data).data.items
 }
 
 // The file is fetched with the session token, so the browser cannot open it as a plain link.
 // Failures are reported by the caller, which needs the HTTP status to tell an expired file apart.
-export async function downloadUsageExport(jobId: string): Promise<Blob> {
-  const res = await api.get<Blob>(`/api/usage/exports/${jobId}/download`, {
+export async function downloadUsageExport(
+  jobId: string,
+  payerType?: UsagePayerType | ''
+): Promise<Blob> {
+  const version = payerType ? '/v2' : ''
+  const res = await api.get<Blob>(`/api/usage${version}/exports/${jobId}/download`, {
     responseType: 'blob',
     skipErrorHandler: true,
     skipBusinessError: true,
   })
+  await rejectInvalidExportBlob(res.data)
   return res.data
+}
+
+async function rejectInvalidExportBlob(blob: Blob): Promise<void> {
+  if (!blob.type.includes('json') && !blob.type.includes('html')) return
+  const body = await blob.text()
+  try {
+    const response: unknown = JSON.parse(body)
+    throw createServerError(response, 'The export could not be downloaded')
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error
+    throw new Error('The export could not be downloaded')
+  }
 }
 
 // How an export is delivered. A direct export is streamed to the browser, a queued one becomes a
@@ -125,7 +146,9 @@ export interface UsageExportEstimate {
 export async function getUsageExportEstimate(
   request: UsageExportRequest
 ): Promise<UsageExportEstimate> {
-  const res = await api.get('/api/usage/exports/estimate', { params: request })
+  const res = await api.get('/api/usage/v2/exports/estimate', {
+    params: request,
+  })
   return requireServerSuccess(res.data).data
 }
 
@@ -146,12 +169,13 @@ export async function downloadUsageExportDirect(
   request: UsageExportRequest
 ): Promise<{ blob: Blob; fileName: string }> {
   try {
-    const res = await api.get<Blob>('/api/usage/exports/direct', {
+    const res = await api.get<Blob>('/api/usage/v2/exports/direct', {
       params: request,
       responseType: 'blob',
       skipErrorHandler: true,
       skipBusinessError: true,
     })
+    await rejectInvalidExportBlob(res.data)
     return {
       blob: res.data,
       fileName: usageExportFileName(res.headers['content-disposition']),

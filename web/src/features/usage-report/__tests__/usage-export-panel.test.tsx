@@ -11,7 +11,10 @@ import {
   getUsageExportEstimate,
   getUsageExports,
 } from '../api'
-import { UsageExportPanel } from '../components/usage-export-panel'
+import {
+  UsageExportAction,
+  UsageExportHistory,
+} from '../components/usage-export-panel'
 import type { UsageExportJob, UsageQueryParams } from '../types'
 
 vi.mock('../api', () => ({
@@ -43,7 +46,7 @@ const scopeLabels = {
   model: 'All models',
 }
 
-const recordsRequest = {
+const summaryRequest = {
   view: 'platform',
   organization_id: 3,
   user_id: 9,
@@ -51,7 +54,7 @@ const recordsRequest = {
   end_timestamp: scope.end_timestamp,
   tz_offset_minutes: -480,
   format: 'csv',
-  kind: 'records',
+  kind: 'summary',
   with_bom: true,
 }
 
@@ -86,14 +89,23 @@ function renderPanel() {
   })
   return render(
     <QueryClientProvider client={client}>
-      <UsageExportPanel params={scope} scope={scopeLabels} />
+      <UsageExportAction params={scope} scope={scopeLabels} />
+      <UsageExportHistory />
     </QueryClientProvider>
   )
 }
 
-// Choosing an export opens its confirmation; the export starts only after the user confirms.
-async function startExport(label: string) {
-  await userEvent.click(await screen.findByRole('button', { name: label }))
+async function chooseExport(format: 'csv' | 'xlsx' = 'csv') {
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Export usage summary' })
+  )
+  if (format === 'csv') {
+    await userEvent.click(screen.getByRole('radio', { name: 'CSV' }))
+  }
+}
+
+async function startExport(format: 'csv' | 'xlsx' = 'csv') {
+  await chooseExport(format)
   await userEvent.click(
     await screen.findByRole('button', { name: 'Start export' })
   )
@@ -107,6 +119,48 @@ afterEach(() => {
 })
 
 describe('UsageExportPanel', () => {
+  it('defaults to XLSX and estimates a summary export', async () => {
+    mockedList.mockResolvedValue([])
+    mockedEstimate.mockResolvedValue({ delivery: 'direct', row_count: 4 })
+    renderPanel()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Export usage summary' })
+    )
+    expect(screen.getByRole('radio', { name: 'XLSX' })).toBeChecked()
+    expect(mockedEstimate).not.toHaveBeenCalled()
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    mockedCreate.mockResolvedValue(job({ status: 'queued' }))
+    mockedEstimate.mockResolvedValue({ delivery: 'queued', row_count: 4 })
+    await userEvent.click(screen.getByRole('button', { name: 'Start export' }))
+    await waitFor(() =>
+      expect(mockedEstimate).toHaveBeenCalledWith({
+        ...scope,
+        format: 'xlsx',
+        kind: 'summary',
+      })
+    )
+  })
+
+  it('keeps historical export labels visible', async () => {
+    mockedList.mockResolvedValue([
+      job({ job_id: 'records', kind: 'records' }),
+      job({ job_id: 'workbook', kind: 'workbook', format: 'xlsx' }),
+    ])
+    renderPanel()
+    expect(await screen.findByText('Usage records (CSV)')).toBeInTheDocument()
+    expect(screen.getByText('Usage workbook (XLSX)')).toBeInTheDocument()
+  })
+  it('reports estimation failures without starting a download or job', async () => {
+    mockedList.mockResolvedValue([])
+    mockedEstimate.mockRejectedValue(new Error('estimate failed'))
+    const errorToast = vi.spyOn(toast, 'error')
+    renderPanel()
+    await startExport()
+    await waitFor(() => expect(errorToast).toHaveBeenCalled())
+    expect(mockedCreate).not.toHaveBeenCalled()
+    expect(mockedDirect).not.toHaveBeenCalled()
+  })
+
   it('offers a download only for jobs whose file is still available', async () => {
     mockedList.mockResolvedValue([
       job({ job_id: 'ready', status: 'succeeded' }),
@@ -121,39 +175,18 @@ describe('UsageExportPanel', () => {
     expect(screen.getAllByRole('button', { name: 'Download' })).toHaveLength(1)
   })
 
-  it('shows the scope, rows, and delivery before a queued export starts', async () => {
+  it('shows the scope before an export starts', async () => {
     mockedList.mockResolvedValue([])
     mockedEstimate.mockResolvedValue({ delivery: 'queued', row_count: 9000 })
 
     renderPanel()
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Usage records (CSV)' })
-    )
+    await chooseExport()
 
     const dialog = await screen.findByRole('alertdialog')
     expect(within(dialog).getByText('Acme Labs')).toBeInTheDocument()
     expect(within(dialog).getByText('alice')).toBeInTheDocument()
-    expect(within(dialog).getByText('9,000')).toBeInTheDocument()
-    expect(
-      within(dialog).getByText(
-        'Added to the export list. The file is kept for 24 hours.'
-      )
-    ).toBeInTheDocument()
+    expect(mockedEstimate).not.toHaveBeenCalled()
     expect(mockedCreate).not.toHaveBeenCalled()
-  })
-
-  it('shows the row count a summary export will write', async () => {
-    mockedList.mockResolvedValue([])
-    mockedEstimate.mockResolvedValue({ delivery: 'direct', row_count: 4 })
-
-    renderPanel()
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Usage summary (CSV)' })
-    )
-
-    const dialog = await screen.findByRole('alertdialog')
-    expect(within(dialog).getByText('4')).toBeInTheDocument()
-    expect(within(dialog).queryByText('-')).not.toBeInTheDocument()
   })
 
   it('does not start an export when the confirmation is cancelled', async () => {
@@ -161,9 +194,7 @@ describe('UsageExportPanel', () => {
     mockedEstimate.mockResolvedValue({ delivery: 'direct', row_count: 12 })
 
     renderPanel()
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Usage records (CSV)' })
-    )
+    await chooseExport()
     await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
 
     await waitFor(() =>
@@ -173,18 +204,22 @@ describe('UsageExportPanel', () => {
     expect(mockedCreate).not.toHaveBeenCalled()
   })
 
-  it('queues a large records CSV export for the scope and window on screen', async () => {
+  it('queues the selected summary export and refreshes the separate history', async () => {
+    const queuedJob = job({ status: 'queued', kind: 'summary' })
     mockedList.mockResolvedValue([])
     mockedEstimate.mockResolvedValue({ delivery: 'queued', row_count: 9000 })
-    mockedCreate.mockResolvedValue(job({ status: 'queued' }))
+    mockedCreate.mockImplementation(async () => {
+      mockedList.mockResolvedValue([queuedJob])
+      return queuedJob
+    })
 
     renderPanel()
-    await startExport('Usage records (CSV)')
+    await startExport()
 
-    await waitFor(() =>
-      expect(mockedCreate).toHaveBeenCalledWith(recordsRequest)
-    )
-    expect(mockedEstimate).toHaveBeenCalledWith(recordsRequest)
+    const history = await screen.findByRole('table')
+    expect(within(history).getByText('Usage summary (CSV)')).toBeVisible()
+    expect(mockedCreate).toHaveBeenCalledWith(summaryRequest)
+    expect(mockedEstimate).toHaveBeenCalledWith(summaryRequest)
     expect(mockedDirect).not.toHaveBeenCalled()
   })
 
@@ -211,7 +246,7 @@ describe('UsageExportPanel', () => {
     })
 
     renderPanel()
-    await startExport('Usage records (CSV)')
+    await startExport()
 
     await waitFor(() => expect(savedNames).toEqual(['usage-records-now.csv']))
     expect(mockedCreate).not.toHaveBeenCalled()
@@ -231,7 +266,7 @@ describe('UsageExportPanel', () => {
     const errorToast = vi.spyOn(toast, 'error')
 
     renderPanel()
-    await startExport('Usage records (CSV)')
+    await startExport()
 
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
@@ -287,7 +322,7 @@ describe('UsageExportPanel', () => {
     await waitFor(() =>
       expect(savedNames).toEqual(['usage-records-job-ready.csv'])
     )
-    expect(mockedDownload).toHaveBeenCalledWith('ready')
+    expect(mockedDownload).toHaveBeenCalledWith('ready', undefined)
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:usage')
   })
 
@@ -304,7 +339,7 @@ describe('UsageExportPanel', () => {
     )
 
     renderPanel()
-    await startExport('Usage records (CSV)')
+    await startExport()
 
     expect(await screen.findByText('Generating')).toBeInTheDocument()
     expect(
@@ -326,7 +361,7 @@ describe('UsageExportPanel', () => {
     const errorToast = vi.spyOn(toast, 'error')
 
     renderPanel()
-    await startExport('Usage workbook (XLSX)')
+    await startExport('xlsx')
 
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(

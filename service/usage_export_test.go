@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -72,9 +73,9 @@ func setupUsageExportServiceTest(t *testing.T) {
 
 	base := time.Now().Unix() - 86400
 	logs := []model.Log{
-		{UserId: usageExportOrgAAdmin, Username: "org-a-admin", Type: model.LogTypeConsume, ModelName: "m1", Quota: 100, TokenName: "k1", RequestId: "a-admin", CreatedAt: base + 60, BillingOrganizationId: usageExportOrgA, ChannelId: 3, Ip: "10.1.1.1", UseTime: 2, Group: "default"},
-		{UserId: usageExportOrgAMember, Username: "org-a-member", Type: model.LogTypeConsume, ModelName: "m1", Quota: 40, TokenName: "k2", RequestId: "a-member", CreatedAt: base + 120, BillingOrganizationId: usageExportOrgA, ChannelId: 3, Ip: "10.1.1.2"},
-		{UserId: usageExportOrgAMember, Username: "org-a-member", Type: model.LogTypeConsume, ModelName: "m2", Quota: 15, TokenName: "k3", RequestId: "a-member-personal", CreatedAt: base + 180, BillingOrganizationId: 0, ChannelId: 4, Ip: "10.1.1.3"},
+		{UserId: usageExportOrgAAdmin, Username: "org-a-admin", Type: model.LogTypeConsume, ModelName: "m1", Quota: 100, PromptTokens: 10, CompletionTokens: 20, TokenName: "k1", RequestId: "a-admin", CreatedAt: base + 60, BillingOrganizationId: usageExportOrgA, ChannelId: 3, Ip: "10.1.1.1", UseTime: 2, Group: "default"},
+		{UserId: usageExportOrgAMember, Username: "org-a-member", Type: model.LogTypeConsume, ModelName: "m1", Quota: 40, PromptTokens: 4, CompletionTokens: 8, TokenName: "k2", RequestId: "a-member", CreatedAt: base + 120, BillingOrganizationId: usageExportOrgA, ChannelId: 3, Ip: "10.1.1.2"},
+		{UserId: usageExportOrgAMember, Username: "org-a-member", Type: model.LogTypeConsume, ModelName: "m2", Quota: 15, PromptTokens: 1, CompletionTokens: 2, TokenName: "k3", RequestId: "a-member-personal", CreatedAt: base + 180, BillingOrganizationId: 0, ChannelId: 4, Ip: "10.1.1.3"},
 		{UserId: usageExportOrgBMember, Username: "org-b-member", Type: model.LogTypeRefund, ModelName: "m1", Quota: 70, TokenName: "k4", RequestId: "b-member", CreatedAt: base + 240, BillingOrganizationId: usageExportOrgB, ChannelId: 5, Ip: "10.2.2.2"},
 		{UserId: usageExportNoOrgUser, Username: "=1+1", Type: model.LogTypeConsume, ModelName: "m1", Quota: 9, TokenName: "k5", RequestId: "personal", CreatedAt: base + 300, BillingOrganizationId: 0, ChannelId: 6, Ip: "10.3.3.3"},
 	}
@@ -127,8 +128,6 @@ func usageExportReadFile(t *testing.T, job *model.UsageExportJob) []byte {
 func usageExportCSVRows(t *testing.T, data []byte) [][]string {
 	t.Helper()
 	reader := csv.NewReader(strings.NewReader(string(data)))
-	// The summary file holds sections of different widths, so the field count varies by row.
-	reader.FieldsPerRecord = -1
 	rows, err := reader.ReadAll()
 	require.NoError(t, err)
 	return rows
@@ -167,6 +166,9 @@ func TestUsageExportAuthorizesTheCallerWhenCreated(t *testing.T) {
 	_, err := CreateUsageExport(nil, usageExportOrgAAdmin, common.RoleCommonUser, orgA)
 	require.NoError(t, err, "an organization admin exports their own organization")
 
+	_, err = CreateUsageExport(nil, usageExportOrgAMember, common.RoleCommonUser, orgA)
+	require.Error(t, err, "an organization member cannot export the organization view")
+
 	_, err = CreateUsageExport(nil, usageExportOrgBMember, common.RoleCommonUser, orgA)
 	require.Error(t, err, "a member of another organization cannot export this organization")
 	assert.True(t, errors.Is(err, ErrUsageViewForbidden) || errors.Is(err, ErrUsageScopeMismatch), "got %v", err)
@@ -194,66 +196,207 @@ func TestUsageExportAuthorizesTheCallerWhenCreated(t *testing.T) {
 
 func TestUsageExportCSVAndWorkbookReportTheSameNumbers(t *testing.T) {
 	setupUsageExportServiceTest(t)
+	general := operation_setting.GetGeneralSetting()
+	previousDisplay := general.QuotaDisplayType
+	general.QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
+	t.Cleanup(func() { general.QuotaDisplayType = previousDisplay })
+
+	require.NoError(t, model.LOG_DB.Model(&model.Log{}).Where("request_id = ?", "a-admin").Updates(map[string]any{"prompt_tokens": 1250000, "completion_tokens": 48000}).Error)
 	summary := usageExportCreate(t, usageExportRoot, common.RoleRootUser, UsageExportRequest{
 		View: UsageViewPlatform, Format: UsageExportFormatCSV, Kind: UsageExportKindSummary, WithBom: true})
-	records := usageExportCreate(t, usageExportRoot, common.RoleRootUser, UsageExportRequest{
-		View: UsageViewPlatform, Format: UsageExportFormatCSV, Kind: UsageExportKindRecords})
 	workbook := usageExportCreate(t, usageExportRoot, common.RoleRootUser, UsageExportRequest{
-		View: UsageViewPlatform, Format: UsageExportFormatXLSX})
+		View: UsageViewPlatform, Format: UsageExportFormatXLSX, Kind: UsageExportKindSummary})
+	rows := usageExportCSVRows(t, usageExportReadFile(t, summary))
+	require.NotEmpty(t, rows)
+	assert.True(t, strings.HasPrefix(rows[0][0], usageExportBOM))
+	rows[0][0] = strings.TrimPrefix(rows[0][0], usageExportBOM)
+	assert.Equal(t, []string{"汇总维度", "维度名称", "消费金额／额度", "币种／单位", "请求数", "输入 Token 数", "输出 Token 数"}, rows[0])
+	assert.Equal(t, []string{"总体", "全部", "164", "TOKENS", "4", "1250005", "48010"}, rows[1])
 
-	csvSummary := usageExportCSVRows(t, usageExportReadFile(t, summary))
-	require.NotEmpty(t, csvSummary)
-	assert.Equal(t, "section", strings.TrimPrefix(csvSummary[0][0], usageExportBOM), "the BOM precedes the header")
-
-	book, err := excelize.OpenReader(strings.NewReader(string(usageExportReadFile(t, workbook))))
+	book, err := excelize.OpenReader(bytes.NewReader(usageExportReadFile(t, workbook)))
 	require.NoError(t, err)
 	defer book.Close()
-	assert.Equal(t, []string{"汇总", "按模型", "按组织", "用量明细"}, book.GetSheetList())
-
-	// 汇总: the workbook row equals the CSV summary row, cell for cell.
-	sheet, err := book.GetRows("汇总")
+	assert.Equal(t, []string{"报表说明", "总体汇总", "模型汇总", "用户汇总", "组织汇总"}, book.GetSheetList())
+	width, err := book.GetColWidth("总体汇总", "A")
 	require.NoError(t, err)
-	var csvTotals []string
-	for _, row := range csvSummary {
-		if len(row) > 0 && row[0] == "summary" {
-			csvTotals = row[1:]
+	assert.GreaterOrEqual(t, width, 20.0)
+	panes, err := book.GetPanes("总体汇总")
+	require.NoError(t, err)
+	assert.True(t, panes.Freeze)
+	assert.Equal(t, 1, panes.YSplit)
+	for cell, expected := range map[string]string{"D2": "1,250,005", "E2": "48,010"} {
+		formatted, err := book.GetCellValue("总体汇总", cell)
+		require.NoError(t, err)
+		assert.Equal(t, expected, formatted)
+		cellType, err := book.GetCellType("总体汇总", cell)
+		require.NoError(t, err)
+		assert.Contains(t, []excelize.CellType{excelize.CellTypeUnset, excelize.CellTypeNumber}, cellType)
+	}
+	groups := map[string]map[string][]string{}
+	for _, row := range rows[1:] {
+		require.Len(t, row, 7)
+		if groups[row[0]] == nil {
+			groups[row[0]] = map[string][]string{}
+		}
+		groups[row[0]][row[1]] = row[2:]
+	}
+	for _, group := range []struct{ dimension, sheet string }{
+		{"总体", "总体汇总"}, {"模型", "模型汇总"}, {"用户", "用户汇总"}, {"组织", "组织汇总"},
+	} {
+		sheet, err := book.GetRows(group.sheet, excelize.Options{RawCellValue: true})
+		require.NoError(t, err)
+		require.Len(t, sheet, len(groups[group.dimension])+1)
+		assert.Equal(t, []string{"输入 Token 数", "输出 Token 数"}, sheet[0][len(sheet[0])-2:])
+		for _, row := range sheet[1:] {
+			name, values := "全部", row
+			if group.dimension != "总体" {
+				require.Len(t, row, 6)
+				name, values = row[0], row[1:]
+			}
+			assert.Equal(t, groups[group.dimension][name], values, "%s %s", group.dimension, name)
 		}
 	}
-	require.Len(t, sheet, 2)
-	assert.Equal(t, csvTotals, sheet[1])
-
-	// 按模型: every model row matches, keyed by model name.
-	csvModels := map[string][]string{}
-	for _, row := range csvSummary {
-		if len(row) > 0 && row[0] == "models" {
-			csvModels[row[1]] = row[2:]
+	assert.Equal(t, []string{"9", "TOKENS", "1", "0", "0"}, groups["用户"]["'=1+1"])
+	users, err := book.GetRows("用户汇总")
+	require.NoError(t, err)
+	for i, row := range users[1:] {
+		if row[0] == "'=1+1" {
+			formula, err := book.GetCellFormula("用户汇总", "A"+strconv.Itoa(i+2))
+			require.NoError(t, err)
+			assert.Empty(t, formula)
 		}
 	}
-	models, err := book.GetRows("按模型")
-	require.NoError(t, err)
-	require.Len(t, models, len(csvModels)+1)
-	for _, row := range models[1:] {
-		assert.Equal(t, csvModels[row[0]], row[1:], "model %s", row[0])
-	}
+	assert.Equal(t, []string{"140", "TOKENS", "2", "1250004", "48008"}, groups["组织"]["Org A"])
+	assert.Equal(t, []string{"24", "TOKENS", "2", "1", "2"}, groups["组织"]["个人支付"])
+	assert.Equal(t, summary.RowCount, workbook.RowCount)
 
-	// 用量明细: the workbook detail sheet has the same rows as the records CSV.
-	csvRecords := usageExportCSVRows(t, usageExportReadFile(t, records))
-	detail, err := book.GetRows("用量明细")
+	records := usageExportCreate(t, usageExportRoot, common.RoleRootUser, UsageExportRequest{
+		View: UsageViewPlatform, Format: UsageExportFormatCSV, Kind: UsageExportKindRecords})
+	legacy := usageExportCreate(t, usageExportRoot, common.RoleRootUser, UsageExportRequest{
+		View: UsageViewPlatform, Format: UsageExportFormatXLSX})
+	legacyBook, err := excelize.OpenReader(bytes.NewReader(usageExportReadFile(t, legacy)))
 	require.NoError(t, err)
-	assert.Equal(t, csvRecords, detail)
-	assert.Equal(t, int64(len(csvRecords)-1), workbook.RowCount)
+	defer legacyBook.Close()
+	assert.Equal(t, []string{"汇总", "按模型", "按组织", "用量明细"}, legacyBook.GetSheetList())
+	detail, err := legacyBook.GetRows("用量明细")
+	require.NoError(t, err)
+	assert.Equal(t, usageExportCSVRows(t, usageExportReadFile(t, records)), detail)
+	assert.Equal(t, int64(len(detail)-1), legacy.RowCount)
+}
 
-	// A formula-looking username is escaped the same way in both formats.
-	var escaped bool
-	for _, row := range detail {
-		if len(row) > 2 && row[3] == "'=1+1" {
-			escaped = true
-		}
+func TestUsageSummaryExportViewIsolationAndFilters(t *testing.T) {
+	setupUsageExportServiceTest(t)
+	general := operation_setting.GetGeneralSetting()
+	previousDisplay := general.QuotaDisplayType
+	general.QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
+	t.Cleanup(func() { general.QuotaDisplayType = previousDisplay })
+
+	cases := []struct {
+		name         string
+		caller, role int
+		request      UsageExportRequest
+		sheets       []string
+		total        []string
+		forbidden    []string
+	}{
+		{"self includes own organization and personal payments", usageExportOrgAMember, common.RoleCommonUser,
+			UsageExportRequest{View: UsageViewSelf}, []string{"报表说明", "总体汇总", "模型汇总"},
+			[]string{"55", "TOKENS", "2", "5", "10"}, []string{"org-a-admin", "Org A", "个人支付"}},
+		{"organization excludes personal and other organizations", usageExportOrgAAdmin, common.RoleCommonUser,
+			UsageExportRequest{View: UsageViewOrganization, OrganizationId: usageExportOrgA}, []string{"报表说明", "总体汇总", "模型汇总", "用户汇总"},
+			[]string{"140", "TOKENS", "2", "14", "28"}, []string{"m2", "Org B", "个人支付"}},
+		{"organization user and model filters", usageExportOrgAAdmin, common.RoleCommonUser,
+			UsageExportRequest{View: UsageViewOrganization, OrganizationId: usageExportOrgA, UserId: usageExportOrgAMember, ModelName: "m1"}, []string{"报表说明", "总体汇总", "模型汇总", "用户汇总"},
+			[]string{"40", "TOKENS", "1", "4", "8"}, []string{"org-a-admin", "m2", "个人支付"}},
 	}
-	assert.True(t, escaped, "the username cell is escaped in the workbook")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			request := tc.request
+			request.Format, request.Kind = UsageExportFormatCSV, UsageExportKindSummary
+			csvJob := usageExportCreate(t, tc.caller, tc.role, request)
+			csvRows := usageExportCSVRows(t, usageExportReadFile(t, csvJob))
+			require.GreaterOrEqual(t, len(csvRows), 2)
+			require.Len(t, csvRows[1], 7)
+			assert.Equal(t, tc.total, csvRows[1][2:])
+			for _, row := range csvRows[1:] {
+				require.Len(t, row, 7)
+				for _, forbidden := range tc.forbidden {
+					assert.NotEqual(t, forbidden, row[1])
+				}
+			}
+			request.Format = UsageExportFormatXLSX
+			job := usageExportCreate(t, tc.caller, tc.role, request)
+			book, err := excelize.OpenReader(bytes.NewReader(usageExportReadFile(t, job)))
+			require.NoError(t, err)
+			defer book.Close()
+			assert.Equal(t, tc.sheets, book.GetSheetList())
+			totals, err := book.GetRows("总体汇总")
+			require.NoError(t, err)
+			require.Len(t, totals, 2)
+			assert.Equal(t, tc.total, totals[1])
+			assert.Equal(t, csvJob.RowCount, job.RowCount)
+		})
+	}
 }
 
 // A direct export streams the same bytes a queued job stores, and it leaves no job record behind.
+func TestUsageExportPayerV2(t *testing.T) {
+	setupUsageExportServiceTest(t)
+	general := operation_setting.GetGeneralSetting()
+	previousDisplay := general.QuotaDisplayType
+	general.QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
+	t.Cleanup(func() { general.QuotaDisplayType = previousDisplay })
+	start, end := usageExportTestWindow()
+	for _, tc := range []struct {
+		payer     string
+		total     []string
+		sheets    []string
+		forbidden string
+	}{
+		{"personal", []string{"24", "TOKENS", "2", "1", "2"}, []string{"报表说明", "总体汇总", "模型汇总", "用户汇总"}, "组织"},
+		{"organization", []string{"140", "TOKENS", "2", "14", "28"}, []string{"报表说明", "总体汇总", "模型汇总", "用户汇总", "组织汇总"}, "个人支付"},
+	} {
+		t.Run(tc.payer, func(t *testing.T) {
+			request := UsageExportRequest{PayerType: tc.payer, StartTimestamp: start, EndTimestamp: end, Format: UsageExportFormatCSV, Kind: UsageExportKindSummary}
+			estimate, err := EstimateUsageExport(usageExportRoot, common.RoleRootUser, request)
+			require.NoError(t, err)
+			direct, err := PrepareDirectUsageExport(usageExportRoot, common.RoleRootUser, request)
+			require.NoError(t, err)
+			var data bytes.Buffer
+			_, err = direct.Write(&data)
+			direct.Close()
+			require.NoError(t, err)
+			job := usageExportCreate(t, usageExportRoot, common.RoleRootUser, request)
+			assert.Equal(t, "v2:"+tc.payer+":platform", job.View)
+			assert.Equal(t, usageExportReadFile(t, job), data.Bytes())
+			assert.Equal(t, estimate.RowCount, job.RowCount)
+			rows := usageExportCSVRows(t, data.Bytes())
+			assert.Equal(t, tc.total, rows[1][2:])
+			for _, row := range rows[1:] {
+				assert.NotEqual(t, tc.forbidden, row[0])
+				assert.NotEqual(t, tc.forbidden, row[1])
+			}
+			request.Format = UsageExportFormatXLSX
+			xlsx := usageExportCreate(t, usageExportRoot, common.RoleRootUser, request)
+			book, err := excelize.OpenReader(bytes.NewReader(usageExportReadFile(t, xlsx)))
+			require.NoError(t, err)
+			defer book.Close()
+			assert.Equal(t, tc.sheets, book.GetSheetList())
+			info, err := book.GetRows("报表说明")
+			require.NoError(t, err)
+			payerLabel := "个人支付"
+			if tc.payer == "organization" {
+				payerLabel = "组织支付"
+			}
+			assert.Contains(t, info, []string{"付款类型", payerLabel})
+			totals, err := book.GetRows("总体汇总")
+			require.NoError(t, err)
+			assert.Equal(t, tc.total, totals[1])
+			assert.Equal(t, job.RowCount, xlsx.RowCount)
+		})
+	}
+}
+
 func TestUsageExportDirectOutputMatchesQueuedJob(t *testing.T) {
 	setupUsageExportServiceTest(t)
 	start, end := usageExportTestWindow()
@@ -366,14 +509,10 @@ func TestUsageExportAmountsFollowTheQuotaDisplaySetting(t *testing.T) {
 			general.QuotaDisplayType = tc.display
 			summary := usageExportCreate(t, usageExportRoot, common.RoleRootUser, UsageExportRequest{
 				View: UsageViewPlatform, Format: UsageExportFormatCSV, Kind: UsageExportKindSummary})
-			var totals []string
-			for _, row := range usageExportCSVRows(t, usageExportReadFile(t, summary)) {
-				if len(row) > 0 && row[0] == "summary" {
-					totals = row[1:]
-				}
-			}
-			require.Len(t, totals, 5)
-			assert.Equal(t, []string{tc.amount, tc.currency}, totals[:2])
+			rows := usageExportCSVRows(t, usageExportReadFile(t, summary))
+			require.GreaterOrEqual(t, len(rows), 2)
+			require.Len(t, rows[1], 7)
+			assert.Equal(t, []string{"总体", "全部", tc.amount, tc.currency}, rows[1][:4])
 		})
 	}
 
@@ -401,12 +540,8 @@ func TestUsageSummaryEstimateCountsTheRowsItWrites(t *testing.T) {
 	assert.Equal(t, UsageExportDeliveryDirect, estimate.Delivery)
 
 	summary := usageExportCreate(t, usageExportRoot, common.RoleRootUser, request)
-	var written int64
-	for _, row := range usageExportCSVRows(t, usageExportReadFile(t, summary)) {
-		if len(row) > 0 && (row[0] == "summary" || row[0] == "models" || row[0] == "rankings") {
-			written++
-		}
-	}
-	assert.Equal(t, written, estimate.RowCount)
+	rows := usageExportCSVRows(t, usageExportReadFile(t, summary))
+	require.NotEmpty(t, rows)
+	assert.Equal(t, int64(len(rows)-1), estimate.RowCount)
 	assert.Equal(t, summary.RowCount, estimate.RowCount)
 }

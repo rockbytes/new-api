@@ -137,6 +137,11 @@ func TestUsageExportResponsesNeverRevealStorageKeys(t *testing.T) {
 	require.Equal(t, http.StatusOK, listed.Code)
 	assert.Contains(t, listed.Body.String(), jobId)
 	assert.NotContains(t, listed.Body.String(), "storage_key")
+	// Keep the fixture alive until the asynchronous export has finished.
+	require.Eventually(t, func() bool {
+		job, err := model.GetUsageExportJob(jobId)
+		return err == nil && (job.Status == model.UsageExportStatusSucceeded || job.Status == model.UsageExportStatusFailed)
+	}, 10*time.Second, 5*time.Millisecond)
 }
 
 func TestUsageExportForeignJobIsRefused(t *testing.T) {

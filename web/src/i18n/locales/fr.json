@@ -2510,6 +2510,7 @@
     "Export snapshot": "Exporter l’instantané",
     "Export started": "Export lancé",
     "Export usage": "Exporter l'usage",
+    "Export usage summary": "Exporter le récapitulatif d’utilisation",
     "Exported {{count}} logs": "{{count}} entrées exportées",
     "Exports are being generated. Try again shortly.": "Des exports sont en cours de génération. Réessayez dans quelques instants.",
     "Expose ratio API": "Exposer l'API de ratio",

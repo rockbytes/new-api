@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -79,6 +80,11 @@ func setupUsageReportEndpoints(t *testing.T) *gin.Engine {
 	group.GET("/rankings", GetUsageRankings)
 	group.GET("/records", GetUsageRecords)
 	group.GET("/model-options", GetUsageModelOptions)
+	v2 := engine.Group("/api/usage/v2")
+	v2.GET("/summary", GetUsageSummary)
+	v2.GET("/model-options", GetUsageModelOptions)
+	v2.GET("/records", GetUsageRecords)
+	v2.GET("/rankings", GetUsageRankings)
 	return engine
 }
 
@@ -136,6 +142,48 @@ func assertKeysExactly(t *testing.T, got map[string]bool, want ...[]string) {
 		}
 	}
 	assert.Equal(t, expected, got)
+}
+
+func TestUsagePayerJobReauthorization(t *testing.T) {
+	setupUsageReportEndpoints(t)
+	resolved, err := service.ResolveUsageJobScope(usageOrgAAdmin, common.RoleCommonUser, "v2:organization:organization", usageOrgA, 0)
+	require.NoError(t, err)
+	assert.Equal(t, usageOrgA, resolved.Scope.OrganizationId)
+	_, err = service.ResolveUsageJobScope(usageOrgAMember, common.RoleCommonUser, "v2:organization:organization", usageOrgA, 0)
+	assert.Error(t, err)
+	_, err = service.ResolveUsageScope(usageOrgAAdmin, common.RoleCommonUser, service.UsageScopeRequest{View: "v2:organization:organization"})
+	assert.Error(t, err)
+	_, err = service.ResolveUsageScope(usageOrgAMember, common.RoleCommonUser, service.UsageScopeRequest{View: service.UsageViewOrganization, PayerType: "organization"})
+	assert.Error(t, err)
+}
+
+func TestUsagePayerIsolationV2(t *testing.T) {
+	engine := setupUsageReportEndpoints(t)
+	require.NoError(t, model.LOG_DB.Create(&model.Log{UserId: usageOrgAMember, Type: model.LogTypeConsume, ModelName: "historical", Quota: 20, CreatedAt: time.Now().Unix() - 1000, BillingOrganizationId: usageOrgB}).Error)
+	cases := []struct {
+		user, role int
+		payer      string
+		want       float64
+		view       string
+	}{
+		{usageRootUser, common.RoleRootUser, "personal", 24, "platform"},
+		{usageRootUser, common.RoleRootUser, "organization", 230, "platform"},
+		{usageOrgAAdmin, common.RoleCommonUser, "personal", 0, "self"},
+		{usageOrgAAdmin, common.RoleCommonUser, "organization", 140, "organization"},
+		{usageOrgAMember, common.RoleCommonUser, "personal", 15, "self"},
+		{usageOrgAMember, common.RoleCommonUser, "organization", 60, "self"},
+	}
+	for _, tc := range cases {
+		status, body := usageCall(t, engine, tc.user, tc.role, "/api/usage/v2/summary?payer_type="+tc.payer)
+		require.Equal(t, http.StatusOK, status, "%v", body)
+		assert.Equal(t, tc.view, usageMetaScopeView(t, body))
+		summary := usageData(body)["summary"].(map[string]any)
+		assert.Equal(t, tc.want, summary["consume_quota"])
+	}
+	status, _ := usageCall(t, engine, usageOrgAMember, common.RoleCommonUser, "/api/usage/v2/records?payer_type=organization&user_id=12")
+	assert.Equal(t, http.StatusForbidden, status)
+	status, _ = usageCall(t, engine, usageRootUser, common.RoleRootUser, "/api/usage/v2/summary?payer_type=invalid")
+	assert.Equal(t, http.StatusBadRequest, status)
 }
 
 func TestUsageReportAuthorizationMatrix(t *testing.T) {

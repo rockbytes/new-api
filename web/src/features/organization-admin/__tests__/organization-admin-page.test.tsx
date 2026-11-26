@@ -1,14 +1,23 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import {
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AxiosError, type AxiosResponse } from 'axios'
 import i18next from 'i18next'
+import { toast } from 'sonner'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
+import { createAppQueryClient } from '@/lib/query-client'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { OrganizationAdmin } from '..'
+import { useOrganizationSelf } from '../hooks/use-organization-self'
 
 function response(body: unknown): AxiosResponse {
   return { data: body } as AxiosResponse
@@ -103,6 +112,36 @@ afterEach(() => {
   useAuthStore.getState().auth.reset()
 })
 
+it('does not request membership when disabled', async () => {
+  const get = vi.spyOn(api, 'get')
+  const client = createAppQueryClient()
+  renderHook(() => useOrganizationSelf(false), {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  })
+  expect(get).not.toHaveBeenCalled()
+})
+
+it('treats a missing membership as normal without an error toast', async () => {
+  vi.spyOn(api, 'get').mockRejectedValue(
+    new AxiosError('missing', undefined, undefined, undefined, {
+      status: 404,
+      data: { code: 'ORGANIZATION_MEMBERSHIP_NOT_FOUND' },
+    } as AxiosResponse)
+  )
+  const notify = vi.spyOn(toast, 'error')
+  const client = createAppQueryClient()
+  const { result } = renderHook(() => useOrganizationSelf(), {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  })
+  await waitFor(() => expect(result.current.isSuccess).toBe(true))
+  expect(result.current.data).toBeNull()
+  expect(notify).not.toHaveBeenCalled()
+})
+
 it('hides member management and never loads members for a member account', async () => {
   const get = mockOrganizationApi('member')
 
@@ -124,6 +163,7 @@ it('shows the not-in-organization state when the self lookup returns 404', async
   vi.spyOn(api, 'get').mockRejectedValue(
     new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, undefined, {
       status: 404,
+      data: { code: 'ORGANIZATION_MEMBERSHIP_NOT_FOUND' },
     } as AxiosResponse)
   )
 
@@ -208,7 +248,9 @@ it('offers quota allocation on the admin own row but not on another admin row', 
   mockOrganizationApi('admin')
   const membersOnly = vi.mocked(api.get).getMockImplementation()
   vi.mocked(api.get).mockImplementation(async (url: string, config) => {
-    if (url !== '/api/organization/self/members') return membersOnly?.(url, config)
+    if (url !== '/api/organization/self/members') {
+      return membersOnly?.(url, config)
+    }
     return response({
       success: true,
       data: [
@@ -297,7 +339,9 @@ it('does not offer the override mode when adjusting a member allocation', async 
   )
 
   const dialog = await screen.findByRole('dialog', { name: 'Adjust Quota' })
-  expect(within(dialog).getByRole('button', { name: 'Add' })).toBeInTheDocument()
+  expect(
+    within(dialog).getByRole('button', { name: 'Add' })
+  ).toBeInTheDocument()
   expect(
     within(dialog).getByRole('button', { name: 'Subtract' })
   ).toBeInTheDocument()

@@ -1,5 +1,5 @@
-import type { UsageExportOption } from '../constants'
 import type {
+  UsageExportFormat,
   UsageExportJob,
   UsageExportRequest,
   UsageQueryParams,
@@ -9,21 +9,22 @@ import type {
 // the scope again, so these fields are only the caller's intent.
 export function buildUsageExportRequest(
   params: UsageQueryParams,
-  option: UsageExportOption
+  format: UsageExportFormat
 ): UsageExportRequest {
   const request: UsageExportRequest = {
     view: params.view,
+    payer_type: params.payer_type,
     organization_id: params.organization_id,
     user_id: params.user_id,
     model_name: params.model_name,
     start_timestamp: params.start_timestamp,
     end_timestamp: params.end_timestamp,
     tz_offset_minutes: params.tz_offset_minutes,
-    format: option.format,
+    format,
+    kind: 'summary',
   }
-  // The byte-order mark helps spreadsheet apps read UTF-8 CSV. A workbook needs no kind or BOM.
-  if (option.format === 'csv') {
-    request.kind = option.kind
+  // The byte-order mark helps spreadsheet apps read UTF-8 CSV.
+  if (format === 'csv') {
     request.with_bom = true
   }
   return request

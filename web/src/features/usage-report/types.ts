@@ -1,4 +1,5 @@
 export type UsageView = 'platform' | 'organization' | 'self'
+export type UsagePayerType = 'personal' | 'organization'
 
 interface UsageScopeInfo {
   view: UsageView
@@ -78,6 +79,7 @@ export interface UsageSelfRecord extends UsageCompanyRecord {
 
 export interface UsageQueryParams {
   view?: UsageView
+  payer_type?: UsagePayerType
   organization_id?: number
   user_id?: number
   model_name?: string
@@ -103,6 +105,7 @@ export type UsageExportStatus =
 // includes paging fields, because it covers the whole range.
 export interface UsageExportRequest {
   view?: UsageView
+  payer_type?: UsagePayerType
   organization_id?: number
   user_id?: number
   model_name?: string
@@ -110,7 +113,7 @@ export interface UsageExportRequest {
   end_timestamp: number
   tz_offset_minutes: number
   format: UsageExportFormat
-  kind?: Exclude<UsageExportKind, 'workbook'>
+  kind: 'summary'
   with_bom?: boolean
 }
 
@@ -118,6 +121,7 @@ export interface UsageExportJob {
   job_id: string
   status: UsageExportStatus
   view: UsageView
+  payer_type?: UsagePayerType | ''
   organization_id: number
   target_user_id: number
   start_timestamp: number

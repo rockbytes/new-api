@@ -9,6 +9,7 @@ type UsageScope struct {
 	OrganizationId int    // billing organization snapshot; 0 means every payer
 	UserId         int    // user who made the request; 0 means every user
 	ModelName      string // model the report is narrowed to; "" means every model
+	PayerType      string // empty retains legacy behavior
 }
 
 // UsageWindow is the time range of a report. TzOffsetSeconds shifts day boundaries to the
@@ -30,6 +31,11 @@ func usageScoped(scope UsageScope, window UsageWindow) func(tx *gorm.DB) *gorm.D
 	return func(tx *gorm.DB) *gorm.DB {
 		tx = tx.Where("logs.created_at >= ? AND logs.created_at <= ?", window.Start, window.End).
 			Where("logs.type = ?", LogTypeConsume)
+		if scope.PayerType == "personal" {
+			tx = tx.Where("logs.billing_organization_id = ?", 0)
+		} else if scope.PayerType == "organization" {
+			tx = tx.Where("logs.billing_organization_id > ?", 0)
+		}
 		if scope.OrganizationId > 0 {
 			tx = tx.Where("logs.billing_organization_id = ?", scope.OrganizationId)
 		}
@@ -123,6 +129,19 @@ func GetUsageModels(scope UsageScope, window UsageWindow) ([]UsageModelRow, erro
 	return rows, err
 }
 
+// GetUsageExportModels returns all model groups in the scope and window, without the report ranking limit.
+func GetUsageExportModels(scope UsageScope, window UsageWindow) ([]UsageModelRow, error) {
+	var rows []UsageModelRow
+	err := usageScoped(scope, window)(LOG_DB.Model(&Log{})).Select(
+		"logs.model_name AS model_name, " +
+			"COALESCE(SUM(logs.quota), 0) AS consume_quota, " +
+			"COUNT(*) AS requests, " +
+			"COALESCE(SUM(logs.prompt_tokens), 0) AS prompt_tokens, " +
+			"COALESCE(SUM(logs.completion_tokens), 0) AS completion_tokens",
+	).Group("logs.model_name").Order("consume_quota DESC, logs.model_name ASC").Scan(&rows).Error
+	return rows, err
+}
+
 // UsageRankRow is the consumption of one user or one billing organization. Key is the user
 // id or organization id, and 0 means personal billing (not in any organization).
 type UsageRankRow struct {
@@ -154,6 +173,37 @@ func GetUsageRanking(scope UsageScope, window UsageWindow, by UsageRankBy) ([]Us
 			"COALESCE(SUM(logs.quota), 0) AS consume_quota, " +
 			"COUNT(*) AS requests",
 	).Group(keyColumn).Order("consume_quota DESC").Limit(usageRankLimit).Scan(&rows).Error
+	return rows, err
+}
+
+// UsageExportGroupRow is the complete consumption of one user or billing organization.
+// Name follows the ranking semantics: the maximum logged username for users, empty for organizations.
+type UsageExportGroupRow struct {
+	Key              int64  `json:"key" gorm:"column:rank_key"`
+	Name             string `json:"name"`
+	ConsumeQuota     int64  `json:"consume_quota"`
+	Requests         int64  `json:"requests"`
+	PromptTokens     int64  `json:"prompt_tokens"`
+	CompletionTokens int64  `json:"completion_tokens"`
+}
+
+// GetUsageExportGroups returns all user or organization groups within the scope and window.
+// Callers choose the groups appropriate for the authorized view.
+func GetUsageExportGroups(scope UsageScope, window UsageWindow, by UsageRankBy) ([]UsageExportGroupRow, error) {
+	keyColumn := "logs.user_id"
+	nameColumn := "MAX(logs.username)"
+	if by == UsageRankByOrganization {
+		keyColumn = "logs.billing_organization_id"
+		nameColumn = "''"
+	}
+	var rows []UsageExportGroupRow
+	err := usageScoped(scope, window)(LOG_DB.Model(&Log{})).Select(
+		keyColumn + " AS rank_key, " + nameColumn + " AS name, " +
+			"COALESCE(SUM(logs.quota), 0) AS consume_quota, " +
+			"COUNT(*) AS requests, " +
+			"COALESCE(SUM(logs.prompt_tokens), 0) AS prompt_tokens, " +
+			"COALESCE(SUM(logs.completion_tokens), 0) AS completion_tokens",
+	).Group(keyColumn).Order("consume_quota DESC, " + keyColumn + " ASC").Scan(&rows).Error
 	return rows, err
 }
 

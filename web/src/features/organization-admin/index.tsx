@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { isAxiosError } from 'axios'
 import { KeyRound, Plus, Trash2, UserCog, Power } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -137,9 +136,8 @@ export function OrganizationAdmin() {
 
   if (selfQuery.isLoading) return null
 
-  if (selfQuery.isError) {
-    const notMember =
-      isAxiosError(selfQuery.error) && selfQuery.error.response?.status === 404
+  if (selfQuery.isError || selfQuery.data === null) {
+    const notMember = selfQuery.data === null
     return (
       <EmptyState
         title={

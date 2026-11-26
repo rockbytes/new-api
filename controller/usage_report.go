@@ -113,8 +113,17 @@ func parseUsageRequest(c *gin.Context) (usageRequest, bool) {
 	request.window = model.UsageWindow{Start: start, End: end, TzOffsetSeconds: request.tzMinute * 60}
 
 	view := service.UsageView(c.Query("view"))
+	payerType := ""
+	if strings.Contains(c.FullPath(), "/usage/v2/") {
+		payerType = c.Query("payer_type")
+		if payerType != "personal" && payerType != "organization" {
+			writeUsageError(c, http.StatusBadRequest, "USAGE_INVALID_REQUEST", "Invalid payer_type")
+			return request, false
+		}
+	}
 	request.resolved, err = service.ResolveUsageScope(c.GetInt("id"), c.GetInt("role"), service.UsageScopeRequest{
 		View:           view,
+		PayerType:      payerType,
 		OrganizationId: organizationId,
 		UserId:         userId,
 	})

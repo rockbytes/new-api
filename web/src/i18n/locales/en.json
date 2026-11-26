@@ -2510,6 +2510,7 @@
     "Export snapshot": "Export snapshot",
     "Export started": "Export started",
     "Export usage": "Export usage",
+    "Export usage summary": "Export usage summary",
     "Exported {{count}} logs": "Exported {{count}} logs",
     "Exports are being generated. Try again shortly.": "Exports are being generated. Try again shortly.",
     "Expose ratio API": "Expose ratio API",

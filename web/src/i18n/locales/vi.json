@@ -2510,6 +2510,7 @@
     "Export snapshot": "Xuất bản chụp",
     "Export started": "Đã bắt đầu xuất dữ liệu",
     "Export usage": "Xuất dữ liệu sử dụng",
+    "Export usage summary": "Xuất tổng hợp mức sử dụng",
     "Exported {{count}} logs": "Đã xuất {{count}} bản ghi nhật ký",
     "Exports are being generated. Try again shortly.": "Đang tạo các bản xuất. Vui lòng thử lại sau.",
     "Expose ratio API": "Cung cấp API tỷ lệ",

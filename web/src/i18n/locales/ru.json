@@ -2510,6 +2510,7 @@
     "Export snapshot": "Экспорт снимка",
     "Export started": "Экспорт запущен",
     "Export usage": "Экспорт использования",
+    "Export usage summary": "Экспорт сводки использования",
     "Exported {{count}} logs": "Экспортировано записей: {{count}}",
     "Exports are being generated. Try again shortly.": "Экспорты формируются. Повторите попытку немного позже.",
     "Expose ratio API": "Интерфейс экспонирования коэффициента",

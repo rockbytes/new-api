@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { USAGE_EXPORT_OPTIONS } from '../constants'
 import { buildUsageExportRequest, hasActiveUsageExports } from '../lib/export'
 import type { UsageExportJob, UsageQueryParams } from '../types'
 
 const scope: UsageQueryParams = {
   view: 'platform',
+  payer_type: 'organization',
   organization_id: 3,
   user_id: 9,
   start_timestamp: 1_700_000_000,
@@ -15,44 +15,33 @@ const scope: UsageQueryParams = {
   page_size: 20,
 }
 
-function optionFor(key: string) {
-  const option = USAGE_EXPORT_OPTIONS.find((item) => item.key === key)
-  if (!option) throw new Error(`no export option ${key}`)
-  return option
-}
-
 describe('buildUsageExportRequest', () => {
-  it('carries the report scope and window, but no paging, for a records CSV', () => {
-    expect(buildUsageExportRequest(scope, optionFor('records'))).toEqual({
+  it('carries the report scope and window, but no paging, for a summary CSV', () => {
+    expect(buildUsageExportRequest(scope, 'csv')).toEqual({
       view: 'platform',
+      payer_type: 'organization',
       organization_id: 3,
       user_id: 9,
       start_timestamp: 1_700_000_000,
       end_timestamp: 1_700_600_000,
       tz_offset_minutes: -480,
       format: 'csv',
-      kind: 'records',
+      kind: 'summary',
       with_bom: true,
     })
   })
 
-  it('asks for the summary tables when the summary CSV is chosen', () => {
-    const request = buildUsageExportRequest(scope, optionFor('summary'))
-    expect(request.format).toBe('csv')
-    expect(request.kind).toBe('summary')
-  })
-
-  it('sends only the format for a workbook, since it always holds every table', () => {
-    const request = buildUsageExportRequest(scope, optionFor('workbook'))
+  it('requests summary data for a workbook without a BOM', () => {
+    const request = buildUsageExportRequest(scope, 'xlsx')
     expect(request.format).toBe('xlsx')
-    expect(request).not.toHaveProperty('kind')
+    expect(request.kind).toBe('summary')
     expect(request).not.toHaveProperty('with_bom')
   })
 
   it('carries the selected model so the file matches the report on screen', () => {
     const request = buildUsageExportRequest(
       { ...scope, model_name: 'gpt-4o' },
-      optionFor('records')
+      'csv'
     )
     expect(request.model_name).toBe('gpt-4o')
   })

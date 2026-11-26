@@ -95,6 +95,19 @@ func newAccessTokenScopeTestEngine(t *testing.T) *gin.Engine {
 	return engine
 }
 
+func TestUsageV2AccessTokenScopes(t *testing.T) {
+	engine := newAccessTokenScopeTestEngine(t)
+	for _, route := range engine.Routes() {
+		if !strings.HasPrefix(route.Path, "/api/usage/v2/") {
+			continue
+		}
+		rule, ok := middleware.AccessTokenRouteRule(route.Method + " " + route.Path)
+		require.True(t, ok)
+		assert.Equal(t, "scope", rule.Kind())
+		assert.Equal(t, "log:read", rule.Scope())
+	}
+}
+
 func TestAccessTokenRouteRulesCoverEveryDashboardRoute(t *testing.T) {
 	engine := newAccessTokenScopeTestEngine(t)
 	exempt := map[string]bool{}

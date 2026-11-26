@@ -372,6 +372,21 @@ func SetApiRouter(router *gin.Engine) {
 		usageReportRoute.GET("/exports/:job_id", controller.GetUsageExport)
 		usageReportRoute.GET("/exports/:job_id/download", controller.DownloadUsageExport)
 
+		usageV2 := apiRouter.Group("/usage/v2")
+		usageV2.Use(middleware.UserAuth())
+		usageV2.GET("/summary", controller.GetUsageSummary)
+		usageV2.GET("/trend", controller.GetUsageTrend)
+		usageV2.GET("/models", controller.GetUsageModels)
+		usageV2.GET("/model-options", controller.GetUsageModelOptions)
+		usageV2.GET("/rankings", controller.GetUsageRankings)
+		usageV2.GET("/records", controller.GetUsageRecords)
+		usageV2.POST("/exports", controller.CreateUsageExport)
+		usageV2.GET("/exports/estimate", controller.EstimateUsageExport)
+		usageV2.GET("/exports/direct", controller.DirectUsageExport)
+		usageV2.GET("/exports", controller.ListUsageExports)
+		usageV2.GET("/exports/:job_id", controller.GetUsageExport)
+		usageV2.GET("/exports/:job_id/download", controller.DownloadUsageExport)
+
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{
 			logRoute.GET("/token", middleware.TokenAuthReadOnly(), controller.GetLogByKey)

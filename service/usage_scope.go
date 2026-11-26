@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -33,6 +34,7 @@ type UsageScopeRequest struct {
 	View           UsageView
 	OrganizationId int
 	UserId         int
+	PayerType      string
 }
 
 // ResolvedUsageScope is the authorized scope of one report.
@@ -45,6 +47,47 @@ type ResolvedUsageScope struct {
 // ResolveUsageScope authorizes a usage report for the caller. An empty view defaults to the
 // broadest view the caller may see: platform, then the caller's organization, then self.
 func ResolveUsageScope(callerId int, callerRole int, request UsageScopeRequest) (ResolvedUsageScope, error) {
+	resolved, err := resolveUsageScope(callerId, callerRole, request)
+	if err == nil && request.PayerType != "" && request.View != "" && request.View != resolved.View {
+		return ResolvedUsageScope{}, ErrUsageViewForbidden
+	}
+	return resolved, err
+}
+
+func resolveUsageScope(callerId int, callerRole int, request UsageScopeRequest) (ResolvedUsageScope, error) {
+	if request.PayerType != "" {
+		if request.PayerType != "personal" && request.PayerType != "organization" {
+			return ResolvedUsageScope{}, ErrUsageScopeMismatch
+		}
+		if request.PayerType == "personal" {
+			if request.OrganizationId != 0 {
+				return ResolvedUsageScope{}, ErrUsageScopeMismatch
+			}
+			if callerRole >= common.RoleAdminUser {
+				return ResolvedUsageScope{View: UsageViewPlatform, Scope: model.UsageScope{PayerType: "personal", UserId: request.UserId}}, nil
+			}
+			if request.UserId != 0 && request.UserId != callerId {
+				return ResolvedUsageScope{}, ErrUsageScopeMismatch
+			}
+			return ResolvedUsageScope{View: UsageViewSelf, Scope: model.UsageScope{PayerType: "personal", UserId: callerId}}, nil
+		}
+		if callerRole < common.RoleAdminUser {
+			membership, organization, err := model.GetActiveOrganizationMembership(callerId)
+			if err != nil || membership.Role != model.OrganizationRoleAdmin || organization.Status != model.OrganizationStatusActive {
+				if request.OrganizationId != 0 || (request.UserId != 0 && request.UserId != callerId) {
+					return ResolvedUsageScope{}, ErrUsageScopeMismatch
+				}
+				return ResolvedUsageScope{View: UsageViewSelf, Scope: model.UsageScope{PayerType: "organization", UserId: callerId}}, nil
+			}
+			if request.OrganizationId != 0 && request.OrganizationId != organization.Id {
+				return ResolvedUsageScope{}, ErrUsageScopeMismatch
+			}
+			return ResolvedUsageScope{View: UsageViewOrganization, Scope: model.UsageScope{PayerType: "organization", OrganizationId: organization.Id, UserId: request.UserId}, Organization: organization}, nil
+		}
+		resolved, err := platformUsageScope(UsageViewPlatform, request)
+		resolved.Scope.PayerType = "organization"
+		return resolved, err
+	}
 	isPlatform := callerRole >= common.RoleAdminUser
 	view := request.View
 	if view == "" {
@@ -117,12 +160,43 @@ func platformUsageScope(view UsageView, request UsageScopeRequest) (ResolvedUsag
 	return scope, nil
 }
 
+// UsageJobScope decodes versioned export intent; old nodes reject these view values.
+func UsageJobScope(view string, organizationID, userID int) (UsageScopeRequest, error) {
+	if !strings.HasPrefix(view, "v2:") {
+		return UsageScopeRequest{View: UsageView(view), OrganizationId: organizationID, UserId: userID}, nil
+	}
+	parts := strings.Split(view, ":")
+	if len(parts) != 3 || (parts[1] != "personal" && parts[1] != "organization") {
+		return UsageScopeRequest{}, ErrUsageViewForbidden
+	}
+	return UsageScopeRequest{View: UsageView(parts[2]), PayerType: parts[1], OrganizationId: organizationID, UserId: userID}, nil
+}
+
+// ResolveUsageJobScope reauthorizes the exact saved audience rather than a narrower or wider replacement.
+func ResolveUsageJobScope(callerID, role int, view string, organizationID, userID int) (ResolvedUsageScope, error) {
+	request, err := UsageJobScope(view, organizationID, userID)
+	if err != nil {
+		return ResolvedUsageScope{}, err
+	}
+	resolved, err := ResolveUsageScope(callerID, role, request)
+	if err != nil {
+		return ResolvedUsageScope{}, err
+	}
+	if request.PayerType != "" && (resolved.View != request.View || resolved.Scope.OrganizationId != organizationID || resolved.Scope.UserId != userID) {
+		return ResolvedUsageScope{}, ErrUsageViewForbidden
+	}
+	return resolved, nil
+}
+
 // UsageRankingFor returns what a ranking groups by for the resolved scope. Platform reports
 // rank organizations across the platform and users inside one organization. The organization
 // view ranks its members. A personal view has no ranking.
 func UsageRankingFor(resolved ResolvedUsageScope) (model.UsageRankBy, bool) {
 	switch resolved.View {
 	case UsageViewPlatform:
+		if resolved.Scope.PayerType == "personal" {
+			return model.UsageRankByUser, true
+		}
 		if resolved.Scope.OrganizationId == 0 {
 			return model.UsageRankByOrganization, true
 		}

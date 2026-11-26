@@ -6,13 +6,24 @@ import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Combobox } from '@/components/ui/combobox'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getOrganizationMembers } from '@/features/organization-admin/api'
+import { useOrganizationSelf } from '@/features/organization-admin/hooks/use-organization-self'
 import {
   getOrganizationDetail,
   getOrganizations,
 } from '@/features/organizations/api'
 import { CompactDateTimeRangePicker } from '@/features/usage-logs/components/compact-date-time-range-picker'
 import { toIntlLocale } from '@/i18n/languages'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   getUsageModelOptions,
@@ -27,7 +38,8 @@ import {
   UsageRankingTable,
 } from './components/usage-breakdown-tables'
 import {
-  UsageExportPanel,
+  UsageExportAction,
+  UsageExportHistory,
   type UsageExportScopeLabels,
 } from './components/usage-export-panel'
 import { UsageRecordsTable } from './components/usage-records-table'
@@ -45,6 +57,7 @@ import {
   type UsageRangeDays,
 } from './lib/window'
 import type {
+  UsagePayerType,
   UsageQueryParams,
   UsageRankBy,
   UsageRankRow,
@@ -62,6 +75,13 @@ interface MemberOption {
 export function UsageReport() {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const [payerType, setPayerType] = useState<UsagePayerType>('personal')
+  const user = useAuthStore((state) => state.auth.user)
+  const isPlatform = (user?.role ?? 0) >= ROLE.ADMIN
+  const selfQuery = useOrganizationSelf(!isPlatform)
+  const isOrganizationAdmin =
+    selfQuery.data?.role === 'admin' && selfQuery.data.status === 'active'
+  const scopeReady = Boolean(user) && (isPlatform || selfQuery.isSuccess)
   const [rangeDays, setRangeDays] = useState<UsageRangeDays>(7)
   // A start and end picked by the caller. When set, it replaces the day range.
   const [customRange, setCustomRange] = useState<{
@@ -91,90 +111,112 @@ export function UsageReport() {
   }, [rangeDays, customRange])
   // The scope and window shared by every query. The model choices are listed for this scope
   // without the model filter, so they do not shrink when one model is selected.
+  let requestedView: UsageView | undefined
+  if (isPlatform) requestedView = 'platform'
+  else if (payerType === 'personal') requestedView = 'self'
   const scopeParams: UsageQueryParams = {
     ...window,
-    view: organizationId > 0 ? 'platform' : undefined,
-    organization_id: organizationId || undefined,
-    user_id: memberId || undefined,
+    view: requestedView,
+    payer_type: payerType,
+    organization_id:
+      payerType === 'organization' && isPlatform
+        ? organizationId || undefined
+        : undefined,
+    user_id: payerType === 'organization' ? memberId || undefined : undefined,
   }
   const params: UsageQueryParams = {
     ...scopeParams,
     model_name: modelName || undefined,
   }
   const summaryQuery = useQuery({
-    queryKey: ['usage-report', 'summary', params],
+    queryKey: ['usage-report', user?.id, 'summary', params],
+    enabled: scopeReady,
     queryFn: () => getUsageSummary(params),
   })
   const trendQuery = useQuery({
-    queryKey: ['usage-report', 'trend', params],
+    queryKey: ['usage-report', user?.id, 'trend', params],
+    enabled: scopeReady,
     queryFn: () => getUsageTrend(params),
   })
   const modelsQuery = useQuery({
-    queryKey: ['usage-report', 'models', params],
+    queryKey: ['usage-report', user?.id, 'models', params],
+    enabled: scopeReady,
     queryFn: () => getUsageModels(params),
   })
   const rankingsQuery = useQuery({
-    queryKey: ['usage-report', 'rankings', params],
+    queryKey: ['usage-report', user?.id, 'rankings', params],
+    enabled: scopeReady,
     queryFn: () => getUsageRankings(params),
   })
   const modelOptionsQuery = useQuery({
-    queryKey: ['usage-report', 'model-options', scopeParams],
+    queryKey: ['usage-report', user?.id, 'model-options', scopeParams],
+    enabled: scopeReady,
     queryFn: () => getUsageModelOptions(scopeParams),
   })
   const recordsParams = { ...params, page, page_size: PAGE_SIZE }
   const recordsQuery = useQuery({
-    queryKey: ['usage-report', 'records', recordsParams],
+    queryKey: ['usage-report', user?.id, 'records', recordsParams],
+    enabled: scopeReady,
     queryFn: () => getUsageRecords(recordsParams),
   })
 
   // The server decides the view. Platform administrators pick an organization, and
   // organization administrators pick one of their members.
-  const view: UsageView | undefined = summaryQuery.data?.meta.scope.view
   const organizationsQuery = useQuery({
-    queryKey: ['usage-report', 'organizations'],
+    queryKey: ['usage-report', user?.id, 'organizations'],
     queryFn: () => getOrganizations(1, ORGANIZATION_OPTION_LIMIT),
-    enabled: view === 'platform',
+    enabled: payerType === 'organization' && isPlatform,
   })
   const platformMembersQuery = useQuery({
-    queryKey: ['usage-report', 'organization-members', organizationId],
+    queryKey: [
+      'usage-report',
+      user?.id,
+      'organization-members',
+      organizationId,
+    ],
     queryFn: () => getOrganizationDetail(organizationId),
-    enabled: view === 'platform' && organizationId > 0,
+    enabled: payerType === 'organization' && isPlatform && organizationId > 0,
   })
   const ownMembersQuery = useQuery({
-    queryKey: ['usage-report', 'own-members'],
+    queryKey: ['usage-report', user?.id, 'own-members'],
     queryFn: getOrganizationMembers,
-    enabled: view === 'organization',
+    enabled: payerType === 'organization' && !isPlatform && isOrganizationAdmin,
   })
 
-  const memberOptions: MemberOption[] =
-    view === 'platform'
-      ? (platformMembersQuery.data?.members ?? []).map((member) => ({
-          id: member.user_id,
-          name: member.username,
-        }))
-      : (ownMembersQuery.data ?? []).map((member) => ({
-          id: member.user_id,
-          name: member.username,
-        }))
+  const memberOptions: MemberOption[] = isPlatform
+    ? (platformMembersQuery.data?.members ?? []).map((member) => ({
+        id: member.user_id,
+        name: member.username,
+      }))
+    : (ownMembersQuery.data ?? []).map((member) => ({
+        id: member.user_id,
+        name: member.username,
+      }))
 
   // The scope as the confirmation names it. An organization admin's report is already scoped to
   // their organization, so the name comes from the response rather than the selector.
   const scopeOrganizationName = summaryQuery.data?.meta.scope.organization?.name
   let exportOrganization = t('All organizations')
-  if (view === 'self') {
+  if (payerType === 'personal') {
     exportOrganization = t('Personal')
-  } else if (organizationId > 0 || view === 'organization') {
+  } else if (!isPlatform && !isOrganizationAdmin) {
+    exportOrganization = t('All organizations')
+  } else if (organizationId > 0 || isOrganizationAdmin) {
     exportOrganization = scopeOrganizationName ?? String(organizationId)
   }
   const selectedMemberName = memberOptions.find(
     (member) => member.id === memberId
   )?.name
+  let exportMember = t('All members')
+  if (!isPlatform && (payerType === 'personal' || !isOrganizationAdmin)) {
+    exportMember = t('Only Mine')
+  } else if (memberId > 0) {
+    exportMember = selectedMemberName ?? String(memberId)
+  }
   const exportScope: UsageExportScopeLabels = {
+    payer: payerType === 'personal' ? t('Personal') : t('Organization'),
     organization: exportOrganization,
-    member:
-      memberId > 0
-        ? (selectedMemberName ?? String(memberId))
-        : t('All members'),
+    member: exportMember,
     model: modelName || t('All models'),
   }
 
@@ -185,6 +227,11 @@ export function UsageReport() {
     }
     return row.name || String(row.key)
   }
+
+  const rangePresets = USAGE_RANGE_DAYS.map((days) => ({
+    value: days,
+    label: t('Last {{count}} days', { count: days }),
+  }))
 
   const failed =
     summaryQuery.isError ||
@@ -198,9 +245,27 @@ export function UsageReport() {
       <SectionPageLayout.Title>{t('Usage report')}</SectionPageLayout.Title>
       <SectionPageLayout.Content>
         <div className='flex flex-col gap-4'>
+          <Tabs
+            value={payerType}
+            onValueChange={(value) => {
+              if (value !== 'personal' && value !== 'organization') return
+              setPayerType(value)
+              setOrganizationId(0)
+              setMemberId(0)
+              setModelName('')
+              setPage(1)
+            }}
+          >
+            <TabsList aria-label={t('Paid by')}>
+              <TabsTrigger value='personal'>{t('Personal')}</TabsTrigger>
+              <TabsTrigger value='organization'>
+                {t('Organization')}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
           <Card size='sm'>
             <CardContent className='flex flex-wrap items-center gap-3'>
-              {view === 'platform' && (
+              {payerType === 'organization' && isPlatform && (
                 <>
                   <Combobox
                     options={[
@@ -216,6 +281,7 @@ export function UsageReport() {
                     onValueChange={(value) => {
                       setOrganizationId(Number(value ?? 0))
                       setMemberId(0)
+                      setModelName('')
                       setPage(1)
                     }}
                     placeholder={t('Organization')}
@@ -229,22 +295,26 @@ export function UsageReport() {
                       options={memberOptions}
                       onChange={(id) => {
                         setMemberId(id)
+                        setModelName('')
                         setPage(1)
                       }}
                     />
                   )}
                 </>
               )}
-              {view === 'organization' && (
-                <MemberSelect
-                  value={memberId}
-                  options={memberOptions}
-                  onChange={(id) => {
-                    setMemberId(id)
-                    setPage(1)
-                  }}
-                />
-              )}
+              {payerType === 'organization' &&
+                !isPlatform &&
+                isOrganizationAdmin && (
+                  <MemberSelect
+                    value={memberId}
+                    options={memberOptions}
+                    onChange={(id) => {
+                      setMemberId(id)
+                      setModelName('')
+                      setPage(1)
+                    }}
+                  />
+                )}
               <Combobox
                 options={[
                   { value: '', label: t('All models') },
@@ -264,46 +334,76 @@ export function UsageReport() {
                 className='w-full sm:w-64'
               />
               <div
-                className='flex flex-wrap items-center gap-2 sm:ml-auto'
+                className='flex w-full max-w-full min-w-0 flex-wrap items-center gap-2 sm:ml-auto sm:w-auto'
                 role='group'
                 aria-label={t('Time range')}
               >
-                {USAGE_RANGE_DAYS.map((days) => (
-                  <Button
-                    key={days}
-                    type='button'
-                    size='sm'
-                    variant={
-                      !customRange && rangeDays === days ? 'default' : 'outline'
-                    }
-                    aria-pressed={!customRange && rangeDays === days}
-                    onClick={() => {
-                      setRangeDays(days)
-                      setCustomRange(null)
-                      setPage(1)
-                    }}
-                  >
-                    {t('Last {{count}} days', { count: days })}
-                  </Button>
-                ))}
-                <CompactDateTimeRangePicker
-                  start={new Date(window.start_timestamp * 1000)}
-                  end={new Date(window.end_timestamp * 1000)}
-                  onChange={({ start, end }) => {
-                    if (!start && !end) {
-                      setCustomRange(null)
-                      setPage(1)
-                      return
-                    }
-                    if (start && end && end.getTime() > start.getTime()) {
-                      setCustomRange({ start, end })
-                      setPage(1)
-                    }
+                <Select
+                  items={rangePresets}
+                  value={customRange ? null : rangeDays}
+                  onValueChange={(days) => {
+                    if (days == null) return
+                    setRangeDays(days)
+                    setCustomRange(null)
+                    setPage(1)
                   }}
-                />
+                >
+                  <SelectTrigger aria-label={t('Time range')}>
+                    <SelectValue placeholder={t('Custom')} />
+                  </SelectTrigger>
+                  <SelectContent alignItemWithTrigger={false}>
+                    {rangePresets.map((preset) => (
+                      <SelectItem key={preset.value} value={preset.value}>
+                        {preset.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className='w-full min-w-0 sm:w-88 sm:max-w-full'>
+                  <CompactDateTimeRangePicker
+                    start={new Date(window.start_timestamp * 1000)}
+                    end={new Date(window.end_timestamp * 1000)}
+                    onChange={({ start, end }) => {
+                      if (!start && !end) {
+                        setCustomRange(null)
+                        setPage(1)
+                        return
+                      }
+                      if (start && end && end.getTime() > start.getTime()) {
+                        setCustomRange({ start, end })
+                        setPage(1)
+                      }
+                    }}
+                  />
+                </div>
+                {scopeReady && (
+                  <div className='ml-auto sm:ml-1'>
+                    <UsageExportAction
+                      key={`${user?.id}-${payerType}`}
+                      params={params}
+                      scope={exportScope}
+                    />
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
+          {!isPlatform && selfQuery.isError && (
+            <div
+              role='alert'
+              className='text-destructive flex items-center gap-2 text-sm'
+            >
+              {t('The usage report could not be loaded')}
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                onClick={() => selfQuery.refetch()}
+              >
+                {t('Retry')}
+              </Button>
+            </div>
+          )}
           {failed && (
             <p role='alert' className='text-destructive text-sm'>
               {t('The usage report could not be loaded')}
@@ -376,7 +476,7 @@ export function UsageReport() {
               <CardTitle>{t('Export usage')}</CardTitle>
             </CardHeader>
             <CardContent>
-              <UsageExportPanel params={params} scope={exportScope} />
+              {scopeReady && <UsageExportHistory key={user?.id} />}
             </CardContent>
           </Card>
         </div>

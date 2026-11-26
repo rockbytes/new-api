@@ -2510,6 +2510,7 @@
     "Export snapshot": "匯出快照",
     "Export started": "已開始匯出",
     "Export usage": "匯出用量",
+    "Export usage summary": "匯出用量彙總",
     "Exported {{count}} logs": "已匯出 {{count}} 筆日誌",
     "Exports are being generated. Try again shortly.": "正在產生匯出檔案，請稍後再試。",
     "Expose ratio API": "暴露倍率接口",
