@@ -1,8 +1,11 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,7 +18,9 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Fixture accounts. The caller's identity comes from test headers, standing in for the
@@ -32,21 +37,23 @@ const (
 
 func setupUsageReportEndpoints(t *testing.T) *gin.Engine {
 	t.Helper()
-	// Fixture rows sit one day in the past, inside the default seven-day window.
-	base := time.Now().Unix() - 86400
-	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(t.TempDir()+"/usage-report.db?_pragma=busy_timeout(30000)&_txlock=immediate"), &gorm.Config{})
 	require.NoError(t, err)
+	t.Cleanup(func() { closeGormHandles(db) })
+	return seedUsageReportEndpoints(t, db, common.DatabaseTypeSQLite)
+}
+
+func seedUsageReportEndpoints(t *testing.T, db *gorm.DB, dialect common.DatabaseType) *gin.Engine {
+	t.Helper()
+	base := time.Now().Add(-23 * time.Hour).Unix()
+	gin.SetMode(gin.TestMode)
 	previousDB, previousLogDB := model.DB, model.LOG_DB
 	previousMain, previousLog := common.MainDatabaseType(), common.LogDatabaseType()
 	model.DB, model.LOG_DB = db, db
-	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	common.SetDatabaseTypes(dialect, dialect)
 	t.Cleanup(func() {
 		model.DB, model.LOG_DB = previousDB, previousLogDB
 		common.SetDatabaseTypes(previousMain, previousLog)
-		if sqlDB, err := db.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
 	})
 	require.NoError(t, db.AutoMigrate(&model.Organization{}, &model.OrganizationMembership{}, &model.Log{}))
 
@@ -73,6 +80,7 @@ func setupUsageReportEndpoints(t *testing.T) *gin.Engine {
 		c.Set("role", headerInt(c, "X-Test-Role"))
 		c.Next()
 	})
+	engine.GET("/api/data/self/account-status", GetOverviewAccountStatus)
 	group := engine.Group("/api/usage")
 	group.GET("/summary", GetUsageSummary)
 	group.GET("/trend", GetUsageTrend)
@@ -142,6 +150,93 @@ func assertKeysExactly(t *testing.T, got map[string]bool, want ...[]string) {
 		}
 	}
 	assert.Equal(t, expected, got)
+}
+
+func TestOverviewAccountStatusDatabaseMatrix(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			var db *gorm.DB
+			switch dialect {
+			case "postgres":
+				dsn := os.Getenv("TEST_POSTGRES_DSN")
+				if dsn == "" {
+					t.Skip("TEST_POSTGRES_DSN is not configured")
+				}
+				parsed, err := url.Parse(dsn)
+				require.NoError(t, err)
+				require.True(t, parsed.Hostname() == "127.0.0.1" && parsed.Port() == "5432" && parsed.Path == "/newapi_e2e", "this test only uses the local PostgreSQL E2E database")
+				base, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+				require.NoError(t, err)
+				t.Cleanup(func() { closeGormHandles(base) })
+				db = base.Begin()
+				require.NoError(t, db.Error)
+				t.Cleanup(func() { assert.NoError(t, db.Rollback().Error) })
+				name := clause.Table{Name: fmt.Sprintf("overview_test_%d", time.Now().UnixNano())}
+				require.NoError(t, db.Exec("CREATE SCHEMA ?", name).Error)
+				require.NoError(t, db.Exec("SET LOCAL search_path TO ?", name).Error)
+			case "mysql":
+				dsn := os.Getenv("TEST_MYSQL_DSN")
+				if dsn == "" {
+					t.Skip("TEST_MYSQL_DSN is not configured")
+				}
+				db, _ = newAuditTestDatabase(t, dialect, dsn)
+			default:
+				db, _ = newAuditTestDatabase(t, dialect, "")
+			}
+			versionQuery := "SELECT version()"
+			if dialect == "sqlite" {
+				versionQuery = "SELECT sqlite_version()"
+			}
+			var version string
+			require.NoError(t, db.Raw(versionQuery).Scan(&version).Error)
+			t.Logf("database version: %s", version)
+			engine := seedUsageReportEndpoints(t, db, common.DatabaseType(dialect))
+			require.NoError(t, db.AutoMigrate(&model.OrganizationMemberQuota{}))
+			require.NoError(t, db.Create(&[]model.OrganizationMemberQuota{
+				{OrganizationId: usageOrgA, UserId: usageOrgAMember, AllocatedQuota: 500, UsedQuota: 40},
+				{OrganizationId: usageOrgA, UserId: usageOrgAAdmin, AllocatedQuota: 900, UsedQuota: 100},
+				{OrganizationId: usageOrgB, UserId: usageOrgAMember, AllocatedQuota: 100, UsedQuota: 25},
+			}).Error)
+			now := time.Now()
+			require.NoError(t, db.Create(&[]model.Log{
+				{UserId: usageOrgAMember, Type: model.LogTypeConsume, Quota: 25, BillingOrganizationId: usageOrgB, CreatedAt: now.Add(-time.Hour).Unix()},
+				{UserId: usageOrgAMember, Type: model.LogTypeConsume, Quota: 999, BillingOrganizationId: usageOrgA, CreatedAt: now.Add(-25 * time.Hour).Unix()},
+				{UserId: usageOrgAMember, Type: model.LogTypeConsume, Quota: 999, CreatedAt: now.Add(time.Hour).Unix()},
+			}).Error)
+
+			const path = "/api/data/self/account-status?view=platform&user_id=12&organization_id=2&start_timestamp=1"
+			code, body := usageCall(t, engine, usageOrgAMember, common.RoleCommonUser, path)
+			require.Equal(t, http.StatusOK, code)
+			data := usageData(body)
+			assert.Equal(t, float64(15), data["personal_usage"])
+			assert.Equal(t, map[string]any{"id": float64(usageOrgA), "name": "Org A", "remaining_quota": float64(460), "recent_usage": float64(40)}, data["organization"])
+
+			code, body = usageCall(t, engine, usageOrgAAdmin, common.RoleRootUser, path)
+			require.Equal(t, http.StatusOK, code)
+			assert.Equal(t, float64(0), usageData(body)["personal_usage"])
+			assert.Equal(t, map[string]any{"id": float64(usageOrgA), "name": "Org A", "remaining_quota": float64(800), "recent_usage": float64(100)}, usageData(body)["organization"])
+
+			// The account survives leaving; its old quota row and settled logs still exist.
+			require.NoError(t, db.Where("user_id = ?", usageOrgAMember).Delete(&model.OrganizationMembership{}).Error)
+			code, body = usageCall(t, engine, usageOrgAMember, common.RoleCommonUser, path)
+			require.Equal(t, http.StatusOK, code)
+			assert.Equal(t, map[string]any{"organization": nil, "personal_usage": float64(15)}, usageData(body))
+			code, body = usageCall(t, engine, usageOrgAMember, common.RoleCommonUser, "/api/usage/v2/summary?view=self&payer_type=organization")
+			require.Equal(t, http.StatusOK, code)
+			assert.Equal(t, float64(1064), usageData(body)["summary"].(map[string]any)["consume_quota"], "leaving does not erase settled history")
+
+			require.NoError(t, db.Create(&model.OrganizationMembership{OrganizationId: usageOrgB, UserId: usageOrgAMember, Role: model.OrganizationRoleMember, Status: model.OrganizationMembershipActive}).Error)
+			code, body = usageCall(t, engine, usageOrgAMember, common.RoleCommonUser, path)
+			require.Equal(t, http.StatusOK, code)
+			assert.Equal(t, map[string]any{"id": float64(usageOrgB), "name": "Org B", "remaining_quota": float64(75), "recent_usage": float64(25)}, usageData(body)["organization"])
+
+			// A member without an allocation or organization-paid requests has real zeros.
+			require.NoError(t, db.Create(&model.OrganizationMembership{OrganizationId: usageOrgB, UserId: usageNoOrgUser, Role: model.OrganizationRoleMember, Status: model.OrganizationMembershipActive}).Error)
+			code, body = usageCall(t, engine, usageNoOrgUser, common.RoleCommonUser, path)
+			require.Equal(t, http.StatusOK, code)
+			assert.Equal(t, map[string]any{"id": float64(usageOrgB), "name": "Org B", "remaining_quota": float64(0), "recent_usage": float64(0)}, usageData(body)["organization"])
+		})
+	}
 }
 
 func TestUsagePayerJobReauthorization(t *testing.T) {

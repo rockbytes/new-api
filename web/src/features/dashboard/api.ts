@@ -1,7 +1,9 @@
 import { api } from '@/lib/api'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import type {
   FlowQuotaDataItem,
+  OverviewAccountStatus,
   QuotaDataItem,
   UptimeGroupResult,
 } from './types'
@@ -13,6 +15,16 @@ import type {
 // ----------------------------------------------------------------------------
 // Quota & Usage Data
 // ----------------------------------------------------------------------------
+
+export async function getOverviewAccountStatus(signal: AbortSignal) {
+  const res = await api.get<{ success: boolean; data: OverviewAccountStatus }>(
+    '/api/data/self/account-status',
+    // React Query cancels superseded requests. Do not share a canceled request
+    // with its replacement through the Axios deduplication layer.
+    { signal, disableDuplicate: true }
+  )
+  return requireServerSuccess(res.data).data
+}
 
 // Get user quota data within a time range
 // Admin users get all users' data by default.

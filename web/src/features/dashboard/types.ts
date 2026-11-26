@@ -4,6 +4,17 @@ import type { TimeGranularity } from '@/lib/time'
 // Quota & Usage Data Types
 // ============================================================================
 
+export interface OverviewAccountStatus {
+  personal_usage: number | null
+  organization: {
+    id: number
+    name: string
+    remaining_quota: number | null
+    recent_usage: number | null
+  } | null
+  organization_unavailable?: boolean
+}
+
 export interface QuotaDataItem {
   id?: number
   user_id?: number

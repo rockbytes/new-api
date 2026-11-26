@@ -5,7 +5,14 @@ import {
   createRouter,
   RouterProvider,
 } from '@tanstack/react-router'
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -16,6 +23,21 @@ import { useSystemConfigStore } from '@/stores/system-config-store'
 import { OverviewDashboard } from '../overview-dashboard'
 
 const storageKey = 'dashboard_overview_setup_guide_expanded'
+const accountStatusKey = ['dashboard', 'overview', 'account-status']
+const accountStatusPath = '/api/data/self/account-status'
+const organizationA = {
+  id: 7,
+  name: 'Organization A',
+  remaining_quota: 2_500_000,
+  recent_usage: 500_000,
+}
+const organizationB = {
+  id: 8,
+  name: 'Organization B',
+  remaining_quota: 4_000_000,
+  recent_usage: 0,
+}
+let loadAccountStatus: () => Promise<unknown>
 let client: QueryClient
 let keyLookupError: Error | null
 
@@ -34,6 +56,10 @@ beforeEach(() => {
     defaultOptions: { queries: { retry: false } },
   })
   keyLookupError = null
+  loadAccountStatus = async () => ({
+    personal_usage: 1_500_000,
+    organization: null,
+  })
   vi.spyOn(api, 'get').mockImplementation(async (url) => {
     switch (url) {
       case '/api/token/?p=1&size=10':
@@ -59,8 +85,8 @@ beforeEach(() => {
         }
       case '/api/user/models':
         return { data: { success: true, data: ['gpt-4o-mini'] } }
-      case '/api/data/self':
-        return { data: { success: true, data: [] } }
+      case accountStatusPath:
+        return { data: { success: true, data: await loadAccountStatus() } }
       default:
         throw new Error(`Unexpected dashboard request: ${url}`)
     }
@@ -88,6 +114,172 @@ async function renderOverview() {
   )
 }
 
+describe('overview account status', () => {
+  it('keeps both sections and the report shortcut without a current organization', async () => {
+    await renderOverview()
+
+    const card = within(screen.getByRole('region', { name: 'Account status' }))
+    const personal = within(card.getByRole('region', { name: 'Personal' }))
+    const organization = within(
+      card.getByRole('region', { name: 'Organization' })
+    )
+    expect(await personal.findByText('$3')).toBeVisible()
+    expect(personal.getByText('$2')).toBeVisible()
+    expect(await organization.findByText('No organization')).toBeVisible()
+    expect(organization.getAllByText('-', { exact: true })).toHaveLength(2)
+    expect(card.queryByRole('link', { name: 'Wallet' })).not.toBeInTheDocument()
+    expect(
+      card.getByRole('link', { name: 'View usage report' })
+    ).toHaveAttribute('href', '/usage-report')
+  })
+
+  it('shows only the numbers of the current organization, including real zero', async () => {
+    loadAccountStatus = async () => ({
+      personal_usage: 1_500_000,
+      organization: organizationA,
+    })
+    await renderOverview()
+
+    const organization = within(
+      screen.getByRole('region', { name: 'Organization' })
+    )
+    expect(await organization.findByText('Organization A')).toBeVisible()
+    expect(
+      organization.getAllByRole('definition').map((value) => value.textContent)
+    ).toEqual(['$5', '$1'])
+
+    loadAccountStatus = async () => ({
+      personal_usage: 1_500_000,
+      organization: organizationB,
+    })
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: accountStatusKey })
+    })
+
+    expect(await organization.findByText('Organization B')).toBeVisible()
+    expect(organization.queryByText('Organization A')).not.toBeInTheDocument()
+    expect(
+      organization.getAllByRole('definition').map((value) => value.textContent)
+    ).toEqual(['$8', '$0'])
+  })
+
+  it('clears both organization numbers on exit and ignores a late old snapshot', async () => {
+    loadAccountStatus = async () => ({
+      personal_usage: 1_500_000,
+      organization: organizationA,
+    })
+    await renderOverview()
+    const organization = within(
+      screen.getByRole('region', { name: 'Organization' })
+    )
+    expect(await organization.findByText('Organization A')).toBeVisible()
+
+    let resolveOldSnapshot: (value: unknown) => void = () => undefined
+    const oldSnapshot = new Promise((resolve) => {
+      resolveOldSnapshot = resolve
+    })
+    const loadOldSnapshot = vi.fn(() => oldSnapshot)
+    loadAccountStatus = loadOldSnapshot
+    let olderRefresh: Promise<void> | undefined
+    await act(async () => {
+      olderRefresh = client.invalidateQueries({ queryKey: accountStatusKey })
+    })
+    expect(loadOldSnapshot).toHaveBeenCalled()
+    await waitFor(() =>
+      expect(organization.queryByText('Organization A')).not.toBeInTheDocument()
+    )
+
+    loadAccountStatus = async () => ({
+      personal_usage: 1_500_000,
+      organization: null,
+    })
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: accountStatusKey })
+    })
+    expect(await organization.findByText('No organization')).toBeVisible()
+
+    await act(async () => {
+      resolveOldSnapshot({
+        personal_usage: 1_500_000,
+        organization: organizationA,
+      })
+      await olderRefresh
+    })
+    expect(organization.getAllByText('-', { exact: true })).toHaveLength(2)
+    expect(organization.queryByText('Organization A')).not.toBeInTheDocument()
+  })
+
+  it('shows dashes for both organization numbers if membership cannot be confirmed', async () => {
+    loadAccountStatus = async () => ({
+      personal_usage: 1_500_000,
+      organization: null,
+      organization_unavailable: true,
+    })
+    await renderOverview()
+
+    const organization = within(
+      screen.getByRole('region', { name: 'Organization' })
+    )
+    expect(await organization.findAllByText('-', { exact: true })).toHaveLength(
+      2
+    )
+    expect(organization.queryByText('No organization')).not.toBeInTheDocument()
+    expect(
+      within(screen.getByRole('region', { name: 'Personal' })).getByText('$3')
+    ).toBeVisible()
+  })
+
+  it('shows dashes for all three fetched metrics when the account status request fails', async () => {
+    loadAccountStatus = async () => {
+      throw new Error('Account status request failed')
+    }
+    await renderOverview()
+
+    const personal = within(screen.getByRole('region', { name: 'Personal' }))
+    const organization = within(
+      screen.getByRole('region', { name: 'Organization' })
+    )
+    expect(await personal.findByText('-', { exact: true })).toBeVisible()
+    expect(await organization.findAllByText('-', { exact: true })).toHaveLength(
+      2
+    )
+    expect(personal.getByText('$2')).toBeVisible()
+    expect(organization.queryByText('No organization')).not.toBeInTheDocument()
+  })
+
+  it('does not offer the report shortcut when that module is hidden', async () => {
+    client.setQueryData(['status'], {
+      SidebarModulesAdmin: JSON.stringify({
+        console: { enabled: true, usage_report: false },
+      }),
+    })
+    await renderOverview()
+
+    const card = within(screen.getByRole('region', { name: 'Account status' }))
+    expect(card.getByText('Personal balance')).toBeVisible()
+    expect(
+      card.queryByRole('link', { name: 'View usage report' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows dashes for missing usage without replacing the available balances', async () => {
+    loadAccountStatus = async () => ({
+      personal_usage: null,
+      organization: { ...organizationA, recent_usage: null },
+    })
+    await renderOverview()
+
+    const personal = within(screen.getByRole('region', { name: 'Personal' }))
+    const organization = within(
+      screen.getByRole('region', { name: 'Organization' })
+    )
+    expect(await personal.findByText('-', { exact: true })).toBeVisible()
+    expect(await organization.findByText('-', { exact: true })).toBeVisible()
+    expect(personal.getByText('$2')).toBeVisible()
+    expect(organization.getByText('$5')).toBeVisible()
+  })
+})
+
 describe('overview setup guide', () => {
   it('shows usage first and only a header entry when setup is complete', async () => {
     await renderOverview()
@@ -96,7 +288,7 @@ describe('overview setup guide', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     expect(
       screen.getAllByRole('heading').map((heading) => heading.textContent)
-    ).toEqual(['Overview', 'Usage at a glance'])
+    ).toEqual(['Overview', 'Account status', 'Personal', 'Organization'])
     expect(screen.queryByText('Setup guide complete')).not.toBeInTheDocument()
     expect(screen.queryByText('Setup progress: 3/3')).not.toBeInTheDocument()
     for (const name of ['API Keys', 'Channels', 'Usage Logs', 'Pricing']) {

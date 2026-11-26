@@ -49,7 +49,7 @@ import { AnnouncementsPanel } from './announcements-panel'
 import { ApiInfoPanel } from './api-info-panel'
 import { FAQPanel } from './faq-panel'
 import { PerformanceHealthPanel } from './performance-health-panel'
-import { SummaryCards } from './summary-cards'
+import { AccountStatusCard } from './summary-cards'
 import { UptimePanel } from './uptime-panel'
 
 const SETUP_GUIDE_VISIBILITY_STORAGE_KEY =
@@ -756,7 +756,7 @@ export function OverviewDashboard() {
             </CardStaggerContainer>
           )}
 
-          <SummaryCards />
+          <AccountStatusCard />
 
           {showContentPanels && (
             <CardStaggerContainer

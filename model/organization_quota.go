@@ -58,6 +58,20 @@ type OrganizationMemberQuota struct {
 	UpdatedTime    int64 `json:"updated_time" gorm:"bigint"`
 }
 
+// GetOrganizationMemberRemainingQuota reads the unused allocation, not the organization pool.
+// A member who has never received an allocation has no quota row and a zero balance.
+func GetOrganizationMemberRemainingQuota(organizationId int, userId int) (int64, error) {
+	var member OrganizationMemberQuota
+	err := DB.Where("organization_id = ? AND user_id = ?", organizationId, userId).Take(&member).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return member.AllocatedQuota - member.UsedQuota, nil
+}
+
 // OrganizationQuotaLedgerEntry is an append-only record of one money movement.
 // Amount is always positive; the event type gives the direction.
 type OrganizationQuotaLedgerEntry struct {

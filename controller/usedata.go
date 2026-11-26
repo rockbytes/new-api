@@ -1,8 +1,10 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -80,6 +82,70 @@ func GetUserQuotaDates(c *gin.Context) {
 		"data":    dates,
 	})
 	return
+}
+
+type overviewOrganizationAccount struct {
+	Id             int    `json:"id"`
+	Name           string `json:"name"`
+	RemainingQuota *int64 `json:"remaining_quota"`
+	RecentUsage    *int64 `json:"recent_usage"`
+}
+
+type overviewAccountStatus struct {
+	PersonalUsage           *int64                       `json:"personal_usage"`
+	Organization            *overviewOrganizationAccount `json:"organization"`
+	OrganizationUnavailable bool                         `json:"organization_unavailable,omitempty"`
+}
+
+// GetOverviewAccountStatus returns one snapshot for the current account, with no
+// client-selected user, payer, role, or time range. A null metric is unavailable, not zero.
+func GetOverviewAccountStatus(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	userId := c.GetInt("id")
+	if userId <= 0 {
+		c.Status(http.StatusUnauthorized)
+		return
+	}
+	end := time.Now()
+	window := model.UsageWindow{Start: end.Add(-24 * time.Hour).Unix(), End: end.Unix()}
+	var status overviewAccountStatus
+	personal, err := model.GetUsageSummary(model.UsageScope{UserId: userId, PayerType: "personal"}, window)
+	if err != nil {
+		common.SysError("overview personal usage: " + err.Error())
+	} else {
+		status.PersonalUsage = &personal.ConsumeQuota
+	}
+
+	// Resolve current membership even when the consumption log is unavailable.
+	_, organization, err := model.GetActiveOrganizationMembership(userId)
+	if errors.Is(err, model.ErrOrganizationMembershipMissing) {
+		common.ApiSuccess(c, status)
+		return
+	}
+	if err != nil || organization.Id <= 0 {
+		if err != nil {
+			common.SysError("overview organization membership: " + err.Error())
+		}
+		status.OrganizationUnavailable = true
+		common.ApiSuccess(c, status)
+		return
+	}
+
+	current := overviewOrganizationAccount{Id: organization.Id, Name: organization.Name}
+	remaining, err := model.GetOrganizationMemberRemainingQuota(organization.Id, userId)
+	if err != nil {
+		common.SysError("overview remaining allocation: " + err.Error())
+	} else {
+		current.RemainingQuota = &remaining
+	}
+	usage, err := model.GetUsageSummary(model.UsageScope{UserId: userId, OrganizationId: organization.Id}, window)
+	if err != nil {
+		common.SysError("overview organization usage: " + err.Error())
+	} else {
+		current.RecentUsage = &usage.ConsumeQuota
+	}
+	status.Organization = &current
+	common.ApiSuccess(c, status)
 }
 
 func GetAllFlowQuotaDates(c *gin.Context) {
