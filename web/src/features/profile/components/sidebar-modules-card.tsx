@@ -15,6 +15,7 @@ import { IconBadge } from '@/components/ui/icon-badge'
 import { Switch } from '@/components/ui/switch'
 import { api } from '@/lib/api'
 import { handleServerError } from '@/lib/handle-server-error'
+import { withSeparateReportModules } from '@/lib/sidebar-modules'
 import { useAuthStore } from '@/stores/auth-store'
 
 type SidebarModuleConfig = {
@@ -62,9 +63,19 @@ export function SidebarModulesCard() {
       description: t('Data management and log viewing'),
       modules: [
         {
+          key: 'overview',
+          title: t('Overview'),
+          description: t('Monitor balance, usage, and request volume'),
+        },
+        {
           key: 'detail',
           title: t('Dashboard'),
           description: t('System data statistics'),
+        },
+        {
+          key: 'usage_report',
+          title: t('Usage report'),
+          description: t('View and export usage reports by payer.'),
         },
         {
           key: 'token',
@@ -122,8 +133,13 @@ export function SidebarModulesCard() {
       const res = await api.get('/api/user/self')
       if (res.data.success && res.data.data?.sidebar_modules) {
         const raw = res.data.data.sidebar_modules
-        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
-        setConfig(parsed)
+        const parsed: SidebarModulesConfig =
+          typeof raw === 'string' ? JSON.parse(raw) : raw
+        setConfig(
+          parsed?.console
+            ? { ...parsed, console: withSeparateReportModules(parsed.console) }
+            : (parsed ?? {})
+        )
       } else {
         const defaults: SidebarModulesConfig = {}
         for (const sec of sectionDefs) {

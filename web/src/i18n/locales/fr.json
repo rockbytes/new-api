@@ -7329,6 +7329,7 @@
     "View all currently available models": "Voir tous les modèles actuellement disponibles",
     "View all top-up records, subscription plans, and user subscriptions.": "Afficher tout l’historique des recharges, les plans d’abonnement et les abonnements des utilisateurs.",
     "View all users' usage logs, statistics, and tasks.": "Afficher les journaux d’utilisation, les statistiques et les tâches de tous les utilisateurs.",
+    "View and export usage reports by payer.": "Consultez et exportez les rapports d’utilisation par payeur.",
     "View API keys and their settings without the full key.": "Afficher les clés API et leurs paramètres, sans la clé complète.",
     "View API token key": "Consulter la clé d’un jeton API",
     "View API token keys in batch": "Consulter les clés de jetons API par lot",

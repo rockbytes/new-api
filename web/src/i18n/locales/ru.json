@@ -7329,6 +7329,7 @@
     "View all currently available models": "Просмотреть все доступные модели",
     "View all top-up records, subscription plans, and user subscriptions.": "Просмотр всех пополнений, планов подписки и подписок пользователей.",
     "View all users' usage logs, statistics, and tasks.": "Просмотр журналов использования, статистики и задач всех пользователей.",
+    "View and export usage reports by payer.": "Просматривайте и экспортируйте отчёты об использовании по плательщикам.",
     "View API keys and their settings without the full key.": "Просмотр API-ключей и их настроек без полного ключа.",
     "View API token key": "Просмотр ключа токена API",
     "View API token keys in batch": "Массовый просмотр ключей токенов API",

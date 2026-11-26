@@ -7329,6 +7329,7 @@
     "View all currently available models": "查看目前可用的所有模型",
     "View all top-up records, subscription plans, and user subscriptions.": "檢視所有儲值記錄、訂閱套餐和用戶訂閱。",
     "View all users' usage logs, statistics, and tasks.": "檢視所有用戶的使用日誌、統計和任務。",
+    "View and export usage reports by payer.": "依付款方檢視和匯出用量報表。",
     "View API keys and their settings without the full key.": "檢視 API 金鑰及其設定，不含完整金鑰。",
     "View API token key": "檢視 API 權杖金鑰",
     "View API token keys in batch": "批次檢視 API 權杖金鑰",

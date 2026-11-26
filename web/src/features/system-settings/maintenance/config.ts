@@ -1,3 +1,5 @@
+import { withSeparateReportModules } from '@/lib/sidebar-modules'
+
 type HeaderNavAccessConfig = {
   enabled: boolean
   requireAuth: boolean
@@ -43,7 +45,9 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
   },
   console: {
     enabled: true,
+    overview: true,
     detail: true,
+    usage_report: true,
     token: true,
     log: true,
     audit: true,
@@ -202,7 +206,10 @@ export function parseSidebarModulesAdmin(
         }
       )
 
-      result[sectionKey] = sectionConfig
+      result[sectionKey] =
+        sectionKey === 'console'
+          ? withSeparateReportModules(sectionConfig)
+          : sectionConfig
     })
 
     // Merge defaults to ensure expected sections exist

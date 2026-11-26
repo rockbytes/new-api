@@ -7329,6 +7329,7 @@
     "View all currently available models": "Xem tất cả mô hình hiện có",
     "View all top-up records, subscription plans, and user subscriptions.": "Xem toàn bộ lịch sử nạp tiền, gói đăng ký và đăng ký của người dùng.",
     "View all users' usage logs, statistics, and tasks.": "Xem nhật ký sử dụng, thống kê và tác vụ của mọi người dùng.",
+    "View and export usage reports by payer.": "Xem và xuất báo cáo sử dụng theo bên thanh toán.",
     "View API keys and their settings without the full key.": "Xem khóa API và cài đặt của chúng, không gồm khóa đầy đủ.",
     "View API token key": "Xem khóa mã thông báo API",
     "View API token keys in batch": "Xem hàng loạt khóa mã thông báo API",

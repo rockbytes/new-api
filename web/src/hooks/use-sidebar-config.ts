@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 
 import type { NavGroup, NavItem } from '@/components/layout/types'
 import { useStatus } from '@/hooks/use-status'
+import { withSeparateReportModules } from '@/lib/sidebar-modules'
 import { useAuthStore } from '@/stores/auth-store'
 
 type SidebarSectionConfig = {
@@ -26,7 +27,9 @@ const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
   },
   console: {
     enabled: true,
+    overview: true,
     detail: true,
+    usage_report: true,
     token: true,
     log: true,
     audit: true,
@@ -69,7 +72,12 @@ const mergeWithDefaultSidebarModules = (
         return
       }
 
-      merged[sectionKey] = { ...defaultSection, ...existingSection }
+      merged[sectionKey] = {
+        ...defaultSection,
+        ...(sectionKey === 'console'
+          ? withSeparateReportModules(existingSection)
+          : existingSection),
+      }
       Object.keys(defaultSection).forEach((moduleKey) => {
         if (merged[sectionKey][moduleKey] === undefined) {
           merged[sectionKey][moduleKey] = defaultSection[moduleKey]
@@ -86,11 +94,11 @@ const mergeWithDefaultSidebarModules = (
  */
 const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/playground': { section: 'chat', module: 'playground' },
-  '/dashboard': { section: 'console', module: 'detail' },
-  '/dashboard/overview': { section: 'console', module: 'detail' },
+  '/dashboard': { section: 'console', module: 'overview' },
+  '/dashboard/overview': { section: 'console', module: 'overview' },
   '/dashboard/models': { section: 'console', module: 'detail' },
   '/dashboard/users': { section: 'console', module: 'detail' },
-  '/usage-report': { section: 'console', module: 'detail' },
+  '/usage-report': { section: 'console', module: 'usage_report' },
   '/platform-ops': { section: 'admin', module: 'platform' },
   '/keys': { section: 'console', module: 'token' },
   '/usage-logs': { section: 'console', module: 'log' },
@@ -149,7 +157,9 @@ function parseUserSidebarConfig(
   try {
     const parsed = JSON.parse(value) as SidebarModulesAdminConfig
     if (!parsed || typeof parsed !== 'object') return null
-    return parsed
+    return parsed.console
+      ? { ...parsed, console: withSeparateReportModules(parsed.console) }
+      : parsed
   } catch {
     return null
   }

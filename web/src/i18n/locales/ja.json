@@ -7329,6 +7329,7 @@
     "View all currently available models": "現在利用可能なすべてのモデルを表示",
     "View all top-up records, subscription plans, and user subscriptions.": "すべてのチャージ履歴、サブスクリプションプラン、ユーザーのサブスクリプションを表示します。",
     "View all users' usage logs, statistics, and tasks.": "すべてのユーザーの利用ログ、統計、タスクを表示します。",
+    "View and export usage reports by payer.": "支払者別の利用レポートを表示・エクスポートします。",
     "View API keys and their settings without the full key.": "API キーとその設定を表示します（完全なキーは含みません）。",
     "View API token key": "API トークンキーを表示",
     "View API token keys in batch": "API トークンキーを一括表示",

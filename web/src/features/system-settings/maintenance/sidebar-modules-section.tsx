@@ -84,9 +84,17 @@ export function SidebarModulesSection({
       },
     },
     console: {
+      overview: {
+        title: t('Overview'),
+        description: t('Monitor balance, usage, and request volume'),
+      },
       detail: {
         title: t('Dashboard'),
         description: t('Aggregated usage metrics and trend charts.'),
+      },
+      usage_report: {
+        title: t('Usage report'),
+        description: t('View and export usage reports by payer.'),
       },
       token: {
         title: t('Token management'),

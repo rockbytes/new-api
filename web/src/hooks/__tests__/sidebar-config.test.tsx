@@ -102,6 +102,89 @@ describe('security sidebar visibility', () => {
   })
 })
 
+describe('console report sidebar entries', () => {
+  const reportTitles = new Set(['Overview', 'Dashboard', 'Usage report'])
+
+  function visibleReports(admin?: object, user?: object) {
+    const { result } = sidebarFor(admin, user)
+    return result.current
+      .flatMap((group) => group.items)
+      .map((item) => item.title)
+      .filter((title) => reportTitles.has(title))
+  }
+
+  it.each([
+    ['overview', ['Dashboard', 'Usage report']],
+    ['detail', ['Overview', 'Usage report']],
+    ['usage_report', ['Overview', 'Dashboard']],
+  ])(
+    'hides only the report whose %s switch is disabled',
+    (module, expected) => {
+      const console = {
+        enabled: true,
+        overview: true,
+        detail: true,
+        usage_report: true,
+        [module]: false,
+      }
+      expect(visibleReports({ console })).toEqual(expected)
+    }
+  )
+
+  it('inherits the old dashboard setting until the new switches are explicitly set', () => {
+    expect(
+      visibleReports({ console: { enabled: true, detail: false } })
+    ).toEqual([])
+    const config = parseSidebarModulesAdmin(
+      '{"console":{"enabled":true,"detail":false}}'
+    )
+    expect(config.console).toMatchObject({
+      overview: false,
+      detail: false,
+      usage_report: false,
+    })
+    config.console.usage_report = true
+    const saved = JSON.parse(serializeSidebarModulesAdmin(config))
+    expect(visibleReports(saved)).toEqual(['Usage report'])
+  })
+
+  it('respects personal preferences without re-enabling a report hidden by the administrator', () => {
+    const admin = {
+      console: {
+        enabled: true,
+        overview: false,
+        detail: true,
+        usage_report: true,
+      },
+    }
+    const user = {
+      console: {
+        enabled: true,
+        overview: true,
+        detail: false,
+        usage_report: true,
+      },
+    }
+    expect(visibleReports(admin, user)).toEqual(['Usage report'])
+    expect(visibleReports(undefined, { console: { detail: false } })).toEqual(
+      []
+    )
+  })
+
+  it('hides all three when the console section is disabled', () => {
+    expect(
+      visibleReports({
+        console: {
+          enabled: false,
+          overview: true,
+          detail: true,
+          usage_report: true,
+        },
+      })
+    ).toEqual([])
+  })
+})
+
 describe('audit log sidebar entry', () => {
   it('admin settings default Audit Logs to visible and preserve its independent toggle when saved', () => {
     const config = parseSidebarModulesAdmin(
