@@ -6,6 +6,8 @@ import { StaticDataTable } from '@/components/data-table/static/static-data-tabl
 import { StaticRowActions } from '@/components/data-table/static/static-row-actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatNumber } from '@/lib/format'
 
 import { safeJsonParseWithValidation } from '../utils/json-parser'
 import { isObjectRecord } from '../utils/json-validators'
@@ -22,7 +24,8 @@ export function RateLimitVisualEditor({
   value,
   onChange,
 }: RateLimitVisualEditorProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const [searchText, setSearchText] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editData, setEditData] = useState<RateLimitEntry | null>(null)
@@ -114,7 +117,7 @@ export function RateLimitVisualEditor({
             className='pl-9'
           />
         </div>
-        <Button onClick={handleAdd}>
+        <Button type='button' onClick={handleAdd}>
           <Plus className='mr-2 h-4 w-4' />
           {t('Add group')}
         </Button>
@@ -146,7 +149,7 @@ export function RateLimitVisualEditor({
               <span className='font-mono'>
                 {limit.maxRequests === 0
                   ? t('Unlimited')
-                  : limit.maxRequests.toLocaleString()}
+                  : formatNumber(limit.maxRequests, locale)}
               </span>
             ),
           },
@@ -157,7 +160,9 @@ export function RateLimitVisualEditor({
             cellClassName: 'text-right',
             cell: (limit) => (
               <span className='font-mono'>
-                {limit.maxSuccess.toLocaleString()}
+                {limit.maxSuccess === 0
+                  ? t('Unlimited')
+                  : formatNumber(limit.maxSuccess, locale)}
               </span>
             ),
           },
@@ -184,6 +189,7 @@ export function RateLimitVisualEditor({
         onOpenChange={setDialogOpen}
         onSave={handleSave}
         editData={editData}
+        configuredGroups={rateLimits.map((limit) => limit.groupName)}
       />
     </div>
   )

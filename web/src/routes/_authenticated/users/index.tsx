@@ -18,6 +18,7 @@ const usersSearchSchema = z.object({
     .optional()
     .catch([]),
   group: z.array(z.string()).optional().catch([]),
+  has_rate_limit_override: z.literal(true).optional().catch(undefined),
 })
 
 export const Route = createFileRoute('/_authenticated/users/')({

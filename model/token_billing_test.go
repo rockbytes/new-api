@@ -56,7 +56,7 @@ func setupTokenBillingTest(t *testing.T) (activeOrgId int, suspendedOrgId int, d
 			_ = sqlDB.Close()
 		}
 	})
-	require.NoError(t, db.AutoMigrate(&User{}, &Token{}, &Organization{}, &OrganizationMembership{}, &OrganizationMemberQuota{},
+	require.NoError(t, db.AutoMigrate(&User{}, &UserModelRateLimit{}, &Token{}, &Organization{}, &OrganizationMembership{}, &OrganizationMemberQuota{},
 		&Log{}, &Task{}, &UserSession{}, &UserAccessToken{}, &AuthFlow{}, &PasskeyCredential{}, &TwoFA{}, &TwoFABackupCode{},
 		&ExternalIdentityClaim{}, &UserOAuthBinding{}))
 	for _, id := range []int{10, 11, 12} {

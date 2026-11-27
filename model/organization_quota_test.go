@@ -102,7 +102,7 @@ func setupOrganizationQuotaTestDB(t *testing.T) (organizationId int, memberId in
 			_ = sqlDB.Close()
 		}
 	})
-	require.NoError(t, db.AutoMigrate(&User{}, &Token{}, &Organization{}, &OrganizationMembership{}, &OrganizationQuotaAccount{},
+	require.NoError(t, db.AutoMigrate(&User{}, &UserModelRateLimit{}, &Token{}, &Organization{}, &OrganizationMembership{}, &OrganizationQuotaAccount{},
 		&OrganizationMemberQuota{}, &OrganizationQuotaLedgerEntry{}))
 
 	organization := &Organization{Name: "Quota Co", Status: OrganizationStatusActive, CreatedTime: 1, UpdatedTime: 1}

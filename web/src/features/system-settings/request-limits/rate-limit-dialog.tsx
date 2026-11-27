@@ -1,11 +1,14 @@
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
 
 import { Dialog } from '@/components/dialog'
+import { RateLimitCountInput } from '@/components/rate-limit-count-input'
 import { Button } from '@/components/ui/button'
+import { Combobox } from '@/components/ui/combobox'
 import {
   Form,
   FormControl,
@@ -16,17 +19,14 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { getUserGroups } from '@/lib/api'
+import { rateLimitCountSchema } from '@/lib/rate-limits'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 const rateLimitDialogSchema = z.object({
-  groupName: z.string().min(1, 'Group name is required'),
-  maxRequests: z
-    .number()
-    .min(0, 'Must be ≥ 0')
-    .max(2147483647, 'Must be ≤ 2,147,483,647'),
-  maxSuccess: z
-    .number()
-    .min(1, 'Must be ≥ 1')
-    .max(2147483647, 'Must be ≤ 2,147,483,647'),
+  groupName: z.string().min(1, 'Select a request group.'),
+  maxRequests: rateLimitCountSchema,
+  maxSuccess: rateLimitCountSchema,
 })
 
 type RateLimitDialogFormValues = z.infer<typeof rateLimitDialogSchema>
@@ -44,6 +44,7 @@ type RateLimitDialogProps = {
   onOpenChange: (open: boolean) => void
   onSave: (data: RateLimitEntryData) => void
   editData?: RateLimitEntryData | null
+  configuredGroups: readonly string[]
 }
 
 export function RateLimitDialog({
@@ -51,16 +52,28 @@ export function RateLimitDialog({
   onOpenChange,
   onSave,
   editData,
+  configuredGroups,
 }: RateLimitDialogProps) {
   const { t } = useTranslation()
   const isEditMode = !!editData
+  const groups = useQuery({
+    queryKey: ['user-groups'],
+    queryFn: async () => requireServerSuccess(await getUserGroups()),
+    enabled: open && !isEditMode,
+    meta: { errorToast: false },
+  })
+  const groupOptions = Object.keys(groups.data?.data ?? {})
+    .filter((name) => !configuredGroups.includes(name))
+    .sort((a, b) => a.localeCompare(b))
+    .map((name) => ({ value: name, label: name }))
+  const canChooseGroup = groups.isSuccess && groupOptions.length > 0
 
   const form = useForm<RateLimitDialogFormValues>({
     resolver: zodResolver(rateLimitDialogSchema),
     defaultValues: {
       groupName: '',
       maxRequests: 0,
-      maxSuccess: 1,
+      maxSuccess: 0,
     },
   })
 
@@ -71,12 +84,19 @@ export function RateLimitDialog({
       form.reset({
         groupName: '',
         maxRequests: 0,
-        maxSuccess: 1,
+        maxSuccess: 0,
       })
     }
   }, [editData, form, open])
 
   const handleSubmit = (values: RateLimitDialogFormValues) => {
+    if (
+      !isEditMode &&
+      !groupOptions.some((option) => option.value === values.groupName)
+    ) {
+      form.setError('groupName', { message: 'Select a request group.' })
+      return
+    }
     onSave(values)
     form.reset()
     onOpenChange(false)
@@ -89,9 +109,7 @@ export function RateLimitDialog({
       title={
         isEditMode ? t('Edit group rate limit') : t('Add group rate limit')
       }
-      description={t(
-        'Configure rate limiting rules for a specific user group.'
-      )}
+      description={t('Set additional request limits per user in this group.')}
       contentClassName='sm:max-w-[500px]'
       contentHeight='auto'
       bodyClassName='space-y-4'
@@ -104,7 +122,11 @@ export function RateLimitDialog({
           >
             {t('Cancel')}
           </Button>
-          <Button type='submit' form={RATE_LIMIT_FORM_ID}>
+          <Button
+            type='submit'
+            form={RATE_LIMIT_FORM_ID}
+            disabled={!isEditMode && !canChooseGroup}
+          >
             {isEditMode ? t('Update') : t('Add')}
           </Button>
         </>
@@ -113,7 +135,11 @@ export function RateLimitDialog({
       <Form {...form}>
         <form
           id={RATE_LIMIT_FORM_ID}
-          onSubmit={form.handleSubmit(handleSubmit)}
+          noValidate
+          onSubmit={(event) => {
+            event.stopPropagation()
+            void form.handleSubmit(handleSubmit)(event)
+          }}
           className='space-y-4'
         >
           <FormField
@@ -122,18 +148,58 @@ export function RateLimitDialog({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>{t('Group Name')}</FormLabel>
-                <FormControl>
-                  <Input
-                    placeholder={t('e.g., default, vip, premium')}
-                    {...field}
-                    disabled={isEditMode}
-                  />
-                </FormControl>
-                <FormDescription>
-                  {isEditMode
-                    ? t('Group name cannot be changed when editing.')
-                    : t('Unique identifier for this group.')}
-                </FormDescription>
+                {isEditMode ? (
+                  <FormControl>
+                    <Input {...field} readOnly />
+                  </FormControl>
+                ) : (
+                  <FormControl>
+                    <Combobox
+                      options={groupOptions}
+                      value={field.value}
+                      onValueChange={(value) => field.onChange(value ?? '')}
+                      onBlur={field.onBlur}
+                      name={field.name}
+                      ref={field.ref}
+                      placeholder={t('Search groups...')}
+                      emptyText={t('No groups match your search')}
+                      disabled={!canChooseGroup}
+                    />
+                  </FormControl>
+                )}
+                {isEditMode && (
+                  <FormDescription>
+                    {t('Group name cannot be changed when editing.')}
+                  </FormDescription>
+                )}
+                {!isEditMode && groups.isPending && (
+                  <FormDescription role='status'>
+                    {t('Loading...')}
+                  </FormDescription>
+                )}
+                {!isEditMode && groups.isError && (
+                  <div className='flex items-center gap-2'>
+                    <FormDescription role='alert'>
+                      {t('Failed to load groups')}
+                    </FormDescription>
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      disabled={groups.isFetching}
+                      onClick={() => void groups.refetch()}
+                    >
+                      {t('Retry')}
+                    </Button>
+                  </div>
+                )}
+                {!isEditMode &&
+                  groups.isSuccess &&
+                  groupOptions.length === 0 && (
+                    <FormDescription>
+                      {t('No unconfigured request groups available.')}
+                    </FormDescription>
+                  )}
                 <FormMessage />
               </FormItem>
             )}
@@ -146,25 +212,9 @@ export function RateLimitDialog({
               <FormItem>
                 <FormLabel>{t('Max Requests (including failures)')}</FormLabel>
                 <FormControl>
-                  <div className='flex items-center gap-2'>
-                    <Input
-                      type='number'
-                      min={0}
-                      max={2147483647}
-                      step={1}
-                      {...field}
-                      onChange={(e) =>
-                        field.onChange(Number.parseInt(e.target.value) || 0)
-                      }
-                    />
-                    <span className='text-muted-foreground text-sm'>
-                      {t('times')}
-                    </span>
-                  </div>
+                  <RateLimitCountInput {...field} />
                 </FormControl>
-                <FormDescription>
-                  {t('Total requests allowed per period. 0 = unlimited.')}
-                </FormDescription>
+                <FormDescription>{t('0 means unlimited')}</FormDescription>
                 <FormMessage />
               </FormItem>
             )}
@@ -177,25 +227,9 @@ export function RateLimitDialog({
               <FormItem>
                 <FormLabel>{t('Max Successful Requests')}</FormLabel>
                 <FormControl>
-                  <div className='flex items-center gap-2'>
-                    <Input
-                      type='number'
-                      min={1}
-                      max={2147483647}
-                      step={1}
-                      {...field}
-                      onChange={(e) =>
-                        field.onChange(Number.parseInt(e.target.value) || 1)
-                      }
-                    />
-                    <span className='text-muted-foreground text-sm'>
-                      {t('times')}
-                    </span>
-                  </div>
+                  <RateLimitCountInput {...field} />
                 </FormControl>
-                <FormDescription>
-                  {t('Only successful requests count toward this limit.')}
-                </FormDescription>
+                <FormDescription>{t('0 means unlimited')}</FormDescription>
                 <FormMessage />
               </FormItem>
             )}

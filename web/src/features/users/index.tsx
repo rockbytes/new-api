@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 
+import { UserRateLimitDialog } from './components/dialogs/user-rate-limit-dialog'
 import { UsersDeleteDialog } from './components/users-delete-dialog'
 import { UsersMutateDrawer } from './components/users-mutate-drawer'
 import { UsersPrimaryButtons } from './components/users-primary-buttons'
@@ -10,7 +11,7 @@ import { UsersTable } from './components/users-table'
 
 function UsersContent() {
   const { t } = useTranslation()
-  const { open, setOpen, currentRow } = useUsers()
+  const { open, setOpen, currentRow, triggerRefresh } = useUsers()
 
   return (
     <>
@@ -30,6 +31,15 @@ function UsersContent() {
         currentRow={open === 'update' ? currentRow || undefined : undefined}
       />
       <UsersDeleteDialog />
+      {open === 'rate-limit' && currentRow && (
+        <UserRateLimitDialog
+          key={currentRow.id}
+          userId={currentRow.id}
+          username={currentRow.username}
+          onClose={() => setOpen(null)}
+          onSaved={triggerRefresh}
+        />
+      )}
     </>
   )
 }

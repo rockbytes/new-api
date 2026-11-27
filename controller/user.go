@@ -375,7 +375,8 @@ func SearchUsers(c *gin.Context) {
 	}
 	pageInfo := common.GetPageQuery(c)
 	sortOptions := model.NewUserSortOptions(c.Query("sort_by"), c.Query("sort_order"))
-	users, total, err := model.SearchUsers(keyword, group, role, status, organizationId, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
+	hasRateLimitOverride := c.Query("has_rate_limit_override") == "true"
+	users, total, err := model.SearchUsers(keyword, group, role, status, organizationId, hasRateLimitOverride, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
 	if err != nil {
 		common.ApiError(c, err)
 		return

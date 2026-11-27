@@ -1,6 +1,14 @@
 import { z } from 'zod'
 
 import type { AdminPermissionMatrix } from '@/lib/admin-permissions'
+import type { RateLimitCounts } from '@/lib/rate-limits'
+
+export type UserRateLimit = {
+  enabled: boolean
+  duration_minutes: number
+  defaults: RateLimitCounts
+  override: RateLimitCounts | null
+}
 
 // ============================================================================
 // User Schema & Types
@@ -102,6 +110,7 @@ export interface SearchUsersParams {
   status?: string
   // '0' selects users without an organization; an organization ID selects its members.
   organization_id?: string
+  has_rate_limit_override?: boolean
   p?: number
   page_size?: number
   sort_by?: UserSortBy
@@ -143,4 +152,4 @@ export interface ManageUserQuotaPayload {
 // Dialog Types
 // ============================================================================
 
-export type UsersDialogType = 'create' | 'update' | 'delete'
+export type UsersDialogType = 'create' | 'update' | 'delete' | 'rate-limit'

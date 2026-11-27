@@ -88,7 +88,7 @@ func setupResponsesWSRequestTest(t *testing.T) (*model.User, *model.Token) {
 		setting.ModelRequestRateLimitMutex.Unlock()
 		require.NoError(t, sqlDB.Close())
 	})
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.UserModelRateLimit{}))
 	// The shared in-memory limiter outlives each database fixture. Give every
 	// user a separate quota bucket, including when the tests run with -count.
 	user := &model.User{Id: 5062000 + int(responsesWSTestUserSequence.Add(1)), Username: "responses-ws-user", Status: common.UserStatusEnabled, Group: "default", Quota: 1000, AuthVersion: 1}
@@ -187,6 +187,7 @@ func TestResponsesWSRequestRunnerRefreshesBillingContextAndCleansBody(t *testing
 }
 
 func TestResponsesWSRequestRunnerRejectsRevokedCredentials(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	for _, tc := range []struct {
 		name   string
 		status int
@@ -229,13 +230,14 @@ func TestResponsesWSRequestRunnerRejectsRevokedCredentials(t *testing.T) {
 	}
 }
 
-func TestResponsesWSRequestRunnerUsesExistingMemoryRateLimit(t *testing.T) {
+func TestResponsesWSRequestRunnerAppliesSavedUserRateLimit(t *testing.T) {
 	require.NoError(t, i18n.Init())
-	_, token := setupResponsesWSRequestTest(t)
+	user, token := setupResponsesWSRequestTest(t)
 	setting.ModelRequestRateLimitEnabled = true
 	setting.ModelRequestRateLimitDurationMinutes = 1
-	setting.ModelRequestRateLimitCount = 1
+	setting.ModelRequestRateLimitCount = 10
 	setting.ModelRequestRateLimitSuccessCount = 100
+	require.NoError(t, user.SetModelRateLimit(t.Context(), &model.UserModelRateLimit{Total: 1}))
 	runner, _ := newResponsesWSTestRunner(t, token)
 	called := 0
 	handle := func(*gin.Context) *types.NewAPIError { called++; return nil }

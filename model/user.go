@@ -562,7 +562,7 @@ func GetAllUsers(pageInfo *common.PageInfo, sortOptions ...UserSortOptions) (use
 	return users, total, nil
 }
 
-func SearchUsers(keyword string, group string, role *int, status *int, organizationId *int, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
+func SearchUsers(keyword string, group string, role *int, status *int, organizationId *int, hasRateLimitOverride bool, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
 	var users []*User
 	var total int64
 	var err error
@@ -610,6 +610,10 @@ func SearchUsers(keyword string, group string, role *int, status *int, organizat
 
 	if organizationId != nil {
 		query = applyUserOrganizationFilter(query, *organizationId)
+	}
+	if hasRateLimitOverride {
+		overrides := tx.Session(&gorm.Session{NewDB: true}).Model(&UserModelRateLimit{}).Select("user_id")
+		query = query.Where("users.id IN (?)", overrides)
 	}
 	// 获取总数
 	err = query.Count(&total).Error
@@ -1183,6 +1187,9 @@ func (user *User) hardDeleteWithTx(tx *gorm.DB) (hardDeleteResult, error) {
 		}
 	}
 	if err := deleteUserAuthenticationData(tx, user.Id); err != nil {
+		return result, err
+	}
+	if err := tx.Delete(&UserModelRateLimit{}, "user_id = ?", user.Id).Error; err != nil {
 		return result, err
 	}
 	return result, tx.Unscoped().Delete(user).Error

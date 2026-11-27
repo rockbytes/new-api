@@ -73,6 +73,13 @@ export function UsersTable() {
       { columnId: 'role', searchKey: 'role', type: 'array' },
       { columnId: 'group', searchKey: 'group', type: 'array' },
       { columnId: 'organization', searchKey: 'organization', type: 'array' },
+      {
+        columnId: 'has_rate_limit_override',
+        searchKey: 'has_rate_limit_override',
+        type: 'array',
+        serialize: () => true,
+        deserialize: (value) => (value === true ? ['true'] : []),
+      },
     ],
   })
   const statusFilter =
@@ -92,6 +99,10 @@ export function UsersTable() {
     (columnFilters.find((filter) => filter.id === 'organization')?.value as
       | string[]
       | undefined) ?? []
+
+  const hasRateLimitOverride = columnFilters.some(
+    (filter) => filter.id === 'has_rate_limit_override'
+  )
 
   const { data: groupsData } = useQuery({
     queryKey: ['groups'],
@@ -138,6 +149,7 @@ export function UsersTable() {
       roleFilter,
       groupFilter,
       organizationFilter,
+      hasRateLimitOverride,
       sortParams,
       refreshTrigger,
     ],
@@ -147,29 +159,31 @@ export function UsersTable() {
         statusFilter.length > 0 ||
         roleFilter.length > 0 ||
         groupFilter.length > 0 ||
-        organizationFilter.length > 0
+        organizationFilter.length > 0 ||
+        hasRateLimitOverride
+      const isSearching = hasFilter || hasColumnFilter
       const params = {
         p: pagination.pageIndex + 1,
         page_size: pagination.pageSize,
         ...sortParams,
       }
 
-      const result =
-        hasFilter || hasColumnFilter
-          ? await searchUsers({
-              ...params,
-              keyword: globalFilter,
-              status: statusFilter[0] ?? '',
-              role: roleFilter[0] ?? '',
-              group: groupFilter[0] ?? '',
-              organization_id: organizationFilter[0] ?? '',
-            })
-          : await getUsers(params)
+      const result = isSearching
+        ? await searchUsers({
+            ...params,
+            keyword: globalFilter,
+            status: statusFilter[0] ?? '',
+            role: roleFilter[0] ?? '',
+            group: groupFilter[0] ?? '',
+            organization_id: organizationFilter[0] ?? '',
+            has_rate_limit_override: hasRateLimitOverride,
+          })
+        : await getUsers(params)
 
       if (!result.success) {
         throw createServerError(
           result,
-          t(hasFilter ? 'Failed to search users' : 'Failed to load users')
+          t(isSearching ? 'Failed to search users' : 'Failed to load users')
         )
       }
 
@@ -187,6 +201,7 @@ export function UsersTable() {
     data: users,
     columns,
     enableRowSelection: true,
+    initialColumnVisibility: { has_rate_limit_override: false },
     columnFilters,
     globalFilter,
     pagination,
@@ -265,6 +280,12 @@ export function UsersTable() {
                 value: String(organization.id),
               })),
             ],
+            singleSelect: true,
+          },
+          {
+            columnId: 'has_rate_limit_override',
+            title: t('Rate limits'),
+            options: [{ label: t('Has custom limits'), value: 'true' }],
             singleSelect: true,
           },
         ],

@@ -3,20 +3,16 @@ package setting
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 )
 
-// maxRateLimitDurationSeconds is the largest window the count cap is computed
-// against (24h). Token-bucket capacity is count*duration; this keeps that
-// product inside int64 when the window is at most a day.
-const maxRateLimitDurationSeconds = 24 * 60 * 60
+const MaxModelRateLimitMinutes = 24 * 60
 
-// maxModelRequestRateLimitCount is math.MaxInt64 / maxRateLimitDurationSeconds.
-// It is the largest count that cannot overflow int64(count)*duration for a
-// window of at most 24 hours.
-const maxModelRequestRateLimitCount int64 = math.MaxInt64 / maxRateLimitDurationSeconds
+// Legacy group settings accept large counts. Retain that range for existing deployments.
+const maxModelRequestRateLimitCount int64 = math.MaxInt64 / (MaxModelRateLimitMinutes * 60)
 
 var ModelRequestRateLimitEnabled = false
 var ModelRequestRateLimitDurationMinutes = 1
@@ -24,6 +20,24 @@ var ModelRequestRateLimitCount = 0
 var ModelRequestRateLimitSuccessCount = 1000
 var ModelRequestRateLimitGroup = map[string][2]int{}
 var ModelRequestRateLimitMutex sync.RWMutex
+
+type ModelRequestRateLimitConfig struct {
+	Enabled         bool
+	DurationMinutes int
+	Total           int
+	Success         int
+	// Published group maps are immutable and replaced on update.
+	Groups map[string][2]int
+}
+
+func CurrentModelRequestRateLimit() ModelRequestRateLimitConfig {
+	ModelRequestRateLimitMutex.RLock()
+	defer ModelRequestRateLimitMutex.RUnlock()
+	return ModelRequestRateLimitConfig{
+		Enabled: ModelRequestRateLimitEnabled, DurationMinutes: ModelRequestRateLimitDurationMinutes,
+		Total: ModelRequestRateLimitCount, Success: ModelRequestRateLimitSuccessCount, Groups: ModelRequestRateLimitGroup,
+	}
+}
 
 func ModelRequestRateLimitGroup2JSONString() string {
 	ModelRequestRateLimitMutex.RLock()
@@ -37,42 +51,51 @@ func ModelRequestRateLimitGroup2JSONString() string {
 }
 
 func UpdateModelRequestRateLimitGroupByJSONString(jsonStr string) error {
-	ModelRequestRateLimitMutex.RLock()
-	defer ModelRequestRateLimitMutex.RUnlock()
-
-	ModelRequestRateLimitGroup = make(map[string][2]int)
-	return common.Unmarshal([]byte(jsonStr), &ModelRequestRateLimitGroup)
-}
-
-func GetGroupRateLimit(group string) (totalCount, successCount int, found bool) {
-	ModelRequestRateLimitMutex.RLock()
-	defer ModelRequestRateLimitMutex.RUnlock()
-
-	if ModelRequestRateLimitGroup == nil {
-		return 0, 0, false
-	}
-
-	limits, found := ModelRequestRateLimitGroup[group]
-	if !found {
-		return 0, 0, false
-	}
-	return limits[0], limits[1], true
-}
-
-func CheckModelRequestRateLimitGroup(jsonStr string) error {
-	checkModelRequestRateLimitGroup := make(map[string][2]int)
-	err := common.Unmarshal([]byte(jsonStr), &checkModelRequestRateLimitGroup)
+	groups, err := parseModelRequestRateLimitGroups(jsonStr)
 	if err != nil {
 		return err
 	}
-	for group, limits := range checkModelRequestRateLimitGroup {
-		if limits[0] < 0 || limits[1] < 1 {
-			return fmt.Errorf("group %s has negative rate limit values: [%d, %d]", group, limits[0], limits[1])
-		}
-		if int64(limits[0]) > maxModelRequestRateLimitCount || int64(limits[1]) > maxModelRequestRateLimitCount {
-			return fmt.Errorf("group %s [%d, %d] exceeds max rate limit %d", group, limits[0], limits[1], maxModelRequestRateLimitCount)
-		}
-	}
-
+	ModelRequestRateLimitMutex.Lock()
+	defer ModelRequestRateLimitMutex.Unlock()
+	ModelRequestRateLimitGroup = groups
 	return nil
+}
+
+func ValidateModelRequestRateLimitNumber(key string, value string) error {
+	limit, err := strconv.ParseInt(value, 10, 64)
+	upper := maxModelRequestRateLimitCount
+	if key == "ModelRequestRateLimitDurationMinutes" {
+		upper = MaxModelRateLimitMinutes
+	}
+	if err != nil || limit < 0 || limit > upper {
+		return fmt.Errorf("%s must be an integer between 0 and %d", key, upper)
+	}
+	return nil
+}
+
+func CheckModelRequestRateLimitGroup(jsonStr string) error {
+	_, err := parseModelRequestRateLimitGroups(jsonStr)
+	return err
+}
+
+func parseModelRequestRateLimitGroups(jsonStr string) (map[string][2]int, error) {
+	var rawGroups map[string][]*int
+	if err := common.Unmarshal([]byte(jsonStr), &rawGroups); err != nil {
+		return nil, err
+	}
+	if rawGroups == nil {
+		return nil, fmt.Errorf("group rate limits must be a JSON object")
+	}
+	groups := make(map[string][2]int, len(rawGroups))
+	for group, values := range rawGroups {
+		if group == "" || len(values) != 2 || values[0] == nil || values[1] == nil {
+			return nil, fmt.Errorf("group %q must configure both total and successful request limits", group)
+		}
+		total, success := *values[0], *values[1]
+		if total < 0 || success < 0 || int64(total) > maxModelRequestRateLimitCount || int64(success) > maxModelRequestRateLimitCount {
+			return nil, fmt.Errorf("group %q must have request limits between 0 and %d", group, maxModelRequestRateLimitCount)
+		}
+		groups[group] = [2]int{total, success}
+	}
+	return groups, nil
 }

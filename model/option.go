@@ -149,9 +149,10 @@ func InitOptionMap() {
 	common.OptionMap["QuotaRemindEnabled"] = strconv.FormatBool(common.QuotaRemindEnabled)
 	common.OptionMap["QuotaRemindThreshold"] = strconv.Itoa(common.QuotaRemindThreshold)
 	common.OptionMap["PreConsumedQuota"] = strconv.Itoa(common.PreConsumedQuota)
-	common.OptionMap["ModelRequestRateLimitCount"] = strconv.Itoa(setting.ModelRequestRateLimitCount)
-	common.OptionMap["ModelRequestRateLimitDurationMinutes"] = strconv.Itoa(setting.ModelRequestRateLimitDurationMinutes)
-	common.OptionMap["ModelRequestRateLimitSuccessCount"] = strconv.Itoa(setting.ModelRequestRateLimitSuccessCount)
+	modelRateLimit := setting.CurrentModelRequestRateLimit()
+	common.OptionMap["ModelRequestRateLimitCount"] = strconv.Itoa(modelRateLimit.Total)
+	common.OptionMap["ModelRequestRateLimitDurationMinutes"] = strconv.Itoa(modelRateLimit.DurationMinutes)
+	common.OptionMap["ModelRequestRateLimitSuccessCount"] = strconv.Itoa(modelRateLimit.Success)
 	common.OptionMap["ModelRequestRateLimitGroup"] = setting.ModelRequestRateLimitGroup2JSONString()
 	common.OptionMap["ModelRatio"] = ratio_setting.ModelRatio2JSONString()
 	common.OptionMap["ModelPrice"] = ratio_setting.ModelPrice2JSONString()
@@ -180,7 +181,7 @@ func InitOptionMap() {
 	common.OptionMap["CheckSensitiveEnabled"] = strconv.FormatBool(setting.CheckSensitiveEnabled)
 	common.OptionMap["DemoSiteEnabled"] = strconv.FormatBool(operation_setting.DemoSiteEnabled)
 	common.OptionMap["SelfUseModeEnabled"] = strconv.FormatBool(operation_setting.SelfUseModeEnabled)
-	common.OptionMap["ModelRequestRateLimitEnabled"] = strconv.FormatBool(setting.ModelRequestRateLimitEnabled)
+	common.OptionMap["ModelRequestRateLimitEnabled"] = strconv.FormatBool(modelRateLimit.Enabled)
 	common.OptionMap["CheckSensitiveOnPromptEnabled"] = strconv.FormatBool(setting.CheckSensitiveOnPromptEnabled)
 	common.OptionMap["StopOnSensitiveEnabled"] = strconv.FormatBool(setting.StopOnSensitiveEnabled)
 	common.OptionMap["SensitiveWords"] = setting.SensitiveWordsToString()
@@ -247,6 +248,12 @@ func SyncOptions(frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	switch key {
+	case "ModelRequestRateLimitGroup":
+		return setting.CheckModelRequestRateLimitGroup(value)
+	case "ModelRequestRateLimitCount", "ModelRequestRateLimitSuccessCount", "ModelRequestRateLimitDurationMinutes":
+		return setting.ValidateModelRequestRateLimitNumber(key, value)
+	}
 	if key == legacyAccessTokenRetireAtKey {
 		return errLegacyRetireAtReadOnly
 	}
@@ -305,6 +312,20 @@ func UpdateOption(key string, value string) error {
 	}
 	if err := validateOptionValue(key, value); err != nil {
 		return err
+	}
+	if key == "ModelRequestRateLimitEnabled" && value == "true" && setting.CurrentModelRequestRateLimit().DurationMinutes < 1 {
+		return common.NewMessage("Set a positive rate limit period before enabling model request rate limits")
+	}
+	if key == "ModelRequestRateLimitDurationMinutes" {
+		minutes, _ := strconv.Atoi(value) // Already validated above.
+		if minutes == 0 && setting.CurrentModelRequestRateLimit().Enabled {
+			return common.NewMessage("The rate limit period must be positive while model request rate limits are enabled")
+		}
+	}
+	switch key {
+	case "ModelRequestRateLimitEnabled", "ModelRequestRateLimitDurationMinutes", "ModelRequestRateLimitCount", "ModelRequestRateLimitSuccessCount", "ModelRequestRateLimitGroup":
+		// Do not publish live limits if their durable write failed.
+		return UpdateOptionsBulk(map[string]string{key: value})
 	}
 	// Save to database first
 	option := Option{
@@ -517,7 +538,9 @@ func updateOptionMap(key string, value string) (err error) {
 		case "CheckSensitiveOnPromptEnabled":
 			setting.CheckSensitiveOnPromptEnabled = boolValue
 		case "ModelRequestRateLimitEnabled":
+			setting.ModelRequestRateLimitMutex.Lock()
 			setting.ModelRequestRateLimitEnabled = boolValue
+			setting.ModelRequestRateLimitMutex.Unlock()
 		case "StopOnSensitiveEnabled":
 			setting.StopOnSensitiveEnabled = boolValue
 		case "SMTPSSLEnabled":
@@ -687,12 +710,22 @@ func updateOptionMap(key string, value string) (err error) {
 		common.QuotaRemindThreshold, _ = strconv.Atoi(value)
 	case "PreConsumedQuota":
 		common.PreConsumedQuota, _ = strconv.Atoi(value)
-	case "ModelRequestRateLimitCount":
-		setting.ModelRequestRateLimitCount, _ = strconv.Atoi(value)
-	case "ModelRequestRateLimitDurationMinutes":
-		setting.ModelRequestRateLimitDurationMinutes, _ = strconv.Atoi(value)
-	case "ModelRequestRateLimitSuccessCount":
-		setting.ModelRequestRateLimitSuccessCount, _ = strconv.Atoi(value)
+	case "ModelRequestRateLimitCount", "ModelRequestRateLimitDurationMinutes", "ModelRequestRateLimitSuccessCount":
+		var count int
+		count, err = strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		setting.ModelRequestRateLimitMutex.Lock()
+		switch key {
+		case "ModelRequestRateLimitCount":
+			setting.ModelRequestRateLimitCount = count
+		case "ModelRequestRateLimitDurationMinutes":
+			setting.ModelRequestRateLimitDurationMinutes = count
+		case "ModelRequestRateLimitSuccessCount":
+			setting.ModelRequestRateLimitSuccessCount = count
+		}
+		setting.ModelRequestRateLimitMutex.Unlock()
 	case "ModelRequestRateLimitGroup":
 		err = setting.UpdateModelRequestRateLimitGroupByJSONString(value)
 	case "RetryTimes":

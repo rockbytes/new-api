@@ -1,11 +1,12 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Code2, Palette } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
-import * as z from 'zod'
 
 import { JsonCodeEditor } from '@/components/json-code-editor'
+import { RateLimitCountInput } from '@/components/rate-limit-count-input'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -18,8 +19,10 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { RATE_LIMIT_WINDOW_MAX } from '@/lib/rate-limits'
 
 import {
+  SettingsControlGroup,
   SettingsForm,
   SettingsSwitchContent,
   SettingsSwitchItem,
@@ -27,278 +30,258 @@ import {
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
+import {
+  rateLimitSettingsSchema,
+  type RateLimitSettings,
+} from './lib/rate-limit-settings'
 import { RateLimitVisualEditor } from './rate-limit-visual-editor'
 
-const isValidJSON = (value: string | undefined) => {
-  if (!value || value.trim() === '') return true
-  try {
-    const parsed = JSON.parse(value)
-    if (typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return false
-    }
-    for (const [, val] of Object.entries(parsed)) {
-      if (!Array.isArray(val) || val.length !== 2) return false
-      if (typeof val[0] !== 'number' || typeof val[1] !== 'number') return false
-      if (val[0] < 0 || val[1] < 1) return false
-      if (val[0] > 2147483647 || val[1] > 2147483647) return false
-    }
-    return true
-  } catch {
-    return false
-  }
-}
+const ENABLED_OPTION = 'ModelRequestRateLimitEnabled'
 
-const createRateLimitSchema = (t: (key: string) => string) =>
-  z.object({
-    ModelRequestRateLimitEnabled: z.boolean(),
-    ModelRequestRateLimitDurationMinutes: z.number().min(0),
-    ModelRequestRateLimitCount: z.number().min(0).max(100000000),
-    ModelRequestRateLimitSuccessCount: z.number().min(1).max(100000000),
-    ModelRequestRateLimitGroup: z
-      .string()
-      .optional()
-      .refine(isValidJSON, {
-        message: t('Invalid JSON format or values out of allowed range'),
-      }),
-  })
-
-type RateLimitFormValues = z.infer<ReturnType<typeof createRateLimitSchema>>
-
-type RateLimitSectionProps = {
-  defaultValues: RateLimitFormValues
-}
-
-export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
+export function RateLimitSection(props: { defaultValues: RateLimitSettings }) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
   const [useVisualEditor, setUseVisualEditor] = useState(true)
-
-  const rateLimitSchema = createRateLimitSchema(t)
-
-  const form = useForm<RateLimitFormValues>({
-    resolver: zodResolver(rateLimitSchema),
-    mode: 'onChange', // Enable real-time validation
-    defaultValues,
+  const form = useForm<RateLimitSettings>({
+    resolver: zodResolver(rateLimitSettingsSchema),
+    mode: 'onChange',
+    defaultValues: props.defaultValues,
   })
+  const enabled = useWatch({ control: form.control, name: ENABLED_OPTION })
 
   useEffect(() => {
-    form.reset(defaultValues)
-  }, [defaultValues, form])
+    form.reset(props.defaultValues)
+  }, [props.defaultValues, form])
 
-  const onSubmit = async (values: RateLimitFormValues) => {
+  const onSubmit = async (values: RateLimitSettings) => {
+    const enabledChanged =
+      values[ENABLED_OPTION] !== props.defaultValues[ENABLED_OPTION]
     const updates = Object.entries(values).filter(
       ([key, value]) =>
-        value !== defaultValues[key as keyof RateLimitFormValues]
+        key !== ENABLED_OPTION &&
+        value !== props.defaultValues[key as keyof RateLimitSettings]
     )
 
-    for (const [key, value] of updates) {
-      await updateOption.mutateAsync({ key, value: value ?? '' })
+    // Options are written separately. A zero window is only valid while disabled.
+    if (enabledChanged) {
+      const enableUpdate: [string, boolean] = [
+        ENABLED_OPTION,
+        values[ENABLED_OPTION],
+      ]
+      if (values[ENABLED_OPTION]) updates.push(enableUpdate)
+      else updates.unshift(enableUpdate)
+    }
+
+    try {
+      for (const [key, value] of updates) {
+        await updateOption.mutateAsync({
+          key,
+          // Serialize integers as JSON numbers (the server rejects forms like 1e3).
+          value:
+            key === 'ModelRequestRateLimitGroup'
+              ? JSON.stringify(
+                  JSON.parse(String(value).trim() || '{}'),
+                  null,
+                  2
+                )
+              : value,
+        })
+      }
+    } catch {
+      // useUpdateOption reports the failure. Do not write any remaining options.
     }
   }
 
   return (
     <SettingsSection title={t('Rate Limiting')}>
       <Form {...form}>
-        <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
+        <SettingsForm noValidate onSubmit={form.handleSubmit(onSubmit)}>
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
-            isSaving={updateOption.isPending}
+            isSaving={form.formState.isSubmitting}
             saveLabel='Save rate limits'
           />
-          <FormField
-            control={form.control}
-            name='ModelRequestRateLimitEnabled'
-            render={({ field }) => (
-              <SettingsSwitchItem>
-                <SettingsSwitchContent>
-                  <FormLabel>{t('Enable rate limiting')}</FormLabel>
-                  <FormDescription>
-                    {t(
-                      'This controls model request rate limiting. Web/API route throttling is configured by environment variables and may still return 429.'
-                    )}
-                  </FormDescription>
-                </SettingsSwitchContent>
-                <FormControl>
-                  <Switch
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-              </SettingsSwitchItem>
+          <SettingsControlGroup>
+            <h3 className='font-medium'>{t('Model request rate limiting')}</h3>
+            <FormField
+              control={form.control}
+              name={ENABLED_OPTION}
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>{t('Enable rate limiting')}</FormLabel>
+                    <FormDescription>
+                      {t(
+                        'This controls model request rate limiting. Web/API route throttling is configured by environment variables and may still return 429.'
+                      )}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={(checked) => {
+                        field.onChange(checked)
+                        void form.trigger(
+                          'ModelRequestRateLimitDurationMinutes'
+                        )
+                      }}
+                    />
+                  </FormControl>
+                </SettingsSwitchItem>
+              )}
+            />
+            {!enabled && (
+              <Alert>
+                <AlertDescription>
+                  {t(
+                    'Saved limits are not enforced while model request rate limiting is off.'
+                  )}
+                </AlertDescription>
+              </Alert>
             )}
-          />
-
-          <div className='grid gap-4 md:grid-cols-3'>
             <FormField
               control={form.control}
               name='ModelRequestRateLimitDurationMinutes'
               render={({ field }) => (
-                <FormItem>
+                <FormItem className='sm:max-w-md'>
                   <FormLabel>{t('Limit period')}</FormLabel>
-                  <FormControl>
-                    <div className='flex items-center gap-2'>
+                  <div className='flex items-center gap-2'>
+                    <FormControl>
                       <Input
-                        type='number'
-                        min={0}
-                        step={1}
                         {...field}
-                        onChange={(e) =>
-                          field.onChange(Number.parseInt(e.target.value) || 0)
+                        type='number'
+                        min={enabled ? 1 : 0}
+                        max={RATE_LIMIT_WINDOW_MAX}
+                        step={1}
+                        value={Number.isFinite(field.value) ? field.value : ''}
+                        onChange={(event) =>
+                          field.onChange(event.target.valueAsNumber)
                         }
                       />
-                      <span className='text-muted-foreground text-sm'>
-                        {t('minutes')}
-                      </span>
-                    </div>
-                  </FormControl>
+                    </FormControl>
+                    <span className='text-muted-foreground text-sm'>
+                      {t('minutes')}
+                    </span>
+                  </div>
                   <FormDescription>
-                    {t('Time window for rate limiting')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='ModelRequestRateLimitCount'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Max requests per period')}</FormLabel>
-                  <FormControl>
-                    <div className='flex items-center gap-2'>
-                      <Input
-                        type='number'
-                        min={0}
-                        max={100000000}
-                        step={1}
-                        {...field}
-                        onChange={(e) =>
-                          field.onChange(Number.parseInt(e.target.value) || 0)
-                        }
-                      />
-                      <span className='text-muted-foreground text-sm'>
-                        {t('times')}
-                      </span>
-                    </div>
-                  </FormControl>
-                  <FormDescription>
-                    {t('Including failed requests, 0 = unlimited')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='ModelRequestRateLimitSuccessCount'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Max successful requests')}</FormLabel>
-                  <FormControl>
-                    <div className='flex items-center gap-2'>
-                      <Input
-                        type='number'
-                        min={1}
-                        max={100000000}
-                        step={1}
-                        {...field}
-                        onChange={(e) =>
-                          field.onChange(Number.parseInt(e.target.value) || 1)
-                        }
-                      />
-                      <span className='text-muted-foreground text-sm'>
-                        {t('times')}
-                      </span>
-                    </div>
-                  </FormControl>
-                  <FormDescription>
-                    {t('Only successful requests')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-
-          <FormField
-            control={form.control}
-            name='ModelRequestRateLimitGroup'
-            render={({ field }) => (
-              <FormItem>
-                <div className='flex items-center justify-between'>
-                  <FormLabel>{t('Group-based rate limits')}</FormLabel>
-                  <Button
-                    type='button'
-                    variant='outline'
-                    size='sm'
-                    onClick={() => setUseVisualEditor(!useVisualEditor)}
-                  >
-                    {useVisualEditor ? (
-                      <>
-                        <Code2 className='mr-2 h-4 w-4' />
-                        {t('JSON Mode')}
-                      </>
-                    ) : (
-                      <>
-                        <Palette className='mr-2 h-4 w-4' />
-                        {t('Visual Mode')}
-                      </>
+                    {t(
+                      'User and group limits use this same time window in minutes.'
                     )}
-                  </Button>
-                </div>
-                <FormControl>
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </SettingsControlGroup>
+
+          <SettingsControlGroup>
+            <h3 className='font-medium'>{t('Default limits per user')}</h3>
+            <p className='text-muted-foreground text-sm'>
+              {t(
+                'Each user is counted separately. These defaults apply only to users without custom limits.'
+              )}
+            </p>
+            <div className='grid gap-4 sm:grid-cols-2'>
+              <FormField
+                control={form.control}
+                name='ModelRequestRateLimitCount'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {t('Max Requests (including failures)')}
+                    </FormLabel>
+                    <FormControl>
+                      <RateLimitCountInput {...field} />
+                    </FormControl>
+                    <FormDescription>{t('0 means unlimited')}</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='ModelRequestRateLimitSuccessCount'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Max Successful Requests')}</FormLabel>
+                    <FormControl>
+                      <RateLimitCountInput {...field} />
+                    </FormControl>
+                    <FormDescription>{t('0 means unlimited')}</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </SettingsControlGroup>
+
+          <SettingsControlGroup>
+            <FormField
+              control={form.control}
+              name='ModelRequestRateLimitGroup'
+              render={({ field }) => (
+                <FormItem>
+                  <div className='flex flex-wrap items-center justify-between gap-2'>
+                    <h3 className='font-medium'>
+                      {useVisualEditor ? (
+                        t('Additional limits by request group')
+                      ) : (
+                        <FormLabel>
+                          {t('Additional limits by request group')}
+                        </FormLabel>
+                      )}
+                    </h3>
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      onClick={() => setUseVisualEditor((value) => !value)}
+                    >
+                      {useVisualEditor ? (
+                        <Code2 aria-hidden='true' />
+                      ) : (
+                        <Palette aria-hidden='true' />
+                      )}
+                      {useVisualEditor ? t('JSON Mode') : t('Visual Mode')}
+                    </Button>
+                  </div>
+                  <FormDescription>
+                    {t(
+                      'The API key’s group takes precedence. The user’s group is used only if the key has no group. Limits apply to that user within the matched group and do not replace the user-level limits.'
+                    )}
+                  </FormDescription>
                   {useVisualEditor ? (
                     <RateLimitVisualEditor
-                      value={field.value || ''}
+                      value={field.value}
                       onChange={field.onChange}
                     />
                   ) : (
-                    <JsonCodeEditor
-                      value={field.value || ''}
-                      onChange={field.onChange}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      textareaRef={field.ref}
-                      placeholder={`{\n  "default": [200, 100],\n  "vip": [0, 1000]\n}`}
-                      aria-invalid={Boolean(
-                        form.formState.errors.ModelRequestRateLimitGroup
-                      )}
-                    />
+                    <>
+                      <FormControl>
+                        <JsonCodeEditor
+                          value={field.value}
+                          onChange={field.onChange}
+                          name={field.name}
+                          onBlur={field.onBlur}
+                          textareaRef={field.ref}
+                          placeholder={`{\n  "default": [200, 100],\n  "vip": [500, 0]\n}`}
+                        />
+                      </FormControl>
+                      <p className='text-muted-foreground text-xs'>
+                        {t('Format:')}{' '}
+                        <code>
+                          {'{"groupName": [maxRequests, maxSuccess]}'}
+                        </code>
+                        {' · '}
+                        {t('0 means unlimited')}
+                      </p>
+                    </>
                   )}
-                </FormControl>
-                {!useVisualEditor && (
-                  <FormDescription>
-                    <div className='space-y-1 text-xs'>
-                      <p className='font-semibold'>{t('Format:')}</p>
-                      <ul className='list-inside list-disc space-y-0.5 pl-2'>
-                        <li>
-                          {t('JSON object:')}{' '}
-                          {`{"groupName": [maxRequests, maxSuccess]}`}
-                        </li>
-                        <li>
-                          {t('Example:')}{' '}
-                          {`{"default": [200, 100], "vip": [0, 1000]}`}
-                        </li>
-                        <li>
-                          {t(
-                            'maxRequests ≥ 0, maxSuccess ≥ 1, both ≤ 2,147,483,647'
-                          )}
-                        </li>
-                        <li>
-                          {t(
-                            'Group config overrides global limits, shares the same period'
-                          )}
-                        </li>
-                      </ul>
-                    </div>
-                  </FormDescription>
-                )}
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </SettingsControlGroup>
         </SettingsForm>
       </Form>
     </SettingsSection>

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"sort"
 	"strconv"
@@ -20,13 +21,16 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis/v8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func setupManageUserTestDB(t *testing.T) *gorm.DB {
@@ -124,6 +128,236 @@ func manageUserProof(t *testing.T, db *gorm.DB, operation service.VerificationOp
 	proof, _, err := service.IssueSecurityProof(identity, service.VerificationMethodPassword, binding)
 	require.NoError(t, err)
 	return identity, proof
+}
+
+func TestUserModelRateLimitAPI(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			for _, scenario := range []string{"fresh", "upgrade"} {
+				t.Run(scenario, func(t *testing.T) {
+					db := setupUserModelRateLimitDB(t, dialect, scenario == "upgrade")
+					verifyUserModelRateLimitAPI(t, db)
+				})
+			}
+		})
+	}
+}
+
+func setupUserModelRateLimitDB(t *testing.T, dialect string, upgrade bool) *gorm.DB {
+	t.Helper()
+	require.NoError(t, i18n.Init())
+	previousDB, previousLogDB := model.DB, model.LOG_DB
+	previousMainType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
+	previousMaster, previousRedis, previousSQLite := common.IsMasterNode, common.RedisEnabled, common.SQLitePath
+	previousSecret := common.SessionSecret
+	common.IsMasterNode, common.RedisEnabled = true, false
+	common.SessionSecret = "user-model-rate-limit-test"
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB = previousDB, previousLogDB
+		common.SetDatabaseTypes(previousMainType, previousLogType)
+		common.IsMasterNode, common.RedisEnabled, common.SQLitePath = previousMaster, previousRedis, previousSQLite
+		common.SessionSecret = previousSecret
+	})
+
+	var base *gorm.DB
+	var dsn string
+	switch dialect {
+	case "postgres":
+		dsn = os.Getenv("TEST_POSTGRES_DSN")
+		if dsn == "" {
+			t.Skip("TEST_POSTGRES_DSN is not configured")
+		}
+		parsed, err := url.Parse(dsn)
+		require.NoError(t, err)
+		require.True(t, parsed.Hostname() == "127.0.0.1" && parsed.Port() == "5432" && parsed.Path == "/newapi_e2e", "use only the local PostgreSQL E2E database")
+		admin, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		t.Cleanup(func() { closeGormHandles(admin) })
+		schema := fmt.Sprintf("user_rate_limit_test_%d", time.Now().UnixNano())
+		name := clause.Table{Name: schema}
+		require.NoError(t, admin.Exec("CREATE SCHEMA ?", name).Error)
+		t.Cleanup(func() { assert.NoError(t, admin.Exec("DROP SCHEMA ? CASCADE", name).Error) })
+		params := parsed.Query()
+		params.Set("search_path", schema)
+		parsed.RawQuery = params.Encode()
+		dsn = parsed.String()
+		base, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		t.Cleanup(func() { closeGormHandles(base) })
+	case "mysql":
+		dsn = os.Getenv("TEST_MYSQL_DSN")
+		if dsn == "" {
+			t.Skip("TEST_MYSQL_DSN is not configured")
+		}
+		base, dsn = newAuditTestDatabase(t, dialect, dsn)
+	case "sqlite":
+		base, common.SQLitePath = newAuditTestDatabase(t, dialect, "")
+		dsn = "local"
+	}
+	t.Setenv("SQL_DSN", dsn)
+	t.Setenv("LOG_SQL_DSN", "")
+	versionSQL := "SELECT version()"
+	if dialect == "sqlite" {
+		versionSQL = "SELECT sqlite_version()"
+	}
+	var version string
+	require.NoError(t, base.Raw(versionSQL).Scan(&version).Error)
+	t.Logf("%s version: %s", dialect, version)
+
+	if upgrade {
+		require.NoError(t, base.AutoMigrate(&releasedAuditUser{}))
+		require.NoError(t, base.Create(&releasedAuditUser{Username: "released-user", AffCode: "released-aff"}).Error)
+	}
+	require.False(t, base.Migrator().HasTable(&model.UserModelRateLimit{}))
+	require.NoError(t, model.InitDB())
+	first := model.DB
+	t.Cleanup(func() { closeGormHandles(first) })
+	if upgrade {
+		var existing model.User
+		require.NoError(t, first.Where("username = ?", "released-user").Take(&existing).Error)
+		assert.Equal(t, "released-aff", existing.AffCode)
+		override, err := model.GetUserModelRateLimit(t.Context(), existing.Id)
+		require.NoError(t, err)
+		assert.Nil(t, override)
+	}
+	resident := model.User{Username: "rate-limit-resident", AffCode: "rate-limit-resident", Role: common.RoleCommonUser}
+	require.NoError(t, first.Create(&resident).Error)
+	require.NoError(t, resident.SetModelRateLimit(t.Context(), &model.UserModelRateLimit{Total: 0, Success: 7}))
+
+	require.NoError(t, model.InitDB())
+	db := model.DB
+	t.Cleanup(func() { closeGormHandles(db) })
+	require.NoError(t, model.InitLogDB())
+	stored, err := model.GetUserModelRateLimit(t.Context(), resident.Id)
+	require.NoError(t, err)
+	assert.Equal(t, &model.UserModelRateLimit{UserID: resident.Id, Total: 0, Success: 7}, stored)
+	require.Error(t, db.Create(&model.UserModelRateLimit{UserID: resident.Id}).Error, "a second row for a user must violate the primary key")
+	return db
+}
+
+func verifyUserModelRateLimitAPI(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	previousSettings := setting.CurrentModelRequestRateLimit()
+	setting.ModelRequestRateLimitMutex.Lock()
+	setting.ModelRequestRateLimitEnabled = false
+	setting.ModelRequestRateLimitDurationMinutes = 5
+	setting.ModelRequestRateLimitCount = 23
+	setting.ModelRequestRateLimitSuccessCount = 11
+	setting.ModelRequestRateLimitMutex.Unlock()
+	t.Cleanup(func() {
+		setting.ModelRequestRateLimitMutex.Lock()
+		setting.ModelRequestRateLimitEnabled = previousSettings.Enabled
+		setting.ModelRequestRateLimitDurationMinutes = previousSettings.DurationMinutes
+		setting.ModelRequestRateLimitCount = previousSettings.Total
+		setting.ModelRequestRateLimitSuccessCount = previousSettings.Success
+		setting.ModelRequestRateLimitMutex.Unlock()
+	})
+
+	users := []model.User{
+		{Username: "rl-example-1", Group: "test", Role: common.RoleCommonUser, Status: common.UserStatusEnabled},
+		{Username: "rl-example-2", Group: "test", Role: common.RoleCommonUser, Status: common.UserStatusEnabled},
+		{Username: "rl-example-3", Group: "test", Role: common.RoleCommonUser, Status: common.UserStatusEnabled},
+		{Username: "rl-example-4", Group: "other", Role: common.RoleCommonUser, Status: common.UserStatusEnabled},
+		{Username: "rl-admin", Role: common.RoleAdminUser, Status: common.UserStatusEnabled},
+		{Username: "rl-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled},
+	}
+	for i := range users {
+		users[i].AffCode = users[i].Username
+		require.NoError(t, db.Create(&users[i]).Error)
+	}
+	owner, other, inherited, otherGroup, admin, root := users[0], users[1], users[2], users[3], users[4], users[5]
+	org := model.Organization{Name: "Rate limit org", Status: model.OrganizationStatusActive}
+	require.NoError(t, db.Create(&org).Error)
+	for _, member := range []model.User{owner, other, inherited, otherGroup} {
+		require.NoError(t, db.Create(&model.OrganizationMembership{UserId: member.Id, OrganizationId: org.Id, Role: model.OrganizationRoleMember, Status: model.OrganizationMembershipActive}).Error)
+	}
+	for _, target := range []model.User{other, otherGroup} {
+		require.NoError(t, target.SetModelRateLimit(t.Context(), &model.UserModelRateLimit{Total: 5, Success: 6}))
+	}
+
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	routes := engine.Group("/api/user", middleware.AdminAuth())
+	routes.GET("/search", SearchUsers)
+	routes.GET("/:id/rate_limit", GetUserModelRateLimit)
+	routes.PUT("/:id/rate_limit", UpdateUserModelRateLimit)
+	_, adminJWT := createAccessTokenTestSession(t, admin.Id, "rate-limit-admin")
+	_, rootJWT := createAccessTokenTestSession(t, root.Id, "rate-limit-root")
+	_, ownerJWT := createAccessTokenTestSession(t, owner.Id, "rate-limit-owner")
+	readToken, _ := createScopedAccessToken(t, admin.Id, 0, "user:read")
+	writeToken, _ := createScopedAccessToken(t, admin.Id, 0, "user:write")
+
+	type envelope struct {
+		Success bool              `json:"success"`
+		Data    common.RawMessage `json:"data"`
+	}
+	limiterPath := func(id int) string { return fmt.Sprintf("/api/user/%d/rate_limit", id) }
+	call := func(method, path, credential, body string, status int, success bool) common.RawMessage {
+		t.Helper()
+		response := accessTokenRequest(engine, method, path, credential, "", body)
+		require.Equal(t, status, response.Code, response.Body.String())
+		var result envelope
+		require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+		require.Equal(t, success, result.Success, response.Body.String())
+		return result.Data
+	}
+	const limits = `{"override":{"total":0,"success":2147483647}}`
+	const remove = `{"override":null}`
+	const withDefaults = `{"enabled":false,"duration_minutes":5,"defaults":{"total":23,"success":11},"override":`
+	assert.JSONEq(t, withDefaults+`null}`, string(call(http.MethodGet, limiterPath(owner.Id), readToken, "", http.StatusOK, true)))
+	call(http.MethodGet, limiterPath(owner.Id), writeToken, "", http.StatusForbidden, false)
+	call(http.MethodPut, limiterPath(owner.Id), readToken, limits, http.StatusForbidden, false)
+	call(http.MethodPut, limiterPath(owner.Id), ownerJWT, limits, http.StatusForbidden, false)
+	for _, target := range []model.User{admin, root} {
+		call(http.MethodGet, limiterPath(target.Id), adminJWT, "", http.StatusOK, false)
+		call(http.MethodPut, limiterPath(target.Id), adminJWT, limits, http.StatusOK, false)
+	}
+	call(http.MethodGet, limiterPath(admin.Id), rootJWT, "", http.StatusOK, true)
+	call(http.MethodPut, limiterPath(admin.Id), rootJWT, limits, http.StatusOK, true)
+	call(http.MethodPut, limiterPath(99999999), rootJWT, limits, http.StatusOK, false)
+
+	assert.JSONEq(t, withDefaults+`{"total":0,"success":2147483647}}`, string(call(http.MethodPut, limiterPath(owner.Id), writeToken, limits, http.StatusOK, true)))
+	for _, invalid := range []string{
+		`{}`, `null`, `{"override":{}}`, `{"override":{"total":0}}`, `{"override":{"success":0}}`,
+		`{"override":{"total":null,"success":0}}`, `{"override":{"total":0,"success":null}}`,
+		`{"override":{"total":-1,"success":0}}`, `{"override":{"total":0,"success":-1}}`,
+		`{"override":{"total":0,"success":2147483648}}`, `{"override":{"total":1.5,"success":0}}`,
+		`{"override":{"total":"1","success":0}}`, `{"override":false}`, `{"override":null}{}`,
+	} {
+		call(http.MethodPut, limiterPath(owner.Id), adminJWT, invalid, http.StatusOK, false)
+	}
+	assert.JSONEq(t, withDefaults+`{"total":0,"success":2147483647}}`, string(call(http.MethodGet, limiterPath(owner.Id), adminJWT, "", http.StatusOK, true)))
+	call(http.MethodPut, limiterPath(owner.Id), adminJWT, `{"override":{"total":0,"success":0}}`, http.StatusOK, true)
+	assert.JSONEq(t, withDefaults+`{"total":0,"success":0}}`, string(call(http.MethodGet, limiterPath(owner.Id), adminJWT, "", http.StatusOK, true)))
+
+	search := fmt.Sprintf("/api/user/search?keyword=rl-example&group=test&role=%d&status=%d&organization_id=%d&sort_by=id&sort_order=asc&page_size=1", common.RoleCommonUser, common.UserStatusEnabled, org.Id)
+	for _, page := range []struct{ number, total, id int }{{1, 2, owner.Id}, {2, 2, other.Id}, {3, 2, 0}} {
+		var data struct {
+			Total int          `json:"total"`
+			Items []model.User `json:"items"`
+		}
+		require.NoError(t, common.Unmarshal(call(http.MethodGet, fmt.Sprintf("%s&has_rate_limit_override=true&p=%d", search, page.number), adminJWT, "", http.StatusOK, true), &data))
+		assert.Equal(t, page.total, data.Total)
+		if page.id == 0 {
+			assert.Empty(t, data.Items)
+		} else {
+			require.Len(t, data.Items, 1)
+			assert.Equal(t, page.id, data.Items[0].Id)
+		}
+	}
+	call(http.MethodPut, limiterPath(owner.Id), adminJWT, remove, http.StatusOK, true)
+	call(http.MethodPut, limiterPath(owner.Id), adminJWT, remove, http.StatusOK, true)
+	assert.JSONEq(t, withDefaults+`null}`, string(call(http.MethodGet, limiterPath(owner.Id), adminJWT, "", http.StatusOK, true)))
+	assert.Contains(t, string(call(http.MethodGet, search+"&has_rate_limit_override=true", adminJWT, "", http.StatusOK, true)), `"total":1`)
+	assert.Contains(t, string(call(http.MethodGet, search+"&has_rate_limit_override=false", adminJWT, "", http.StatusOK, true)), `"total":3`)
+
+	// Cleanup also covers the hard-delete path; a removed user cannot leave a reusable override.
+	require.NoError(t, otherGroup.SetModelRateLimit(t.Context(), &model.UserModelRateLimit{Total: 1}))
+	_, err := model.HardDeleteUserById(otherGroup.Id)
+	require.NoError(t, err)
+	stored, err := model.GetUserModelRateLimit(t.Context(), otherGroup.Id)
+	require.NoError(t, err)
+	assert.Nil(t, stored)
 }
 
 func TestManageUserDisableAdvancesAuthVersionOnceAndRevokesSession(t *testing.T) {

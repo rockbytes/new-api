@@ -10,6 +10,7 @@ import {
   ShieldAlert,
   Link2,
   CreditCard,
+  Gauge,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -32,6 +33,7 @@ import type { AdminUserManageAction } from '@/features/auth/secure-verification'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
 import { handleServerError } from '@/lib/handle-server-error'
 import { AuthOperationError } from '@/lib/secure-verification'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { manageUser, resetUserPasskey, resetUserTwoFA } from '../api'
 import {
@@ -59,6 +61,7 @@ interface DataTableRowActionsProps {
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
   const user = row.original
+  const viewerRole = useAuthStore((state) => state.auth.user?.role ?? 0)
   const {
     setOpen,
     setCurrentRow,
@@ -254,6 +257,19 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           {t('Manage Subscriptions')}
           <DropdownMenuShortcut>
             <CreditCard size={16} />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+
+        <DropdownMenuItem
+          disabled={viewerRole !== USER_ROLE.ROOT && viewerRole <= user.role}
+          onClick={() => {
+            setCurrentRow(user)
+            setOpen('rate-limit')
+          }}
+        >
+          {t('Configure rate limit')}
+          <DropdownMenuShortcut>
+            <Gauge aria-hidden='true' size={16} />
           </DropdownMenuShortcut>
         </DropdownMenuItem>
 

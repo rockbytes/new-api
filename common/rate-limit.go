@@ -165,6 +165,81 @@ func (l *InMemoryRateLimiter) Request(key string, maxRequestNum int, duration in
 	return allowed
 }
 
+// RateLimitCheck is one sliding-window counter in an atomic admission.
+// Reserve defers recording until completion and includes in-flight requests in the check.
+type RateLimitCheck struct {
+	Key     string
+	Limit   int
+	Reserve bool
+}
+
+// Admit checks counters in order and commits all of them only on success.
+// The returned index is -1 on success or names the first rejected counter.
+func (l *InMemoryRateLimiter) Admit(checks []RateLimitCheck, window time.Duration) (int, *RateLimitBatchReservation) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	now := time.Now()
+	stamp, seconds := now.Unix(), int64(window/time.Second)
+	for i, check := range checks {
+		if check.Limit <= 0 {
+			continue
+		}
+		count := 0
+		if entry := l.store[check.Key]; entry != nil {
+			entry.requests.removeExpired(stamp, seconds)
+			count = entry.requests.length
+		}
+		if count+l.reservations[check.Key] >= check.Limit {
+			return i, nil
+		}
+	}
+
+	var reserved []string
+	for _, check := range checks {
+		if check.Limit <= 0 {
+			continue
+		}
+		if check.Reserve {
+			l.reservations[check.Key]++
+			reserved = append(reserved, check.Key)
+		} else {
+			l.touchEntry(check.Key, now).requests.append(stamp)
+		}
+	}
+	if len(reserved) == 0 {
+		return -1, nil
+	}
+	return -1, &RateLimitBatchReservation{limiter: l, keys: reserved}
+}
+
+type RateLimitBatchReservation struct {
+	limiter *InMemoryRateLimiter
+	keys    []string
+	once    sync.Once
+}
+
+func (r *RateLimitBatchReservation) Complete(success bool) {
+	if r == nil {
+		return
+	}
+	r.once.Do(func() {
+		l := r.limiter
+		l.mutex.Lock()
+		defer l.mutex.Unlock()
+		now := time.Now()
+		for _, key := range r.keys {
+			l.reservations[key]--
+			if l.reservations[key] == 0 {
+				delete(l.reservations, key)
+			}
+			if success {
+				l.touchEntry(key, now).requests.append(now.Unix())
+			}
+		}
+	})
+}
+
 // RateLimitReservation counts an active request towards admission until its
 // outcome is known. Failed requests release the slot without consuming quota.
 type RateLimitReservation struct {

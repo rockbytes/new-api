@@ -3,6 +3,7 @@ import type { AxiosRequestConfig } from 'axios'
 import type { PermissionCatalog } from '@/lib/admin-permissions'
 import { api } from '@/lib/api'
 import type { CustomOAuthBinding } from '@/lib/oauth'
+import type { RateLimitCounts } from '@/lib/rate-limits'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
 import type {
@@ -13,6 +14,7 @@ import type {
   UserFormData,
   ManageUserAction,
   ManageUserQuotaPayload,
+  UserRateLimit,
   ApiResponse,
 } from './types'
 
@@ -60,6 +62,7 @@ export async function searchUsers(
     role = '',
     status = '',
     organization_id = '',
+    has_rate_limit_override,
     p = 1,
     page_size = 10,
     sort_by,
@@ -71,6 +74,9 @@ export async function searchUsers(
   if (role) queryParams.set('role', role)
   if (status) queryParams.set('status', status)
   if (organization_id) queryParams.set('organization_id', organization_id)
+  if (has_rate_limit_override) {
+    queryParams.set('has_rate_limit_override', 'true')
+  }
   queryParams.set('p', String(p))
   queryParams.set('page_size', String(page_size))
   if (sort_by) queryParams.set('sort_by', sort_by)
@@ -85,6 +91,31 @@ export async function searchUsers(
 export async function getUser(id: number): Promise<ApiResponse<User>> {
   const res = await api.get(`/api/user/${id}`)
   return res.data
+}
+
+export async function getUserRateLimit(
+  id: number,
+  signal?: AbortSignal
+): Promise<UserRateLimit> {
+  const res = await api.get<ApiResponse<UserRateLimit>>(
+    `/api/user/${id}/rate_limit`,
+    // React Query owns deduplication; a reopened dialog must not reuse an aborted request.
+    { signal, disableDuplicate: true }
+  )
+  const result = requireServerSuccess(res.data)
+  if (!result.data) throw new Error()
+  return result.data
+}
+
+export async function updateUserRateLimit(
+  id: number,
+  override: RateLimitCounts | null
+): Promise<void> {
+  const res = await api.put<ApiResponse<UserRateLimit>>(
+    `/api/user/${id}/rate_limit`,
+    { override }
+  )
+  requireServerSuccess(res.data)
 }
 
 /**

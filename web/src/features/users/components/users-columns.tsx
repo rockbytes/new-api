@@ -173,9 +173,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
         header: `${t('Personal Balance')} (${quotaUnit})`,
         cell: ({ row }) => {
           const user = row.original
-          return (
-            <UserQuotaCell remaining={user.quota} used={user.used_quota} />
-          )
+          return <UserQuotaCell remaining={user.quota} used={user.used_quota} />
         },
         size: 150,
         minSize: 130,
@@ -189,7 +187,9 @@ export function useUsersColumns(): ColumnDef<User>[] {
         header: `${t('Organization Balance')} (${quotaUnit})`,
         cell: ({ row }) => {
           const organization = row.original.organization
-          if (!organization) return <span className='text-muted-foreground'>-</span>
+          if (!organization) {
+            return <span className='text-muted-foreground'>-</span>
+          }
           return (
             <UserOrganizationQuotaCell
               allocated={organization.allocated_quota ?? 0}
@@ -263,6 +263,13 @@ export function useUsersColumns(): ColumnDef<User>[] {
         enableSorting: false,
         size: 160,
         meta: { mobileOrder: 25 },
+      },
+      {
+        // Filter-only column; the UI does not list each user's configured limits.
+        id: 'has_rate_limit_override',
+        enableHiding: false,
+        enableSorting: false,
+        meta: { mobileHidden: true },
       },
       {
         id: 'invite_info',

@@ -3,229 +3,245 @@ package middleware
 import (
 	"context"
 	"fmt"
-	"math"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/common/limiter"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting"
-
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 )
 
+var modelMemoryRateLimit common.InMemoryRateLimiter
+
+// Each nonzero limit is checked before any admission is recorded. Completed
+// successes and pending reservations use separate sets, so a long response
+// stays reserved even after the request's total-count event leaves the window.
+var admitModelRequest = redis.NewScript(`
+redis.replicate_commands()
+local now = tonumber(redis.call('TIME')[1])
+local window, lease, id = tonumber(ARGV[1]), tonumber(ARGV[2]), ARGV[3]
+-- A transport retry after a committed admission must not charge twice.
+for i = 1, #KEYS, 2 do
+  if redis.call('ZSCORE', KEYS[i], id) or redis.call('ZSCORE', KEYS[i+1], id) then
+    return -1
+  end
+end
+for i = 1, #KEYS, 2 do
+  local limit = tonumber(ARGV[3 + math.floor((i+1)/2)])
+  local used = redis.call('ZCOUNT', KEYS[i], '(' .. (now-window), '+inf')
+  local pending = redis.call('ZCOUNT', KEYS[i+1], '(' .. now, '+inf')
+  if used + pending >= limit then return math.floor((i-1)/2) end
+end
+for i = 1, #KEYS, 2 do
+  redis.call('ZREMRANGEBYSCORE', KEYS[i], '-inf', now-window)
+  if ARGV[3 + #KEYS/2 + math.floor((i+1)/2)] == '1' then
+    redis.call('ZREMRANGEBYSCORE', KEYS[i+1], '-inf', now)
+    redis.call('ZADD', KEYS[i+1], now+lease, id)
+    redis.call('EXPIRE', KEYS[i+1], lease)
+  else
+    redis.call('ZADD', KEYS[i], now, id)
+    redis.call('EXPIRE', KEYS[i], window)
+  end
+end
+return -1
+`)
+
+// Completion and renewal only affect reservations still owned by this request.
+// Failure/cancellation removes them without extending the success counter.
+var updateModelRequestReservation = redis.NewScript(`
+redis.replicate_commands()
+local now = tonumber(redis.call('TIME')[1])
+local window, lease, id, action = tonumber(ARGV[1]), tonumber(ARGV[2]), ARGV[3], ARGV[4]
+for i = 1, #KEYS, 2 do
+  local expiry = redis.call('ZSCORE', KEYS[i+1], id)
+  if expiry and tonumber(expiry) > now then
+    if action == 'renew' then
+      redis.call('ZADD', KEYS[i+1], now+lease, id)
+      redis.call('EXPIRE', KEYS[i+1], lease)
+    else
+      redis.call('ZREM', KEYS[i+1], id)
+      if action == 'success' then
+        redis.call('ZREMRANGEBYSCORE', KEYS[i], '-inf', now-window)
+        redis.call('ZADD', KEYS[i], now, id)
+        redis.call('EXPIRE', KEYS[i], window)
+      end
+    end
+  end
+end
+return 0
+`)
+
 const (
-	ModelRequestRateLimitCountMark        = "MRRL"
-	ModelRequestRateLimitSuccessCountMark = "MRRLS"
-	modelRateLimitTimeFormat              = "2006-01-02T15:04:05.000Z"
+	modelReservationTTL = 2 * time.Minute
+	modelRedisTimeout   = 3 * time.Second
 )
 
-// 检查Redis中的请求限制
-func checkRedisRateLimit(ctx context.Context, rdb *redis.Client, key string, maxCount int, duration int64) (bool, error) {
-	// 如果maxCount为0，表示不限制
-	if maxCount == 0 {
-		return true, nil
-	}
-
-	// 获取当前计数
-	length, err := rdb.LLen(ctx, key).Result()
-	if err != nil {
-		return false, err
-	}
-
-	// 如果未达到限制，允许请求
-	if length < int64(maxCount) {
-		return true, nil
-	}
-
-	// 检查时间窗口
-	oldTimeStr, _ := rdb.LIndex(ctx, key, -1).Result()
-	oldTime, err := time.Parse(modelRateLimitTimeFormat, oldTimeStr)
-	if err != nil {
-		return false, err
-	}
-
-	nowTimeStr := time.Now().UTC().Format(modelRateLimitTimeFormat)
-	nowTime, err := time.Parse(modelRateLimitTimeFormat, nowTimeStr)
-	if err != nil {
-		return false, err
-	}
-	// 如果在时间窗口内已达到限制，拒绝请求
-	subTime := nowTime.Sub(oldTime).Seconds()
-	if int64(subTime) < duration {
-		rdb.Expire(ctx, key, time.Duration(setting.ModelRequestRateLimitDurationMinutes)*time.Minute)
-		return false, nil
-	}
-
-	return true, nil
-}
-
-// 记录Redis请求
-func recordRedisRequest(ctx context.Context, rdb *redis.Client, key string, maxCount int) {
-	// 如果maxCount为0，不记录请求
-	if maxCount == 0 {
-		return
-	}
-
-	now := time.Now().UTC().Format(modelRateLimitTimeFormat)
-	rdb.LPush(ctx, key, now)
-	rdb.LTrim(ctx, key, 0, int64(maxCount-1))
-	rdb.Expire(ctx, key, time.Duration(setting.ModelRequestRateLimitDurationMinutes)*time.Minute)
-}
-
-// Redis限流处理器
-func redisRateLimitHandler(subject string, duration int64, totalMaxCount, successMaxCount int) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		ctx := context.Background()
-		rdb := common.RDB
-
-		// 1. 检查成功请求数限制
-		successKey := fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitSuccessCountMark, subject)
-		allowed, err := checkRedisRateLimit(ctx, rdb, successKey, successMaxCount, duration)
-		if err != nil {
-			fmt.Println(common.LogText("failed to check the successful request limit: %s", err.Error()))
-			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
-			return
-		}
-		if !allowed {
-			abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRateLimitReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": successMaxCount}))
-			return
-		}
-
-		//2.检查总请求数限制并记录总请求（当totalMaxCount为0时会自动跳过，使用令牌桶限流器
-		if totalMaxCount > 0 {
-			totalKey := fmt.Sprintf("rateLimit:%s", subject)
-			// 初始化
-			tb := limiter.New(ctx, rdb)
-			allowed, err = tb.Allow(
-				ctx,
-				totalKey,
-				limiter.WithCapacity(rateLimitCapacity(totalMaxCount, duration)),
-				limiter.WithRate(int64(totalMaxCount)),
-				limiter.WithRequested(duration),
-			)
-
-			if err != nil {
-				fmt.Println(common.LogText("failed to check the total request limit: %s", err.Error()))
-				abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
-				return
-			}
-
-			if !allowed {
-				abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRateLimitTotalReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": totalMaxCount}))
-				return
-			}
-		}
-
-		// 4. 处理请求
-		c.Next()
-
-		// 5. 如果请求成功，记录成功请求
-		if modelRequestSucceeded(c) {
-			recordRedisRequest(ctx, rdb, successKey, successMaxCount)
-		}
-	}
-}
-
-// 内存限流处理器
-func memoryRateLimitHandler(subject string, duration int64, totalMaxCount, successMaxCount int) gin.HandlerFunc {
-	inMemoryRateLimiter.Init(time.Duration(setting.ModelRequestRateLimitDurationMinutes) * time.Minute)
-
-	return func(c *gin.Context) {
-		totalKey := ModelRequestRateLimitCountMark + subject
-		successKey := ModelRequestRateLimitSuccessCountMark + subject
-
-		// 1. 检查总请求数限制（当totalMaxCount为0时跳过）
-		if totalMaxCount > 0 && !inMemoryRateLimiter.Request(totalKey, totalMaxCount, duration) {
-			abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRateLimitTotalReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": totalMaxCount}))
-			return
-		}
-
-		var reservation *common.RateLimitReservation
-		if successMaxCount > 0 {
-			reservation = inMemoryRateLimiter.Reserve(successKey, successMaxCount, duration)
-			if reservation == nil {
-				abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRateLimitReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": successMaxCount}))
-				return
-			}
-			defer reservation.Complete(false)
-		}
-
-		// 3. 处理请求
-		c.Next()
-
-		// 4. 如果请求成功，记录到实际的成功请求计数中
-		reservation.Complete(modelRequestSucceeded(c))
-	}
+type modelLimit struct {
+	common.RateLimitCheck
+	code types.ErrorCode
 }
 
 func modelRequestSucceeded(c *gin.Context) bool {
 	status, _ := common.GetContextKeyType[*relaycommon.StreamStatus](c, constant.ContextKeyResponseStreamStatus)
-	return c.Writer.Status() < 400 && !status.ResponseFailed()
+	return c.Request.Context().Err() == nil && c.Writer.Status() < 400 && !status.ResponseFailed()
 }
 
-// ModelRequestRateLimit 模型请求限流中间件
-func ModelRequestRateLimit() func(c *gin.Context) {
+// ModelRequestRateLimit limits each user across all API keys and also applies
+// any extra per-user restriction for the requested group before channel routing.
+func ModelRequestRateLimit() gin.HandlerFunc {
+	return modelRequestRateLimit(model.GetUserModelRateLimit)
+}
+
+func modelRequestRateLimit(lookupOverride func(context.Context, int) (*model.UserModelRateLimit, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 在每个请求时检查是否启用限流
-		if !setting.ModelRequestRateLimitEnabled {
+		config := setting.CurrentModelRequestRateLimit()
+		if !config.Enabled {
 			c.Next()
 			return
 		}
-
-		// 计算限流参数
-		duration := rateLimitDurationSeconds(setting.ModelRequestRateLimitDurationMinutes)
-		totalMaxCount := setting.ModelRequestRateLimitCount
-		successMaxCount := setting.ModelRequestRateLimitSuccessCount
-
-		// 获取分组
+		userID := c.GetInt("id")
+		ctx := c.Request.Context()
+		override, err := lookupOverride(ctx, userID)
+		if err != nil {
+			logger.LogError(ctx, fmt.Sprintf("model rate limit user override lookup: %v", err))
+			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
+			return
+		}
+		if override != nil {
+			config.Total, config.Success = override.Total, override.Success
+		}
 		group := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
 		if group == "" {
 			group = common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 		}
-
-		// 获取分组的限流配置。配置了独立限流的分组按用户和分组单独计数，
-		// 其余分组共用该用户的全局计数
-		subject := strconv.Itoa(c.GetInt("id"))
-		groupTotalCount, groupSuccessCount, found := setting.GetGroupRateLimit(group)
-		if found {
-			totalMaxCount = groupTotalCount
-			successMaxCount = groupSuccessCount
-			subject += ":" + group
+		windowMinutes := max(1, min(config.DurationMinutes, setting.MaxModelRateLimitMinutes))
+		window := time.Duration(windowMinutes) * time.Minute
+		// Keep user and group keys in the same Redis hash slot and keep old
+		// counter formats isolated during rolling upgrades.
+		prefix := "rateLimit:model:v2:{" + strconv.Itoa(userID) + "}:" + strconv.Itoa(windowMinutes) + ":"
+		limits := []modelLimit{
+			{common.RateLimitCheck{Key: prefix + "user:total", Limit: config.Total}, "user_rate_limit_total"},
+			{common.RateLimitCheck{Key: prefix + "user:success", Limit: config.Success, Reserve: true}, "user_rate_limit_success"},
+		}
+		if counts, ok := config.Groups[group]; ok {
+			limits = append(limits,
+				modelLimit{common.RateLimitCheck{Key: prefix + "group:total:" + group, Limit: counts[0]}, "group_rate_limit_total"},
+				modelLimit{common.RateLimitCheck{Key: prefix + "group:success:" + group, Limit: counts[1], Reserve: true}, "group_rate_limit_success"},
+			)
+		}
+		checks := make([]common.RateLimitCheck, 0, len(limits))
+		codes := make([]types.ErrorCode, 0, len(limits))
+		for _, limit := range limits {
+			if limit.Limit > 0 {
+				checks = append(checks, limit.RateLimitCheck)
+				codes = append(codes, limit.code)
+			}
+		}
+		if len(checks) == 0 {
+			c.Next()
+			return
 		}
 
-		// 根据存储类型选择并执行限流处理器
+		var rejected int
+		var complete func(bool)
 		if common.RedisEnabled {
-			redisRateLimitHandler(subject, duration, totalMaxCount, successMaxCount)(c)
+			rejected, complete, err = admitModelRequestRedis(ctx, common.RDB, checks, window)
 		} else {
-			memoryRateLimitHandler(subject, duration, totalMaxCount, successMaxCount)(c)
+			modelMemoryRateLimit.Init(setting.MaxModelRateLimitMinutes * time.Minute)
+			var reservation *common.RateLimitBatchReservation
+			rejected, reservation = modelMemoryRateLimit.Admit(checks, window)
+			if reservation != nil {
+				complete = reservation.Complete
+			}
+		}
+		if err != nil {
+			logger.LogError(ctx, fmt.Sprintf("model rate limit admission: %v", err))
+			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
+			return
+		}
+		if rejected >= 0 {
+			messageKey := i18n.MsgRateLimitTotalReached
+			if checks[rejected].Reserve {
+				messageKey = i18n.MsgRateLimitReached
+			}
+			message := i18n.T(c, messageKey, map[string]any{"Minutes": windowMinutes, "Max": checks[rejected].Limit})
+			abortWithOpenAiMessage(c, http.StatusTooManyRequests, message, codes[rejected])
+			return
+		}
+		success := false
+		if complete != nil {
+			defer func() { complete(success) }()
+		}
+		c.Next()
+		success = modelRequestSucceeded(c)
+	}
+}
+
+func admitModelRequestRedis(ctx context.Context, client *redis.Client, checks []common.RateLimitCheck, window time.Duration) (int, func(bool), error) {
+	if client == nil {
+		return -1, nil, fmt.Errorf("Redis is enabled without a client")
+	}
+	keys := make([]string, 0, 2*len(checks))
+	pending := make([]string, 0, 2*len(checks))
+	base := []any{int64(window / time.Second), int64(modelReservationTTL / time.Second), common.GetUUID()}
+	args := make([]any, 3+2*len(checks))
+	copy(args, base)
+	for i, check := range checks {
+		// Separate domains even if a user-controlled group includes punctuation.
+		pair := []string{check.Key + ":recorded", check.Key + ":pending"}
+		keys = append(keys, pair...)
+		args[3+i] = check.Limit
+		args[3+len(checks)+i] = "0"
+		if check.Reserve {
+			pending = append(pending, pair...)
+			args[3+len(checks)+i] = "1"
 		}
 	}
+	admissionCtx, cancel := context.WithTimeout(ctx, modelRedisTimeout)
+	rejected, err := admitModelRequest.Run(admissionCtx, client, keys, args...).Int()
+	cancel()
+	if err != nil || rejected >= 0 || len(pending) == 0 {
+		return rejected, nil, err
+	}
+	// Release even on client cancellation or panic. If the process goes away
+	// without completing, Redis reclaims abandoned reservations after the TTL.
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(modelReservationTTL / 3)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				updateModelRedisReservation(client, pending, base, "renew")
+			}
+		}
+	}()
+	return -1, func(success bool) {
+		close(done)
+		action := "release"
+		if success {
+			action = "success"
+		}
+		updateModelRedisReservation(client, pending, base, action)
+	}, nil
 }
 
-func rateLimitDurationSeconds(durationMinutes int) int64 {
-	if durationMinutes <= 0 {
-		return 0
+func updateModelRedisReservation(client *redis.Client, keys []string, base []any, action string) {
+	ctx, cancel := context.WithTimeout(context.Background(), modelRedisTimeout)
+	defer cancel()
+	if err := updateModelRequestReservation.Run(ctx, client, keys, append(base, action)...).Err(); err != nil {
+		logger.LogError(ctx, fmt.Sprintf("model rate limit reservation %s: %v", action, err))
 	}
-	minutes := int64(durationMinutes)
-	if minutes > math.MaxInt64/60 {
-		return math.MaxInt64
-	}
-	return minutes * 60
-}
-
-func rateLimitCapacity(count int, durationSeconds int64) int64 {
-	if count <= 0 || durationSeconds <= 0 {
-		return 0
-	}
-	c := int64(count)
-	if c > math.MaxInt64/durationSeconds {
-		return math.MaxInt64
-	}
-	return c * durationSeconds
 }

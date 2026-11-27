@@ -33,7 +33,7 @@ func TestUserListFiltersByOrganizationAndReportsItsName(t *testing.T) {
 		Role: OrganizationRoleMember, Status: OrganizationMembershipActive, CreatedTime: 1, UpdatedTime: 1}).Error)
 
 	search := func(organizationFilter *int) map[string]*User {
-		users, _, err := SearchUsers("", "", nil, nil, organizationFilter, 0, 20, NewUserSortOptions("id", "asc"))
+		users, _, err := SearchUsers("", "", nil, nil, organizationFilter, false, 0, 20, NewUserSortOptions("id", "asc"))
 		require.NoError(t, err)
 		byName := make(map[string]*User, len(users))
 		for _, user := range users {
