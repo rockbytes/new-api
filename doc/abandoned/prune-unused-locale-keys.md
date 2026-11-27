@@ -1,8 +1,8 @@
 ---
 title: 清理前端 locale 中的未使用文案键
-status: planned
+status: abandoned
 created: 2026-11-20
-updated: 2026-11-20
+updated: 2026-11-27
 owner:
 completed:
 ---
@@ -43,6 +43,10 @@ completed:
 
 （尚未开始实施。）
 
-## 阻塞原因
+## 废弃原因
 
-无。
+方案中列出的 4 个候选文案键经重新核对，当前仍被分组限速界面 `web/src/features/system-settings/request-limits/rate-limit-section.tsx` 引用，不符合“无引用死键”的清理前提。为避免误删仍在使用的文案，本方案不再按原范围执行。若后续仍需建立通用的未使用翻译键检查工具，应另行制定方案，并处理动态翻译键带来的误报风险。
+
+## 验证结果
+
+已重新检索前端源码：4 个候选键均在 `rate-limit-section.tsx` 中存在 `t(...)` 调用，因此不应删除。
