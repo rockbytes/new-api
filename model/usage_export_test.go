@@ -75,7 +75,7 @@ func TestUsageExportJobMigratesAndTransitions(t *testing.T) {
 	_, err = GetUsageExportJob("no-such-job")
 	assert.ErrorIs(t, err, ErrUsageExportNotFound)
 
-	listed, err := ListUsageExportJobs(7, 10)
+	listed, err := ListUsageExportJobs(7, 10, false)
 	require.NoError(t, err)
 	assert.Len(t, listed, 2)
 }

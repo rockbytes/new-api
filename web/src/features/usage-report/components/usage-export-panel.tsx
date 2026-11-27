@@ -81,9 +81,9 @@ export function UsageExportAction(props: {
       if (delivery === 'queued') {
         toast.success(t('Export queued. Download it from the list when ready.'))
       }
-      await queryClient.invalidateQueries({
-        queryKey: [...EXPORTS_QUERY_KEY, userId],
-      })
+      const queryKey = [...EXPORTS_QUERY_KEY, userId]
+      await queryClient.cancelQueries({ queryKey })
+      await queryClient.invalidateQueries({ queryKey })
     },
     onError: (error) => {
       setSelecting(false)
@@ -179,7 +179,7 @@ export function UsageExportHistory() {
 
   const exportsQuery = useQuery({
     queryKey: exportsQueryKey,
-    queryFn: getUsageExports,
+    queryFn: ({ signal }) => getUsageExports(signal),
     // Keep polling while the tab is in the background, so a finished job is already up to
     // date when the user returns. Polling stops by itself once no job is active.
     refetchIntervalInBackground: true,
@@ -256,7 +256,9 @@ export function UsageExportHistory() {
                 />
               </TableCell>
               <TableCell className='text-right tabular-nums'>
-                {job.status === 'succeeded' || job.status === 'expired'
+                {hasFile ||
+                job.status === 'expired' ||
+                job.status === 'direct_downloaded'
                   ? formatNumber(job.row_count, locale)
                   : '-'}
               </TableCell>

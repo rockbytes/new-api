@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
 
-import { downloadUsageExport, getUsageSummary } from '../api'
+import { downloadUsageExport, getUsageExports, getUsageSummary } from '../api'
 
 vi.mock('@/lib/api', () => ({ api: { get: vi.fn() } }))
 
@@ -37,6 +37,24 @@ describe('versioned usage API', () => {
       }),
     })
     await expect(downloadUsageExport('old-job')).rejects.toThrow('unavailable')
+  })
+
+  it('opts in to direct download history on the versioned list endpoint', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: { items: [{ status: 'direct_downloaded' }] },
+      },
+    })
+    const { signal } = new AbortController()
+    await expect(getUsageExports(signal)).resolves.toEqual([
+      { status: 'direct_downloaded' },
+    ])
+    expect(api.get).toHaveBeenCalledWith('/api/usage/v2/exports', {
+      params: { include_direct: true },
+      signal,
+      disableDuplicate: true,
+    })
   })
 
   it('downloads historical jobs through the legacy endpoint', async () => {

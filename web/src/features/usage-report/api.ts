@@ -103,8 +103,15 @@ export async function createUsageExport(
   return requireServerSuccess(res.data).data
 }
 
-export async function getUsageExports(): Promise<UsageExportJob[]> {
-  const res = await api.get('/api/usage/v2/exports')
+export async function getUsageExports(
+  signal?: AbortSignal
+): Promise<UsageExportJob[]> {
+  const res = await api.get('/api/usage/v2/exports', {
+    params: { include_direct: true },
+    signal,
+    // Invalidating after a download must not reuse an earlier, in-flight list request.
+    disableDuplicate: true,
+  })
   return requireServerSuccess(res.data).data.items
 }
 
@@ -115,11 +122,14 @@ export async function downloadUsageExport(
   payerType?: UsagePayerType | ''
 ): Promise<Blob> {
   const version = payerType ? '/v2' : ''
-  const res = await api.get<Blob>(`/api/usage${version}/exports/${jobId}/download`, {
-    responseType: 'blob',
-    skipErrorHandler: true,
-    skipBusinessError: true,
-  })
+  const res = await api.get<Blob>(
+    `/api/usage${version}/exports/${jobId}/download`,
+    {
+      responseType: 'blob',
+      skipErrorHandler: true,
+      skipBusinessError: true,
+    }
+  )
   await rejectInvalidExportBlob(res.data)
   return res.data
 }

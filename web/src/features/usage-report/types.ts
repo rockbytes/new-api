@@ -100,6 +100,7 @@ export type UsageExportStatus =
   | 'succeeded'
   | 'failed'
   | 'expired'
+  | 'direct_downloaded'
 
 // The request carries the scope and window of the report on screen. The export never
 // includes paging fields, because it covers the whole range.

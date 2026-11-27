@@ -22,4 +22,5 @@ export const USAGE_EXPORT_STATUS_BADGES: Record<
   succeeded: { labelKey: 'Ready', variant: 'success' },
   failed: { labelKey: 'Failed', variant: 'danger' },
   expired: { labelKey: 'Expired', variant: 'neutral' },
+  direct_downloaded: { labelKey: 'Direct download', variant: 'success' },
 }

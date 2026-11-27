@@ -145,7 +145,7 @@ func EstimateUsageExport(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{"delivery": estimate.Delivery, "row_count": estimate.RowCount})
 }
 
-// DirectUsageExport streams a small export in the response. Nothing is stored. The download is
+// DirectUsageExport streams a small export without storing a file. The download is
 // limited to the download slots and bandwidth shared by all downloads.
 func DirectUsageExport(c *gin.Context) {
 	var query usageExportCreateRequest
@@ -175,13 +175,18 @@ func DirectUsageExport(c *gin.Context) {
 	}
 	defer direct.Close()
 
-	service.RecordUsageDirectExport(c, direct)
+	service.AuditUsageDirectExport(c, direct)
 	c.Header("Content-Type", direct.ContentType())
 	c.Header("Content-Disposition", "attachment; filename=\""+direct.FileName()+"\"")
 	c.Header("Cache-Control", "no-store")
 	c.Status(http.StatusOK)
-	if _, err := direct.Write(service.UsageDownloadWriter(c.Request.Context(), c.Writer)); err != nil {
+	rows, err := direct.Write(service.UsageDownloadWriter(c.Request.Context(), c.Writer))
+	if err != nil {
 		common.SysError("direct usage export stopped: " + err.Error())
+		return
+	}
+	if c.Request.Context().Err() == nil {
+		service.RecordUsageDirectExport(direct, rows)
 	}
 }
 
@@ -189,7 +194,9 @@ func DirectUsageExport(c *gin.Context) {
 // A succeeded job past its expiry reads as expired even before the cleanup task has run.
 func usageExportResponse(job *model.UsageExportJob, now int64) gin.H {
 	status := job.Status
-	if status == model.UsageExportStatusSucceeded && job.ExpiresTime <= now {
+	if job.IsDirectDownload() {
+		status = "direct_downloaded"
+	} else if status == model.UsageExportStatusSucceeded && job.ExpiresTime <= now {
 		status = model.UsageExportStatusExpired
 	}
 	view := job.View
@@ -230,9 +237,11 @@ func usageExportResponse(job *model.UsageExportJob, now int64) gin.H {
 	return response
 }
 
-// ListUsageExports returns the caller's newest jobs.
+// ListUsageExports returns the caller's newest exports. Direct downloads are opt-in so
+// older clients never receive a status they do not recognize during a rolling upgrade.
 func ListUsageExports(c *gin.Context) {
-	jobs, err := model.ListUsageExportJobs(c.GetInt("id"), usageExportListLimit)
+	includeDirect := c.Query("include_direct") == "true"
+	jobs, err := model.ListUsageExportJobs(c.GetInt("id"), usageExportListLimit, includeDirect)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -287,6 +296,11 @@ func DownloadUsageExport(c *gin.Context) {
 	}
 	if _, err := service.ResolveUsageJobScope(user.Id, user.Role, job.View, job.OrganizationId, job.TargetUserId); err != nil {
 		writeUsageScopeError(c, err)
+		return
+	}
+
+	if job.IsDirectDownload() {
+		writeUsageError(c, http.StatusGone, "USAGE_EXPORT_NO_STORED_FILE", "There is no saved file for this direct download")
 		return
 	}
 

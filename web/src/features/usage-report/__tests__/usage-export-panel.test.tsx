@@ -223,12 +223,28 @@ describe('UsageExportPanel', () => {
     expect(mockedDirect).not.toHaveBeenCalled()
   })
 
-  it('saves a small export directly under the name the server gave it', async () => {
-    mockedList.mockResolvedValue([])
+  it('saves a small export and refreshes an in-flight history without offering a second download', async () => {
+    let finishOldList: (rows: UsageExportJob[]) => void = () => undefined
+    mockedList.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishOldList = resolve
+        })
+    )
     mockedEstimate.mockResolvedValue({ delivery: 'direct', row_count: 12 })
-    mockedDirect.mockResolvedValue({
-      blob: new Blob(['usage']),
-      fileName: 'usage-records-now.csv',
+    mockedDirect.mockImplementation(async () => {
+      mockedList.mockResolvedValue([
+        job({
+          job_id: 'direct-csv',
+          status: 'direct_downloaded',
+          kind: 'summary',
+          payer_type: 'personal',
+          row_count: 12,
+          expires_time: 0,
+          download_url: undefined,
+        }),
+      ])
+      return { blob: new Blob(['usage']), fileName: 'usage-summary-now.csv' }
     })
     Object.defineProperty(URL, 'createObjectURL', {
       value: vi.fn(() => 'blob:direct'),
@@ -246,9 +262,19 @@ describe('UsageExportPanel', () => {
     })
 
     renderPanel()
+    await waitFor(() => expect(mockedList).toHaveBeenCalled())
     await startExport()
 
-    await waitFor(() => expect(savedNames).toEqual(['usage-records-now.csv']))
+    await waitFor(() => expect(savedNames).toEqual(['usage-summary-now.csv']))
+    const row = await screen.findByRole('row', { name: /Direct download/ })
+    finishOldList([])
+    expect(within(row).getByText('Usage summary (CSV)')).toBeVisible()
+    expect(within(row).getByText('Personal')).toBeVisible()
+    expect(within(row).getByText('12')).toBeVisible()
+    expect(within(row).getByText('-', { exact: true })).toBeVisible()
+    expect(
+      within(row).queryByRole('button', { name: 'Download' })
+    ).not.toBeInTheDocument()
     expect(mockedCreate).not.toHaveBeenCalled()
   })
 

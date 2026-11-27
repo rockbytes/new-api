@@ -45,6 +45,14 @@ type UsageExportJob struct {
 	ExpiresTime     int64  `json:"expires_time" gorm:"type:bigint;index"`
 }
 
+const directUsageExportPredicate = "status = ? AND COALESCE(expires_time, 0) = 0 AND COALESCE(storage_key, '') = ''"
+
+// IsDirectDownload reports a completed export whose bytes were streamed rather than stored.
+// The existing succeeded state and absence of file metadata keep this readable by older nodes.
+func (job *UsageExportJob) IsDirectDownload() bool {
+	return job.Status == UsageExportStatusSucceeded && job.ExpiresTime == 0 && job.StorageKey == ""
+}
+
 func CreateUsageExportJob(job *UsageExportJob) error {
 	return DB.Create(job).Error
 }
@@ -61,10 +69,15 @@ func GetUsageExportJob(jobId string) (*UsageExportJob, error) {
 	return &job, nil
 }
 
-// ListUsageExportJobs returns the newest jobs of one user.
-func ListUsageExportJobs(userId int, limit int) ([]UsageExportJob, error) {
+// ListUsageExportJobs returns one user's newest exports. Older clients only understand
+// queued jobs, so their list excludes direct downloads before applying the limit.
+func ListUsageExportJobs(userId int, limit int, includeDirect bool) ([]UsageExportJob, error) {
 	var jobs []UsageExportJob
-	err := DB.Where("user_id = ?", userId).Order("id DESC").Limit(limit).Find(&jobs).Error
+	query := DB.Where("user_id = ?", userId)
+	if !includeDirect {
+		query = query.Where("NOT ("+directUsageExportPredicate+")", UsageExportStatusSucceeded)
+	}
+	err := query.Order("id DESC").Limit(limit).Find(&jobs).Error
 	return jobs, err
 }
 
@@ -172,11 +185,12 @@ func FailAbandonedQueuedUsageExportJobs(createdBefore int64, now int64, errorCod
 	return result.RowsAffected, result.Error
 }
 
-// DeleteUsageExportJobsCreatedBefore removes failed and expired job records older than the cutoff.
-// Succeeded jobs are kept until their file is deleted, so a record never outlives its file by
-// accident.
+// DeleteUsageExportJobsCreatedBefore removes old failed, expired and direct-download records.
+// Successful jobs with a stored file are kept until their file is deleted.
 func DeleteUsageExportJobsCreatedBefore(createdBefore int64) (int64, error) {
-	result := DB.Where("status IN ? AND created_time > 0 AND created_time < ?",
-		[]string{UsageExportStatusFailed, UsageExportStatusExpired}, createdBefore).Delete(&UsageExportJob{})
+	result := DB.Where("created_time > 0 AND created_time < ?", createdBefore).
+		Where("(status IN ? OR ("+directUsageExportPredicate+"))",
+			[]string{UsageExportStatusFailed, UsageExportStatusExpired}, UsageExportStatusSucceeded).
+		Delete(&UsageExportJob{})
 	return result.RowsAffected, result.Error
 }

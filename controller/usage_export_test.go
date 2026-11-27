@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -17,13 +19,20 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // setupUsageExportEndpoints adds the export routes to the usage report fixture. The fixture
 // users and their own export directory are created here.
 func setupUsageExportEndpoints(t *testing.T) *gin.Engine {
 	t.Helper()
-	engine := setupUsageReportEndpoints(t)
+	return seedUsageExportEndpoints(t, setupUsageReportEndpoints(t))
+}
+
+func seedUsageExportEndpoints(t *testing.T, engine *gin.Engine) *gin.Engine {
+	t.Helper()
 	require.NoError(t, model.DB.AutoMigrate(&model.User{}, &model.UsageExportJob{}, &model.AuditLog{}))
 	users := []model.User{
 		{Id: usageOrgAAdmin, Username: "usage-export-org-a-admin", AffCode: "usage-export-aff-10", Role: common.RoleCommonUser, Status: common.UserStatusEnabled},
@@ -263,10 +272,55 @@ func TestUsageExportCarriesTheModelFilter(t *testing.T) {
 	assert.NotContains(t, download.Body.String(), "a-admin", "m1 rows are excluded")
 }
 
-// A small export is delivered directly. The estimate says so, and the download streams the file
-// without creating a job.
-func TestUsageExportDirectDeliveryStoresNothing(t *testing.T) {
-	engine := setupUsageExportEndpoints(t)
+func TestUsageExportDirectDeliveryAppearsInHistoryWithoutAStoredFile(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			var db *gorm.DB
+			switch dialect {
+			case "mysql":
+				dsn := os.Getenv("TEST_MYSQL_DSN")
+				if dsn == "" {
+					t.Skip("TEST_MYSQL_DSN is not configured")
+				}
+				db, _ = newAuditTestDatabase(t, dialect, dsn)
+			case "postgres":
+				dsn := os.Getenv("TEST_POSTGRES_DSN")
+				if dsn == "" {
+					t.Skip("TEST_POSTGRES_DSN is not configured")
+				}
+				parsed, err := url.Parse(dsn)
+				require.NoError(t, err)
+				require.True(t, parsed.Hostname() == "127.0.0.1" && parsed.Port() == "5432" && parsed.Path == "/newapi_e2e", "use only the local PostgreSQL E2E database")
+				base, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+				require.NoError(t, err)
+				t.Cleanup(func() { closeGormHandles(base) })
+				db = base.Begin()
+				require.NoError(t, db.Error)
+				t.Cleanup(func() { assert.NoError(t, db.Rollback().Error) })
+				schema := clause.Table{Name: "direct_export_test_" + strconv.FormatInt(time.Now().UnixNano(), 10)}
+				require.NoError(t, db.Exec("CREATE SCHEMA ?", schema).Error)
+				require.NoError(t, db.Exec("SET LOCAL search_path TO ?", schema).Error)
+			default:
+				db, _ = newAuditTestDatabase(t, dialect, "")
+			}
+			versionQuery := "SELECT version()"
+			if dialect == "sqlite" {
+				versionQuery = "SELECT sqlite_version()"
+			}
+			var version string
+			require.NoError(t, db.Raw(versionQuery).Scan(&version).Error)
+			t.Logf("database version: %s", version)
+			engine := seedUsageExportEndpoints(t, seedUsageReportEndpoints(t, db, common.DatabaseType(dialect)))
+			verifyDirectUsageExportHistory(t, engine)
+		})
+	}
+}
+
+func verifyDirectUsageExportHistory(t *testing.T, engine *gin.Engine) {
+	t.Helper()
+	engine.GET("/api/usage/v2/exports", ListUsageExports)
+	engine.GET("/api/usage/v2/exports/direct", DirectUsageExport)
+	engine.GET("/api/usage/v2/exports/:job_id/download", DownloadUsageExport)
 	query := "/api/usage/exports/estimate?view=organization&organization_id=1&kind=records&format=csv"
 	estimated := usageExportCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, http.MethodGet, query, nil)
 	require.Equal(t, http.StatusOK, estimated.Code, estimated.Body.String())
@@ -274,18 +328,89 @@ func TestUsageExportDirectDeliveryStoresNothing(t *testing.T) {
 	assert.Equal(t, "direct", estimate["delivery"])
 	assert.Equal(t, float64(2), estimate["row_count"], "organization A paid for two requests in the fixture")
 
-	var before int64
-	require.NoError(t, model.DB.Model(&model.UsageExportJob{}).Count(&before).Error)
-	direct := usageExportCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, http.MethodGet,
-		"/api/usage/exports/direct?view=organization&organization_id=1&kind=records&format=csv&with_bom=true", nil)
-	require.Equal(t, http.StatusOK, direct.Code, direct.Body.String())
-	assert.Equal(t, "text/csv; charset=utf-8", direct.Header().Get("Content-Type"))
-	assert.Contains(t, direct.Header().Get("Content-Disposition"), "attachment")
-	assert.Contains(t, direct.Body.String(), "org-a-member")
-	assert.NotContains(t, direct.Body.String(), "org-b-member", "the file holds only the organization's rows")
-	var after int64
-	require.NoError(t, model.DB.Model(&model.UsageExportJob{}).Count(&after).Error)
-	assert.Equal(t, before, after, "a direct download creates no job record")
+	for _, format := range []string{"csv", "xlsx"} {
+		t.Run(format, func(t *testing.T) {
+			const exports = "/api/usage/v2/exports"
+			path := exports + "/direct?view=organization&payer_type=organization&organization_id=1&kind=summary&format=" + format
+			direct := usageExportCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, http.MethodGet, path, nil)
+			require.Equal(t, http.StatusOK, direct.Code, direct.Body.String())
+			assert.Equal(t, service.UsageExportContentType(format), direct.Header().Get("Content-Type"))
+			assert.Contains(t, direct.Header().Get("Content-Disposition"), "attachment")
+
+			status, body := usageCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, exports+"?include_direct=true")
+			require.Equal(t, http.StatusOK, status)
+			items := usageData(body)["items"].([]any)
+			require.NotEmpty(t, items)
+			row := items[0].(map[string]any)
+			assert.Equal(t, "direct_downloaded", row["status"])
+			assert.Equal(t, "summary", row["kind"])
+			assert.Equal(t, format, row["format"])
+			assert.Equal(t, "organization", row["payer_type"])
+			assert.Equal(t, float64(4), row["row_count"], "total, model and two user rows")
+			assert.Equal(t, float64(0), row["expires_time"])
+			assert.NotContains(t, row, "download_url")
+			id := row["job_id"].(string)
+			stored, err := model.GetUsageExportJob(id)
+			require.NoError(t, err)
+			assert.Empty(t, stored.StorageKey)
+			assert.Contains(t, direct.Header().Get("Content-Disposition"), stored.FileName)
+			var event model.AuditLog
+			require.NoError(t, model.DB.Where("action = ? AND user_id = ? AND content LIKE ?", "usage_export.direct_downloaded", usageOrgAAdmin, "%"+id+"%").First(&event).Error)
+
+			undownloadable := usageExportCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, http.MethodGet, exports+"/"+id+"/download", nil)
+			assert.Equal(t, http.StatusGone, undownloadable.Code)
+			assert.Contains(t, undownloadable.Body.String(), "USAGE_EXPORT_NO_STORED_FILE")
+		})
+	}
+	status, body := usageCall(t, engine, usageOrgAMember, common.RoleCommonUser, "/api/usage/v2/exports?include_direct=true")
+	require.Equal(t, http.StatusOK, status)
+	assert.Empty(t, usageData(body)["items"], "another member never sees the owner's exports")
+	status, body = usageCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, "/api/usage/v2/exports")
+	require.Equal(t, http.StatusOK, status)
+	assert.Empty(t, usageData(body)["items"], "old clients do not receive a new status")
+
+	now := common.GetTimestamp()
+	require.NoError(t, model.DB.Create(&model.UsageExportJob{
+		JobId: "recent-direct", UserId: usageOrgAAdmin, Status: model.UsageExportStatusSucceeded, CreatedTime: now + 1,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.UsageExportJob{
+		JobId: "ready-export", UserId: usageOrgAAdmin, Status: model.UsageExportStatusSucceeded,
+		StorageKey: "ready-export.csv", CreatedTime: now - 120, ExpiresTime: now + 60,
+	}).Error)
+	// Simulate the retention cutoff passing for the direct records, but not for a ready file.
+	purged, err := model.DeleteUsageExportJobsCreatedBefore(now + 1)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, purged)
+	status, body = usageCall(t, engine, usageOrgAAdmin, common.RoleCommonUser, "/api/usage/v2/exports?include_direct=true")
+	require.Equal(t, http.StatusOK, status)
+	items := usageData(body)["items"].([]any)
+	require.Len(t, items, 2)
+	assert.Equal(t, "ready-export", items[0].(map[string]any)["job_id"])
+	assert.Equal(t, "recent-direct", items[1].(map[string]any)["job_id"])
+}
+
+func TestUsageExportInterruptedDirectStreamDoesNotAppearInHistory(t *testing.T) {
+	engine := setupUsageExportEndpoints(t)
+	request := httptest.NewRequest(http.MethodGet, "/api/usage/exports/direct?kind=records&format=csv", nil)
+	request.Header.Set("X-Test-User", strconv.Itoa(usageOrgAMember))
+	request.Header.Set("X-Test-Role", strconv.Itoa(common.RoleCommonUser))
+	writer := &usageExportDisconnectedWriter{ResponseRecorder: httptest.NewRecorder()}
+	engine.ServeHTTP(writer, request)
+	require.True(t, writer.attempted, "the exporter reached the response stream")
+
+	status, body := usageCall(t, engine, usageOrgAMember, common.RoleCommonUser, "/api/usage/exports?include_direct=true")
+	require.Equal(t, http.StatusOK, status)
+	assert.Empty(t, usageData(body)["items"])
+}
+
+type usageExportDisconnectedWriter struct {
+	*httptest.ResponseRecorder
+	attempted bool
+}
+
+func (w *usageExportDisconnectedWriter) Write([]byte) (int, error) {
+	w.attempted = true
+	return 0, io.ErrClosedPipe
 }
 
 // A user who holds their download share is refused, even when global download slots are free.

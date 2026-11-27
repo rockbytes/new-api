@@ -204,7 +204,7 @@ func newUsageExportJob(callerId int, request UsageExportRequest, plan usageExpor
 
 // Delivery values say how an export reaches the caller.
 const (
-	// UsageExportDeliveryDirect streams the file in the response. Nothing is stored.
+	// UsageExportDeliveryDirect streams the file in the response without saving a copy.
 	UsageExportDeliveryDirect = "direct"
 	// UsageExportDeliveryQueued creates a job. The file is generated in the background and kept
 	// for a day so the caller can download it.
@@ -314,10 +314,23 @@ func (d *UsageDirectExport) Close() {
 	d.lease.Release()
 }
 
-// RecordUsageDirectExport audits a direct export. The export has no job record, so the audit row
-// carries a generated id instead.
-func RecordUsageDirectExport(c *gin.Context, direct *UsageDirectExport) {
+// AuditUsageDirectExport records the authorized download attempt before sending its data.
+func AuditUsageDirectExport(c *gin.Context, direct *UsageDirectExport) {
 	recordUsageExportEvent(c, direct.job, "direct_downloaded", "")
+}
+
+// RecordUsageDirectExport records a successful stream without retaining a file. It runs only
+// after Write succeeds, so a failed or canceled stream never enters the download history.
+func RecordUsageDirectExport(direct *UsageDirectExport, rows int64) {
+	job := direct.job
+	job.Status = model.UsageExportStatusSucceeded
+	job.RowCount = rows
+	job.FileName = direct.FileName()
+	job.FinishedTime = common.GetTimestamp()
+	if err := model.CreateUsageExportJob(job); err != nil {
+		// The response body has already been written. Do not replace it with an error.
+		common.SysError("direct usage export history " + job.JobId + ": " + err.Error())
+	}
 }
 
 // usageExportKind keeps legacy workbook requests while allowing summary-only XLSX exports.
