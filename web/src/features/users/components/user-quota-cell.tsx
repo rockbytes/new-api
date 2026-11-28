@@ -25,15 +25,15 @@ export function UserQuotaCell(props: UserQuotaCellProps) {
     props.personalKeyUsage == null
       ? '—'
       : formatQuotaWithCurrency(props.personalKeyUsage, { showSymbol: false })
-  const usageLabel = t('Personal Key usage')
+  const usedLabel = t('Used amount')
 
   return (
     <QuotaDetailsPopover
       title={`${t('Quota')} (${quotaUnit})`}
-      triggerLabel={`${t('Available Balance')} ${formattedRemaining}; ${usageLabel} ${props.personalKeyUsage == null ? t('Unavailable') : formattedUsed}`}
+      triggerLabel={`${t('Available Balance')} ${formattedRemaining}; ${usedLabel} ${props.personalKeyUsage == null ? t('Unavailable') : formattedUsed}`}
       details={[
         { label: t('Available Balance'), value: formattedRemaining },
-        { label: usageLabel, value: formattedUsed },
+        { label: t('Personal Key usage'), value: formattedUsed },
       ]}
       description={t(
         'Usage recorded by the new version for personally paid API Keys, including wallet and subscription payments. Refunds are not deducted. Earlier usage is not backfilled.'
@@ -46,7 +46,7 @@ export function UserQuotaCell(props: UserQuotaCellProps) {
           props.remaining < 0 && 'text-destructive',
           props.remaining === 0 && 'text-muted-foreground'
         )}
-        secondaryLabel={usageLabel}
+        secondaryLabel={usedLabel}
         secondaryValue={formattedUsed}
       />
     </QuotaDetailsPopover>

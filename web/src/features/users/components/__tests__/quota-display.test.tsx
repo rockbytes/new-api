@@ -140,13 +140,14 @@ it('shows balance above secondary usage text and opens quota details on click', 
   expect(within(cells[0]).getByText('0.0022')).toBeInTheDocument()
   // The used figure sits on its own line with the same type scale as the balance above it, so
   // the two are distinguished by their words rather than by a secondary style.
-  expect(
-    screen.getByText('Personal Key usage').parentElement
-  ).not.toHaveAttribute('data-table-text')
+  expect(screen.getByText('Used amount').parentElement).not.toHaveAttribute(
+    'data-table-text'
+  )
+  expect(screen.queryByText('Personal Key usage')).not.toBeInTheDocument()
   expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   expect(screen.queryByText('0.006')).not.toBeInTheDocument()
   const trigger = screen.getByRole('button', {
-    name: 'Available Balance 0.0038; Personal Key usage 0.0022',
+    name: 'Available Balance 0.0038; Used amount 0.0022',
   })
   await userEvent.click(trigger)
   const detail = await screen.findByRole('dialog', { name: 'Quota ($)' })
@@ -171,7 +172,7 @@ it('shows zero personal Key usage instead of all-payer usage', async () => {
   expect(screen.queryByText('37.22')).not.toBeInTheDocument()
   await userEvent.click(
     screen.getByRole('button', {
-      name: 'Available Balance 0; Personal Key usage 0',
+      name: 'Available Balance 0; Used amount 0',
     })
   )
   const detail = await screen.findByRole('dialog', { name: 'Quota ($)' })
@@ -340,7 +341,8 @@ it('shows balance above usage on mobile cards in Chinese', async () => {
   try {
     await renderUsersList()
     expect(screen.getByText('个人余额 ($)')).toBeInTheDocument()
-    expect(screen.getByText('个人 Key 用量')).toBeInTheDocument()
+    expect(screen.getByText('已用')).toBeInTheDocument()
+    expect(screen.queryByText('个人 Key 用量')).not.toBeInTheDocument()
     expect(screen.getByText('0.0038')).toBeInTheDocument()
     expect(screen.getByText('0.0022')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
