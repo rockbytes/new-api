@@ -414,17 +414,20 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	}
 }
 
+const taskBillingPayerRecordedKey = "task_billing_payer_recorded"
+
 type RecordTaskBillingLogParams struct {
-	UserId    int
-	LogType   int
-	Content   []*common.Message
-	ChannelId int
-	ModelName string
-	Quota     int
-	TokenId   int
-	Group     string
-	Other     *LogOther
-	NodeName  string // 任务发起节点；为空时回退当前节点
+	UserId                int
+	BillingOrganizationId int
+	LogType               int
+	Content               []*common.Message
+	ChannelId             int
+	ModelName             string
+	Quota                 int
+	TokenId               int
+	Group                 string
+	Other                 *LogOther
+	NodeName              string // 任务发起节点；为空时回退当前节点
 }
 
 func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
@@ -440,19 +443,24 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	}
 	createdAt := common.GetTimestamp()
 	other := params.Other
+	if other == nil {
+		other = NewLogOther()
+	}
+	other.SetPublic(taskBillingPayerRecordedKey, true)
 	log := &Log{
-		UserId:    params.UserId,
-		Username:  username,
-		CreatedAt: createdAt,
-		Type:      params.LogType,
-		Content:   other.setContent(params.Content),
-		TokenName: tokenName,
-		ModelName: params.ModelName,
-		Quota:     params.Quota,
-		ChannelId: params.ChannelId,
-		TokenId:   params.TokenId,
-		Group:     params.Group,
-		Other:     other.JSONString(),
+		UserId:                params.UserId,
+		BillingOrganizationId: params.BillingOrganizationId,
+		Username:              username,
+		CreatedAt:             createdAt,
+		Type:                  params.LogType,
+		Content:               other.setContent(params.Content),
+		TokenName:             tokenName,
+		ModelName:             params.ModelName,
+		Quota:                 params.Quota,
+		ChannelId:             params.ChannelId,
+		TokenId:               params.TokenId,
+		Group:                 params.Group,
+		Other:                 other.JSONString(),
 	}
 	err := createLog(log)
 	if err != nil {

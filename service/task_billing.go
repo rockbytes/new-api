@@ -116,23 +116,12 @@ func taskIsSubscription(task *model.Task) bool {
 // taskAdjustFunding 调整任务的资金来源（钱包或订阅），delta > 0 表示扣费，delta < 0 表示退还。
 func taskAdjustFunding(task *model.Task, delta int) error {
 	if taskIsSubscription(task) {
-		return model.PostConsumeUserSubscriptionDelta(task.PrivateData.SubscriptionId, int64(delta))
+		return model.SettleTaskSubscriptionUsage(task, int64(delta))
 	}
 	if delta > 0 {
 		return model.DecreaseUserQuota(task.UserId, delta, false)
 	}
 	return model.IncreaseUserQuota(task.UserId, -delta, false)
-}
-
-// taskRefundFunding returns the funding of a failed task. An organization-paid task returns
-// everything its request still holds in the organization ledger, so a capped settlement
-// cannot refund more than was charged.
-func taskRefundFunding(task *model.Task, quota int) error {
-	if task.BillingOrganizationId > 0 {
-		_, _, err := model.SettleOrganizationRequestTo(task.BillingOrganizationId, task.UserId, task.PrivateData.BillingRequestId, 0, common.GetTimestamp())
-		return err
-	}
-	return taskAdjustFunding(task, -quota)
 }
 
 // taskSettleFunding moves the funding of a settled task to its actual quota. An
@@ -279,49 +268,37 @@ func taskModelName(task *model.Task) string {
 	return task.Properties.OriginModelName
 }
 
-// RefundTaskQuota 统一的任务失败退款逻辑。
-// 当异步任务失败时，退还资金与令牌额度，并回减用户和渠道用量。
-// 返回资金来源是否已成功退还；失败时保留 quota，供显式重试或人工对账。
+// RefundTaskQuota applies a failed task's durable refund once. A failed attempt
+// leaves the accounting and marker intact; the scheduler retries without polling
+// the provider. Audit logs are best effort after the primary database commits.
 func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool {
-	quota := task.Quota
+	if task.RefundPendingAt == 0 {
+		return true
+	}
+	quota, err := task.ApplyFailedTaskRefund(ctx)
+	if err != nil {
+		logger.LogWarn(ctx, common.LogText("task %s refund remains pending: %s", task.TaskID, err.Error()))
+		return false
+	}
 	if quota == 0 {
 		return true
 	}
 
-	// 1. 退还资金来源（钱包、订阅或付款组织）
-	if err := taskRefundFunding(task, quota); err != nil {
-		logger.LogWarn(ctx, common.LogText("failed to refund the funding source, task %s: %s", task.TaskID, err.Error()))
-		return false
-	}
-
-	// 2. 退还令牌额度
-	taskAdjustTokenQuota(ctx, task, -quota)
-
-	// 3. 回减预扣时累计的用户和渠道用量，请求次数保持不变
-	model.UpdateUserUsedQuota(task.UserId, -quota)
-	model.UpdateChannelUsedQuota(task.ChannelId, -quota)
-
-	// 4. 记录日志
 	other := taskBillingOther(task)
 	other.SetPublic("task_id", task.TaskID)
 	other.SetPublic("reason", reason)
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
-		UserId:    task.UserId,
-		LogType:   model.LogTypeRefund,
-		ChannelId: task.ChannelId,
-		ModelName: taskModelName(task),
-		Quota:     quota,
-		TokenId:   task.PrivateData.TokenId,
-		Group:     task.Group,
-		Other:     other,
+		BillingOrganizationId: task.BillingOrganizationId,
+		UserId:                task.UserId,
+		LogType:               model.LogTypeRefund,
+		ChannelId:             task.ChannelId,
+		ModelName:             taskModelName(task),
+		Quota:                 quota,
+		TokenId:               task.PrivateData.TokenId,
+		Group:                 task.Group,
+		Other:                 other,
+		NodeName:              task.PrivateData.NodeName,
 	})
-
-	// 5. 资金退款完成后再清除持久化标记。
-	// 回写失败必须显式告警，避免漏掉潜在的重复退款风险。
-	task.Quota = 0
-	if err := task.UpdateQuota(); err != nil {
-		logger.LogError(ctx, common.LogText("refund succeeded but clearing the task quota failed, task %s: %s", task.TaskID, err.Error()))
-	}
 	return true
 }
 
@@ -350,8 +327,18 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		reason.Error(),
 	))
 
-	// 调整资金来源（钱包、订阅或付款组织）
-	if err := taskSettleFunding(task, actualQuota, quotaDelta); err != nil {
+	// Commit the payer, task quota, and positive usage increment together for personal Keys.
+	personalKey := task.ID > 0 && task.BillingOrganizationId == 0 && task.PrivateData.TokenId > 0
+	if personalKey {
+		applied, err := model.SettlePersonalKeyTask(task, actualQuota)
+		if err != nil {
+			logger.LogError(ctx, common.LogText("failed to settle personal Key task %s: %s", task.TaskID, err.Error()))
+			return
+		}
+		if !applied {
+			return
+		}
+	} else if err := taskSettleFunding(task, actualQuota, quotaDelta); err != nil {
 		logger.LogError(ctx, common.LogText("failed to adjust funding for the difference, task %s: %s", task.TaskID, err.Error()))
 		return
 	}
@@ -360,8 +347,10 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	taskAdjustTokenQuota(ctx, task, quotaDelta)
 
 	task.Quota = actualQuota
-	if err := task.UpdateQuota(); err != nil {
-		logger.LogError(ctx, common.LogText("failed to write back the settled task quota, task %s: %s", task.TaskID, err.Error()))
+	if !personalKey {
+		if err := task.UpdateQuota(); err != nil {
+			logger.LogError(ctx, common.LogText("failed to write back the settled task quota, task %s: %s", task.TaskID, err.Error()))
+		}
 	}
 
 	// 提交阶段已经累计过一次请求；结算阶段只调整最终用量。
@@ -385,16 +374,17 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		attachQuotaSaturationToOther(other, clamp)
 	}
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
-		UserId:    task.UserId,
-		LogType:   logType,
-		Content:   []*common.Message{reason},
-		ChannelId: task.ChannelId,
-		ModelName: taskModelName(task),
-		Quota:     logQuota,
-		TokenId:   task.PrivateData.TokenId,
-		Group:     task.Group,
-		Other:     other,
-		NodeName:  task.PrivateData.NodeName,
+		BillingOrganizationId: task.BillingOrganizationId,
+		UserId:                task.UserId,
+		LogType:               logType,
+		Content:               []*common.Message{reason},
+		ChannelId:             task.ChannelId,
+		ModelName:             taskModelName(task),
+		Quota:                 logQuota,
+		TokenId:               task.PrivateData.TokenId,
+		Group:                 task.Group,
+		Other:                 other,
+		NodeName:              task.PrivateData.NodeName,
 	})
 }
 

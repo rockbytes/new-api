@@ -391,6 +391,14 @@ func RelayMidjourney(c *gin.Context) {
 	//err = relayMidjourneySubmit(c, relayMode)
 	log.Println(mjErr)
 	if mjErr != nil {
+		if mjErr == relay.MidjourneyOrganizationPayerUnsupported {
+			c.JSON(http.StatusForbidden, gin.H{
+				"description": mjErr.Description,
+				"type":        "local_error",
+				"code":        mjErr.Code,
+			})
+			return
+		}
 		policy.Successful = false
 		statusCode := http.StatusBadRequest
 		if mjErr.Code == 30 {
@@ -682,6 +690,7 @@ func executeTaskSubmissionWith(
 		task.PrivateData.BillingRequestId = relayInfo.RequestId
 	}
 	task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
+	task.PrivateData.SubscriptionPeriodStart = relayInfo.SubscriptionPeriodStart
 	task.PrivateData.TokenId = relayInfo.TokenId
 	task.PrivateData.NodeName = common.NodeName
 	task.PrivateData.BillingContext = &model.TaskBillingContext{

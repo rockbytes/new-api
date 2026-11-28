@@ -60,6 +60,10 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
 // SettleBilling — 后结算辅助函数
 // ---------------------------------------------------------------------------
 
+func personalKeyForSettlement(info *relaycommon.RelayInfo) bool {
+	return info != nil && info.RequestId != "" && info.TokenId > 0 && !info.IsPlayground && !info.IsChannelTest && info.PayingOrganizationId == 0
+}
+
 // SettleBilling 执行计费结算。如果 RelayInfo 上有 BillingSession 则通过 session 结算，
 // 否则回退到旧的 PostConsumeQuota 路径（兼容按次计费等场景）。
 func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuota int) error {
@@ -102,6 +106,10 @@ func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuo
 
 	// 回退：无 BillingSession 时使用旧路径
 	quotaDelta := actualQuota - relayInfo.FinalPreConsumedQuota
+	if actualQuota > 0 && personalKeyForSettlement(relayInfo) {
+		_, err := postConsumeQuotaWithResult(relayInfo, quotaDelta, relayInfo.FinalPreConsumedQuota, true, actualQuota)
+		return err
+	}
 	if quotaDelta != 0 {
 		return PostConsumeQuota(relayInfo, quotaDelta, relayInfo.FinalPreConsumedQuota, true)
 	}

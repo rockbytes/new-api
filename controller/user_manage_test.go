@@ -143,7 +143,7 @@ func TestUserModelRateLimitAPI(t *testing.T) {
 	}
 }
 
-func setupUserModelRateLimitDB(t *testing.T, dialect string, upgrade bool) *gorm.DB {
+func setupUserManagementTestDatabase(t *testing.T, dialect string) *gorm.DB {
 	t.Helper()
 	require.NoError(t, i18n.Init())
 	previousDB, previousLogDB := model.DB, model.LOG_DB
@@ -203,7 +203,12 @@ func setupUserModelRateLimitDB(t *testing.T, dialect string, upgrade bool) *gorm
 	var version string
 	require.NoError(t, base.Raw(versionSQL).Scan(&version).Error)
 	t.Logf("%s version: %s", dialect, version)
+	return base
+}
 
+func setupUserModelRateLimitDB(t *testing.T, dialect string, upgrade bool) *gorm.DB {
+	t.Helper()
+	base := setupUserManagementTestDatabase(t, dialect)
 	if upgrade {
 		require.NoError(t, base.AutoMigrate(&releasedAuditUser{}))
 		require.NoError(t, base.Create(&releasedAuditUser{Username: "released-user", AffCode: "released-aff"}).Error)
@@ -233,6 +238,178 @@ func setupUserModelRateLimitDB(t *testing.T, dialect string, upgrade bool) *gorm
 	assert.Equal(t, &model.UserModelRateLimit{UserID: resident.Id, Total: 0, Success: 7}, stored)
 	require.Error(t, db.Create(&model.UserModelRateLimit{UserID: resident.Id}).Error, "a second row for a user must violate the primary key")
 	return db
+}
+
+func TestUserListPersonalKeyUsage(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			db := setupUserManagementTestDatabase(t, dialect)
+			logs := db
+			// The SQLite case intentionally has no logs in the main database.
+			if dialect == "sqlite" {
+				logs, _ = newAuditTestDatabase(t, dialect, "")
+			}
+			model.DB, model.LOG_DB = db, logs
+			common.SetDatabaseTypes(common.DatabaseType(dialect), common.DatabaseType(dialect))
+			verifyUserListPersonalKeyUsage(t, db, logs, false)
+		})
+		t.Run(dialect+"_upgrade", func(t *testing.T) {
+			db := setupUserManagementTestDatabase(t, dialect)
+			model.DB, model.LOG_DB = db, db
+			common.SetDatabaseTypes(common.DatabaseType(dialect), common.DatabaseType(dialect))
+			verifyUserListPersonalKeyUsage(t, db, db, true)
+		})
+	}
+	if dsn := os.Getenv("TEST_CLICKHOUSE_LOG_DSN"); dsn != "" {
+		t.Run("clickhouse_log", func(t *testing.T) {
+			db := setupUserManagementTestDatabase(t, "sqlite")
+			logs, logDSN := newAuditTestDatabase(t, "clickhouse", dsn)
+			t.Setenv("LOG_SQL_DSN", logDSN)
+			model.DB = db
+			common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+			require.NoError(t, model.InitLogDB())
+			logDB := model.LOG_DB
+			t.Cleanup(func() { closeGormHandles(logDB) })
+			var version string
+			require.NoError(t, logs.Raw("SELECT version()").Scan(&version).Error)
+			t.Logf("ClickHouse version: %s", version)
+			verifyUserListPersonalKeyUsage(t, db, model.LOG_DB, true)
+		})
+	}
+}
+
+func verifyUserListPersonalKeyUsage(t *testing.T, db, logs *gorm.DB, upgrade bool) {
+	t.Helper()
+	previousConsume, previousExport := common.LogConsumeEnabled, common.DataExportEnabled
+	common.LogConsumeEnabled, common.DataExportEnabled = true, false
+	t.Cleanup(func() { common.LogConsumeEnabled, common.DataExportEnabled = previousConsume, previousExport })
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.PersonalKeySettlement{}, &model.Option{}, &model.Token{}, &model.Task{}, &model.UserSubscription{}, &model.Organization{}, &model.OrganizationMembership{}, &model.OrganizationMemberQuota{}, &model.OrganizationQuotaAccount{}))
+	if upgrade {
+		// The released users schema differs here only by the new counter column.
+		require.NoError(t, db.Migrator().DropColumn(&model.User{}, "personal_key_used_quota"))
+	}
+	if !common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
+		require.NoError(t, logs.AutoMigrate(&model.Log{}))
+	}
+	users := []model.User{
+		{Username: "key-usage-member", AffCode: "member", Quota: 500, UsedQuota: 900},
+		{Username: "key-usage-none", AffCode: "none", UsedQuota: 700},
+	}
+	require.NoError(t, db.Omit("personal_key_used_quota").Create(&users).Error)
+	member := users[0]
+	org := model.Organization{Name: "Current organization", Status: model.OrganizationStatusActive}
+	require.NoError(t, db.Create(&org).Error)
+	require.NoError(t, db.Create(&model.OrganizationMembership{OrganizationId: org.Id, UserId: member.Id, Role: model.OrganizationRoleMember, Status: model.OrganizationMembershipActive}).Error)
+	require.NoError(t, db.Create(&model.OrganizationMemberQuota{OrganizationId: org.Id, UserId: member.Id, AllocatedQuota: 200, UsedQuota: 80}).Error)
+	key := model.Token{UserId: member.Id, Key: "matrix-key", BillingOrganizationId: &org.Id}
+	require.NoError(t, db.Create(&key).Error)
+	require.NoError(t, db.Delete(&key).Error)
+
+	wantUsage := 0
+	if upgrade {
+		require.NoError(t, logs.Create(&[]model.Log{
+			{UserId: member.Id, TokenId: key.Id, Type: model.LogTypeConsume, Quota: 25, Other: `{"billing_source":"wallet"}`},
+			{UserId: member.Id, TokenId: key.Id, Type: model.LogTypeConsume, Quota: 75, Other: `{"billing_source":"subscription"}`},
+			{UserId: member.Id, TokenId: key.Id, Type: model.LogTypeConsume, Quota: 80, BillingOrganizationId: org.Id},
+			{UserId: member.Id, TokenId: key.Id, Type: model.LogTypeConsume, Quota: 60, BillingOrganizationId: org.Id + 1},
+			{UserId: member.Id, Type: model.LogTypeConsume, Quota: 400},
+			{UserId: member.Id, TokenId: key.Id, Type: model.LogTypeRefund, Quota: 10},
+			{UserId: member.Id, TokenId: key.Id, Type: model.LogTypeConsume, Quota: 900, Other: `{"violation_fee":true}`},
+			{UserId: member.Id, TokenId: key.Id, Type: model.LogTypeConsume, Quota: 800, Other: `{"pre_consumed_quota":100,"actual_quota":900}`},
+		}).Error)
+		wantUsage = 100
+		require.NoError(t, db.AutoMigrate(&model.User{}))
+	}
+	if upgrade {
+		model.LOG_DB = nil
+		require.Error(t, model.InitializePersonalKeyUsage(), "failed import must not commit the completion marker")
+		model.LOG_DB = logs
+	}
+	require.NoError(t, model.InitializePersonalKeyUsage())
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.PersonalKeySettlement{}))
+	require.NoError(t, model.InitializePersonalKeyUsage())
+	assert.Error(t, db.Create(&model.User{Username: member.Username, AffCode: "duplicate-member"}).Error)
+
+	common.LogConsumeEnabled = false
+	sub := model.UserSubscription{UserId: member.Id, AmountTotal: 59, AmountUsed: 40}
+	require.NoError(t, db.Create(&sub).Error)
+	// Force a write failure after the receipt insert, then retry with the same identity.
+	_, err := model.SettlePersonalKey("confirmed-subscription", member.Id, key.Id, 20, 20, sub.Id, nil)
+	require.Error(t, err)
+	var pending model.User
+	require.NoError(t, db.First(&pending, member.Id).Error)
+	assert.EqualValues(t, wantUsage, pending.PersonalKeyUsedQuota)
+	require.NoError(t, db.Model(&sub).Update("amount_total", 60).Error)
+
+	for _, tc := range []struct {
+		id                  string
+		subscription, delta int
+	}{
+		{"confirmed-wallet", 0, 20},
+		{"confirmed-subscription", sub.Id, 20},
+	} {
+		applied, err := model.SettlePersonalKey(tc.id, member.Id, key.Id, 20, tc.delta, tc.subscription, nil)
+		require.NoError(t, err)
+		require.True(t, applied)
+		applied, err = model.SettlePersonalKey(tc.id, member.Id, key.Id, 20, tc.delta, tc.subscription, nil)
+		require.NoError(t, err)
+		require.False(t, applied, "replaying the same settlement must not debit or count it again")
+	}
+	_, err = model.SettlePersonalKey("confirmed-wallet", member.Id, key.Id, 21, 21, 0, nil)
+	require.Error(t, err)
+	require.NoError(t, db.First(&sub, sub.Id).Error)
+	assert.EqualValues(t, 60, sub.AmountUsed)
+
+	wantUsage += 40
+	task := model.Task{TaskID: "personal-key-usage-task", UserId: member.Id, Quota: 20, Status: model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{TokenId: key.Id, BillingSource: service.BillingSourceWallet}}
+	require.NoError(t, db.Create(&task).Error)
+	oldTask := task
+	applied, err := model.SettlePersonalKeyTask(&task, 35)
+	require.NoError(t, err)
+	require.True(t, applied)
+	applied, err = model.SettlePersonalKeyTask(&oldTask, 35)
+	require.NoError(t, err)
+	require.False(t, applied)
+	require.NoError(t, db.First(&task, task.ID).Error)
+	applied, err = model.SettlePersonalKeyTask(&task, 30)
+	require.NoError(t, err)
+	require.True(t, applied)
+	wantUsage += 15
+
+	// Even positive log rows are not settlements and must never increment the primary counter.
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	common.LogConsumeEnabled = true
+	model.RecordConsumeLog(ctx, member.Id, model.RecordConsumeLogParams{TokenId: key.Id, Quota: 50})
+	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{UserId: member.Id, TokenId: key.Id, LogType: model.LogTypeConsume, Quota: 15})
+	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{UserId: member.Id, TokenId: key.Id, LogType: model.LogTypeRefund, Quota: 10})
+	if upgrade {
+		deleted, err := model.DeleteOldLogBatch(t.Context(), time.Now().Unix()+1, 100)
+		require.NoError(t, err)
+		assert.Positive(t, deleted)
+	}
+	require.NoError(t, model.InitializePersonalKeyUsage())
+	model.LOG_DB = nil // The read path must not use the log store at all.
+
+	engine := gin.New()
+	engine.GET("/api/user/", GetAllUsers)
+	engine.GET("/api/user/search", SearchUsers)
+	for _, path := range []string{"/api/user/?sort_by=id&sort_order=asc", "/api/user/search?keyword=member"} {
+		status, body := usageCall(t, engine, 0, common.RoleRootUser, path)
+		require.Equal(t, http.StatusOK, status)
+		require.Equal(t, true, body["success"], "%v", body)
+		items := usageData(body)["items"].([]any)
+		require.NotEmpty(t, items)
+		row := items[0].(map[string]any)
+		assert.EqualValues(t, wantUsage, row["personal_key_used_quota"], "only personally paid Key usage survives log cleanup")
+		assert.EqualValues(t, 470, row["quota"])
+		assert.EqualValues(t, 900, row["used_quota"])
+		assert.EqualValues(t, 80, row["organization"].(map[string]any)["used_quota"])
+		if len(items) > 1 {
+			assert.EqualValues(t, 0, items[1].(map[string]any)["personal_key_used_quota"])
+		}
+	}
 }
 
 func verifyUserModelRateLimitAPI(t *testing.T, db *gorm.DB) {

@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"sync"
 	"testing"
@@ -325,6 +326,183 @@ func TestUpdateWithStatus_ConcurrentWinner(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, winCount, "exactly one goroutine should win the CAS")
+}
+
+func TestFailedTaskRefundAcrossDatabases(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			for _, layout := range []string{"fresh", "upgrade"} {
+				t.Run(layout, func(t *testing.T) {
+					db := openSubscriptionRefundTestDB(t, dialect)
+					previous, previousType := DB, common.MainDatabaseType()
+					DB = db
+					common.SetMainDatabaseType(common.DatabaseType(dialect))
+					t.Cleanup(func() { DB = previous; common.SetMainDatabaseType(previousType) })
+					verifyFailedTaskRefund(t, db, layout == "upgrade")
+				})
+			}
+		})
+	}
+}
+
+func verifyFailedTaskRefund(t *testing.T, db *gorm.DB, upgrade bool) {
+	t.Helper()
+	versionSQL := "SELECT version()"
+	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
+		versionSQL = "SELECT sqlite_version()"
+	}
+	var version string
+	require.NoError(t, db.Raw(versionSQL).Scan(&version).Error)
+	t.Logf("database version: %s", version)
+	ctx := context.Background()
+
+	require.NoError(t, db.AutoMigrate(&User{}, &Channel{}, &Token{}, &UserSubscription{}, &Organization{}, &OrganizationMembership{},
+		&OrganizationQuotaAccount{}, &OrganizationMemberQuota{}, &OrganizationQuotaLedgerEntry{}, &Task{}))
+	if upgrade {
+		// Recreate the pre-refund task schema while preserving all existing indexes.
+		require.NoError(t, db.Migrator().DropIndex(&Task{}, "idx_tasks_refund_pending_at"))
+		require.NoError(t, db.Migrator().DropColumn(&Task{}, "refund_pending_at"))
+	}
+	historical := Task{TaskID: "old-failed", Quota: 30, Status: TaskStatusFailure, Progress: "100%"}
+	require.NoError(t, db.Omit("RefundPendingAt").Create(&historical).Error)
+	for range 2 {
+		require.NoError(t, db.AutoMigrate(&Task{}))
+	}
+	require.True(t, db.Migrator().HasIndex(&Task{}, "idx_tasks_task_id"))
+	assert.False(t, HasUnfinishedSyncTasks())
+	pending, err := GetPendingTaskRefunds(common.GetTimestamp(), 100)
+	require.NoError(t, err)
+	assert.Empty(t, pending)
+
+	const quota = 100
+	for _, payer := range []string{"wallet", "subscription", "organization"} {
+		t.Run(payer, func(t *testing.T) {
+			user := User{Username: payer, AffCode: payer, Quota: 500, UsedQuota: quota, RequestCount: 1}
+			require.NoError(t, db.Create(&user).Error)
+			token := Token{UserId: user.Id, Key: payer, RemainQuota: 400, UsedQuota: quota}
+			require.NoError(t, db.Create(&token).Error)
+			ch := Channel{Name: payer, Key: "test", UsedQuota: quota}
+			require.NoError(t, db.Create(&ch).Error)
+			task := Task{TaskID: "new-failure-" + payer, Quota: quota, Status: TaskStatusInProgress, Progress: "50%", UserId: user.Id, ChannelId: ch.Id,
+				PrivateData: TaskPrivateData{BillingSource: payer, TokenId: token.Id}}
+			wantWallet := user.Quota
+			switch payer {
+			case "wallet":
+				wantWallet += quota
+			case "subscription":
+				const epoch int64 = 7
+				sub := UserSubscription{UserId: user.Id, AmountUsed: quota + 10, AmountTotal: 1000, UsageResetEpoch: epoch}
+				require.NoError(t, db.Create(&sub).Error)
+				task.PrivateData.SubscriptionId = sub.Id
+				task.PrivateData.SubscriptionPeriodStart = common.GetPointer(epoch)
+			case "organization":
+				org := Organization{Name: payer, Status: OrganizationStatusActive}
+				require.NoError(t, db.Create(&org).Error)
+				require.NoError(t, db.Create(&OrganizationMembership{OrganizationId: org.Id, UserId: user.Id,
+					Role: OrganizationRoleMember, Status: OrganizationMembershipActive}).Error)
+				task.BillingOrganizationId = org.Id
+				task.PrivateData.BillingRequestId = task.TaskID
+				_, err := GrantOrganizationQuota(org.Id, 1000, user.Id, "test", "task-refund", 1)
+				require.NoError(t, err)
+				require.NoError(t, SetOrganizationMemberAllocation(org.Id, user.Id, 1000, 2))
+				require.NoError(t, ConsumeOrganizationQuota(org.Id, user.Id, task.TaskID, 1, quota-20, 3))
+			}
+			require.NoError(t, db.Create(&task).Error)
+			task.Status, task.Progress, task.FailReason = TaskStatusFailure, "100%", "test failure"
+			won, err := task.UpdateWithStatus(TaskStatusInProgress)
+			require.NoError(t, err)
+			require.True(t, won)
+			pending, err := GetPendingTaskRefunds(common.GetTimestamp(), 100)
+			require.NoError(t, err)
+			require.Len(t, pending, 1)
+			require.Equal(t, task.ID, pending[0].ID)
+
+			// Failure after the payer write rolls it back together with the claim.
+			const callback = "test:task_refund_fail_token"
+			writeErr := errors.New("test token update failure")
+			require.NoError(t, db.Callback().Update().Before("gorm:update").Register(callback, func(tx *gorm.DB) {
+				if tx.Statement.Table == "tokens" {
+					tx.AddError(writeErr)
+				}
+			}))
+			_, err = pending[0].ApplyFailedTaskRefund(ctx)
+			assert.ErrorIs(t, err, writeErr)
+			require.NoError(t, db.Callback().Update().Remove(callback))
+			require.NoError(t, db.First(&user, user.Id).Error)
+			assert.Equal(t, 500, user.Quota)
+			assert.Equal(t, quota, user.UsedQuota)
+			assert.True(t, HasUnfinishedSyncTasks())
+
+			// The retry timestamp doubles as the claim revision: a stale worker
+			// cannot bypass backoff after another worker defers a broken refund.
+			if payer == "wallet" {
+				stale := pending[0]
+				require.NoError(t, stale.DeferTaskRefund(common.GetTimestamp()+60))
+				refunded, err := stale.ApplyFailedTaskRefund(ctx)
+				require.NoError(t, err)
+				assert.Zero(t, refunded)
+				assert.False(t, HasUnfinishedSyncTasks())
+				require.NoError(t, db.Model(&Task{}).Where("id = ?", task.ID).UpdateColumn("refund_pending_at", common.GetTimestamp()).Error)
+				pending, err = GetPendingTaskRefunds(common.GetTimestamp(), 100)
+				require.NoError(t, err)
+				require.Len(t, pending, 1)
+			}
+
+			stale := *pending[0]
+			type refundResult struct {
+				quota int
+				err   error
+			}
+			results := make(chan refundResult, 2)
+			start := make(chan struct{})
+			for range 2 {
+				attempt := stale
+				go func() {
+					<-start
+					quota, err := attempt.ApplyFailedTaskRefund(ctx)
+					results <- refundResult{quota, err}
+				}()
+			}
+			close(start)
+			first, second := <-results, <-results
+			require.NoError(t, first.err)
+			require.NoError(t, second.err)
+			assert.ElementsMatch(t, []int{0, quota}, []int{first.quota, second.quota})
+			refunded, err := stale.ApplyFailedTaskRefund(ctx)
+			require.NoError(t, err)
+			assert.Zero(t, refunded)
+			stale.Status = TaskStatusSuccess
+			won, err = stale.UpdateWithStatus(TaskStatusFailure)
+			require.NoError(t, err)
+			assert.False(t, won, "a late success must not replace a terminal failure")
+			var stored Task
+			require.NoError(t, db.First(&stored, task.ID).Error)
+			assert.EqualValues(t, TaskStatusFailure, stored.Status)
+			assert.Zero(t, stored.Quota)
+			assert.False(t, HasUnfinishedSyncTasks())
+			require.NoError(t, db.First(&user, user.Id).Error)
+			assert.Equal(t, wantWallet, user.Quota)
+			assert.Zero(t, user.UsedQuota)
+			assert.Equal(t, 1, user.RequestCount)
+			require.NoError(t, db.First(&token, token.Id).Error)
+			assert.Equal(t, 500, token.RemainQuota)
+			assert.Zero(t, token.UsedQuota)
+			require.NoError(t, db.First(&ch, ch.Id).Error)
+			assert.Zero(t, ch.UsedQuota)
+			if payer == "subscription" {
+				assert.EqualValues(t, 10, getSubscriptionResetSub(t, task.PrivateData.SubscriptionId).AmountUsed)
+			}
+			if payer == "organization" {
+				reconciliation := reconciliationOf(t, task.BillingOrganizationId)
+				assert.Zero(t, reconciliation.ConsumedQuota)
+				assert.True(t, reconciliation.Balanced)
+			}
+		})
+	}
+	var preserved Task
+	require.NoError(t, db.First(&preserved, historical.ID).Error)
+	assert.EqualValues(t, TaskStatusFailure, preserved.Status)
+	assert.Equal(t, historical.Quota, preserved.Quota)
 }
 
 func TestUpdateWithStatus_PersistsPluginStateAndPollFailures(t *testing.T) {

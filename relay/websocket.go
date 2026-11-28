@@ -7,7 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/pkg/wsmanager"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 
@@ -17,6 +17,10 @@ import (
 
 func WssHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
 	info.InitChannelMeta(c)
+	if info.TieredBillingSnapshot == nil {
+		// A failed dial may have selected a different auto group on retry.
+		info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
+	}
 
 	adaptor := GetAdaptor(info.ApiType)
 	if adaptor == nil {
@@ -51,11 +55,18 @@ func WssHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.
 	}
 
 	usage, newAPIError := adaptor.DoResponse(c, nil, info)
+	if meteredUsage, ok := usage.(*service.MeteredRealtimeUsage); ok && meteredUsage != nil {
+		// Settle admitted usage even if a later turn was rejected. The common
+		// failure cleanup will not refund a settled session.
+		if err := meteredUsage.Settle(c, info, info.UpstreamModelName); err != nil {
+			return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
+		}
+		// A running websocket cannot be replayed against another channel.
+		return newAPIError
+	}
 	if newAPIError != nil {
-		// reset status code 重置状态码
 		service.ResetStatusCode(newAPIError, statusCodeMappingStr)
 		return newAPIError
 	}
-	service.PostWssConsumeQuota(c, info, info.UpstreamModelName, usage.(*dto.RealtimeUsage), nil)
-	return nil
+	return types.NewError(fmt.Errorf("missing realtime usage"), types.ErrorCodeBadResponse, types.ErrOptionWithSkipRetry())
 }

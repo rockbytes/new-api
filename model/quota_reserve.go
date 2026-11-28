@@ -158,9 +158,24 @@ func reserveTokenQuotaDB(id int, quota int) (bool, error) {
 	return result.RowsAffected == 1, result.Error
 }
 
+// TryReserveDurableUserQuota uses the primary wallet balance even when other
+// counters are in batch mode; the settlement transaction relies on this hold.
+func TryReserveDurableUserQuota(id int, quota int) (bool, error) {
+	if quota < 0 {
+		return false, errors.New("quota cannot be negative")
+	}
+	if quota == 0 {
+		return true, nil
+	}
+	reserved, err := reserveUserQuotaDB(id, quota)
+	if err == nil && reserved {
+		syncPersonalSettlementCache(id, quota)
+	}
+	return reserved, err
+}
+
 // TryReserveUserQuota atomically checks and deducts a user's wallet quota.
-// 缓存命中时以缓存余额为准（避免批量模式下过期的数据库余额放大并发超扣）；
-// Redis 异常或水合失败时降级为数据库条件更新，保证服务可用。
+// Redis is authoritative while legacy buffered wallet deltas are pending.
 func TryReserveUserQuota(id int, quota int) (bool, error) {
 	if quota < 0 {
 		return false, errors.New("quota cannot be negative")
@@ -171,7 +186,6 @@ func TryReserveUserQuota(id int, quota int) (bool, error) {
 	if !common.RedisEnabled {
 		return reserveUserQuotaDB(id, quota)
 	}
-
 	result, err := cacheTryReserveUserQuota(id, int64(quota))
 	if err == nil && result == cacheQuotaMiss {
 		if _, hydrateErr := GetUserCache(id); hydrateErr == nil {

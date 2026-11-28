@@ -344,11 +344,7 @@ func GetAllUsers(c *gin.Context) {
 		return
 	}
 
-	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(users)
-
-	common.ApiSuccess(c, pageInfo)
-	return
+	writeUserList(c, pageInfo, users, total)
 }
 
 func SearchUsers(c *gin.Context) {
@@ -382,10 +378,22 @@ func SearchUsers(c *gin.Context) {
 		return
 	}
 
+	writeUserList(c, pageInfo, users, total)
+}
+
+type userListRow struct {
+	*model.User
+	PersonalKeyUsedQuota int64 `json:"personal_key_used_quota"`
+}
+
+func writeUserList(c *gin.Context, pageInfo *common.PageInfo, users []*model.User, total int64) {
+	rows := make([]userListRow, 0, len(users))
+	for _, user := range users {
+		rows = append(rows, userListRow{User: user, PersonalKeyUsedQuota: user.PersonalKeyUsedQuota})
+	}
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(users)
+	pageInfo.SetItems(rows)
 	common.ApiSuccess(c, pageInfo)
-	return
 }
 
 func canManageTargetRole(myRole int, targetRole int) bool {

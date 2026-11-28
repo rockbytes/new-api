@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 type taskPollingFetchAdaptor struct {
@@ -702,6 +704,83 @@ func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
 	assert.Equal(t, initialUserQuota+taskQuota, getUserQuota(t, userID))
 	assert.Equal(t, initialTokenQuota+taskQuota, getTokenRemainQuota(t, tokenID))
 	assert.Equal(t, int64(1), countLogs(t))
+}
+
+func TestAsyncFailureRefundRecoversAfterTransactionRollback(t *testing.T) {
+	for _, mode := range []string{"batch missing channel", "video missing channel", "timeout", "upstream failure"} {
+		t.Run(mode, func(t *testing.T) {
+			truncate(t)
+			ctx := context.Background()
+			const userID, tokenID, channelID = 405, 405, 405
+			const wallet, tokenBalance, quota = 10_000, 5_000, 1_200
+			seedUser(t, userID, wallet)
+			seedToken(t, tokenID, userID, "refund-recovery", tokenBalance)
+			if !strings.HasSuffix(mode, "missing channel") {
+				seedChannel(t, channelID)
+			}
+			seedChargedAccounting(t, userID, channelID, tokenID, quota, 1)
+			task := makeTask(userID, channelID, quota, tokenID, BillingSourceWallet, 0)
+			task.TaskID = "refund_recovery"
+			task.SubmitTime = model.TaskRefundLegacyCutoff
+			task.Progress = "50%"
+			require.NoError(t, model.DB.Create(task).Error)
+
+			adaptor := &scriptedPollingAdaptor{statusCode: http.StatusOK, body: []byte(`{}`),
+				parse: &relaycommon.TaskInfo{Status: model.TaskStatusFailure, Reason: "upstream failed", TotalTokens: 123}}
+			factory := GetTaskAdaptorFunc
+			GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+			t.Cleanup(func() { GetTaskAdaptorFunc = factory })
+			previousTimeout := constant.TaskTimeoutMinutes
+			constant.TaskTimeoutMinutes = 1
+			t.Cleanup(func() { constant.TaskTimeoutMinutes = previousTimeout })
+
+			// Fail a primary-DB accounting write after the wallet refund. The entire
+			// monetary operation must roll back, but terminal task status must survive.
+			const callback = "task:test_refund_token_write_failure"
+			require.NoError(t, model.DB.Callback().Update().Before("gorm:update").Register(callback, func(tx *gorm.DB) {
+				if tx.Statement.Table == "tokens" {
+					tx.AddError(errors.New("token write unavailable"))
+				}
+			}))
+			t.Cleanup(func() { _ = model.DB.Callback().Update().Remove(callback) })
+
+			taskMap := map[string]*model.Task{task.TaskID: task}
+			switch mode {
+			case "batch missing channel":
+				_ = updateBatchTasks(ctx, &batchPollingAdaptor{}, channelID, []string{task.TaskID}, taskMap)
+			case "video missing channel":
+				_ = updateVideoTasks(ctx, task.Platform, channelID, []string{task.TaskID}, taskMap)
+			case "timeout":
+				sweepTimedOutTasks(ctx)
+			case "upstream failure":
+				require.NoError(t, updateVideoSingleTask(ctx, adaptor, &model.Channel{Id: channelID}, task.TaskID, taskMap))
+			}
+			var failed model.Task
+			require.NoError(t, model.DB.First(&failed, task.ID).Error)
+			assert.EqualValues(t, model.TaskStatusFailure, failed.Status)
+			assert.NotEmpty(t, failed.FailReason)
+			assert.Equal(t, quota, failed.Quota)
+			assert.Equal(t, wallet, getUserQuota(t, userID))
+			assert.Equal(t, tokenBalance, getTokenRemainQuota(t, tokenID))
+			assert.Zero(t, countLogs(t))
+
+			// Only the failed task remains; a new pass must be scheduled without any
+			// upstream work and use the persisted refund intent, not the in-memory task.
+			require.True(t, model.HasUnfinishedSyncTasks())
+			require.NoError(t, model.DB.Callback().Update().Remove(callback))
+			assert.Zero(t, RunTaskPollingOnce(ctx, nil).UnfinishedTasks)
+			_ = RunTaskPollingOnce(ctx, nil)
+			assert.False(t, model.HasUnfinishedSyncTasks())
+			assert.Equal(t, wallet+quota, getUserQuota(t, userID))
+			assert.Equal(t, tokenBalance+quota, getTokenRemainQuota(t, tokenID))
+			assert.Zero(t, getTokenUsedQuota(t, tokenID))
+			used, requests := getUserUsageAccounting(t, userID)
+			assert.Zero(t, used)
+			assert.Equal(t, 1, requests)
+			assert.Zero(t, getTaskQuota(t, task.ID))
+			assert.Equal(t, int64(1), countLogs(t))
+		})
+	}
 }
 
 func TestRunTaskPollingOnceDoesNotRefundHistoricalFailedTask(t *testing.T) {

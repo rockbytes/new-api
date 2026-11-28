@@ -573,13 +573,14 @@ func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 	snap := task.Snapshot()
 	status := model.TaskStatus(ti.Status)
 	finished := status == model.TaskStatusSuccess || status == model.TaskStatusFailure
-	if finished && snap.Status != model.TaskStatusSuccess && snap.Status != model.TaskStatusFailure {
+	alreadyTerminal := snap.Status == model.TaskStatusSuccess || snap.Status == model.TaskStatusFailure
+	if finished && !alreadyTerminal {
 		// Finishing a task settles or refunds it. Let the poller record the
 		// final status, as it does for every other task, so that happens once.
 		upstreamID := task.GetUpstreamTaskID()
 		_ = service.UpdateVideoTasks(context.Background(), task.Platform,
 			map[int][]string{task.ChannelId: {upstreamID}}, map[string]*model.Task{upstreamID: task})
-	} else {
+	} else if !alreadyTerminal {
 		// 将上游最新状态更新到 task
 		if ti.Status != "" {
 			task.Status = status

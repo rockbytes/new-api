@@ -893,6 +893,8 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.Status = model.TaskStatusFailure
+	task.RefundPendingAt = common.GetTimestamp()
 	require.NoError(t, model.DB.Create(task).Error)
 
 	assert.True(t, RefundTaskQuota(ctx, task, "task failed: upstream error"))
@@ -934,6 +936,8 @@ func TestRefundTaskQuota_Subscription(t *testing.T) {
 	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceSubscription, subID)
+	task.Status = model.TaskStatusFailure
+	task.RefundPendingAt = common.GetTimestamp()
 	require.NoError(t, model.DB.Create(task).Error)
 
 	assert.True(t, RefundTaskQuota(ctx, task, "subscription task failed"))
@@ -985,6 +989,8 @@ func TestRefundTaskQuota_NoToken(t *testing.T) {
 	seedChargedAccounting(t, userID, channelID, 0, preConsumed, 1)
 
 	task := makeTask(userID, channelID, preConsumed, 0, BillingSourceWallet, 0) // TokenId=0
+	task.Status = model.TaskStatusFailure
+	task.RefundPendingAt = common.GetTimestamp()
 	require.NoError(t, model.DB.Create(task).Error)
 
 	assert.True(t, RefundTaskQuota(ctx, task, "no token task failed"))
@@ -1013,6 +1019,7 @@ func TestRefundTaskQuota_FundingFailureKeepsAccountingAndPendingMarker(t *testin
 	seedChargedAccounting(t, userID, channelID, 0, preConsumed, 1)
 	task := makeTask(userID, channelID, preConsumed, 0, BillingSourceSubscription, 9999)
 	task.Status = model.TaskStatusFailure
+	task.RefundPendingAt = common.GetTimestamp()
 	require.NoError(t, model.DB.Create(task).Error)
 
 	assert.False(t, RefundTaskQuota(ctx, task, "subscription missing"))

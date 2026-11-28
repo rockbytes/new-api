@@ -173,7 +173,12 @@ export function useUsersColumns(): ColumnDef<User>[] {
         header: `${t('Personal Balance')} (${quotaUnit})`,
         cell: ({ row }) => {
           const user = row.original
-          return <UserQuotaCell remaining={user.quota} used={user.used_quota} />
+          return (
+            <UserQuotaCell
+              remaining={user.quota}
+              personalKeyUsage={user.personal_key_used_quota}
+            />
+          )
         },
         size: 150,
         minSize: 130,

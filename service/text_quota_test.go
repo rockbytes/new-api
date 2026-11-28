@@ -241,9 +241,11 @@ func runFixedPriceAccountingCases(t *testing.T, db, logDB *gorm.DB) {
 						info.ResponsesUsageInfo = &relaycommon.ResponsesUsageInfo{BuiltInTools: map[string]*relaycommon.BuildInToolInfo{"fixed_billing_tool": {CallCount: 1}}}
 					}
 					if tc.realtime {
-						PostWssConsumeQuota(ctx, info, info.OriginModelName, &dto.RealtimeUsage{
+						var metered MeteredRealtimeUsage
+						require.Nil(t, metered.Reserve(ctx, info, info.OriginModelName, dto.RealtimeUsage{
 							InputTokens: tc.usage.PromptTokens, OutputTokens: tc.usage.CompletionTokens, TotalTokens: tc.usage.TotalTokens,
-						}, nil)
+						}))
+						require.NoError(t, metered.Settle(ctx, info, info.OriginModelName))
 					} else if tc.audio {
 						PostAudioConsumeQuota(ctx, info, tc.usage, nil)
 					} else {

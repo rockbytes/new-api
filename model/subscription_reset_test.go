@@ -1,12 +1,20 @@
 package model
 
 import (
+	"fmt"
+	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func seedSubscriptionResetPlan(t *testing.T, plan *SubscriptionPlan) {
@@ -175,6 +183,122 @@ func TestAdminResetPlanSubscriptionsResetsAllActiveUsers(t *testing.T) {
 	}
 	assert.EqualValues(t, 1300, getSubscriptionResetSub(t, 9505).AmountUsed)
 	assert.EqualValues(t, 1400, getSubscriptionResetSub(t, 9506).AmountUsed)
+}
+
+func TestSubscriptionRefundAcrossDatabases(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			for _, upgrade := range []bool{false, true} {
+				t.Run(fmt.Sprintf("upgrade=%v", upgrade), func(t *testing.T) {
+					db := openSubscriptionRefundTestDB(t, dialect)
+					previous, previousType := DB, common.MainDatabaseType()
+					DB = db
+					common.SetMainDatabaseType(common.DatabaseType(dialect))
+					t.Cleanup(func() { DB = previous; common.SetMainDatabaseType(previousType) })
+					verifySubscriptionRefund(t, db, upgrade)
+				})
+			}
+		})
+	}
+}
+
+func openSubscriptionRefundTestDB(t *testing.T, dialect string) *gorm.DB {
+	t.Helper()
+	switch dialect {
+	case "mysql":
+		if os.Getenv("TEST_MYSQL_DSN") == "" {
+			t.Skip("TEST_MYSQL_DSN is not configured")
+		}
+		t.Setenv("TEST_ORGANIZATION_QUOTA_DIALECT", dialect)
+		db, _ := openOrganizationQuotaTestDatabase(t)
+		return db
+	case "postgres":
+		dsn := os.Getenv("TEST_POSTGRES_DSN")
+		if dsn == "" {
+			t.Skip("TEST_POSTGRES_DSN is not configured")
+		}
+		uri, err := url.Parse(dsn)
+		require.NoError(t, err)
+		require.True(t, uri.Hostname() == "127.0.0.1" && uri.Port() == "5432" && uri.Path == "/newapi_e2e")
+		admin, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		adminSQL, err := admin.DB()
+		require.NoError(t, err)
+		t.Cleanup(func() { assert.NoError(t, adminSQL.Close()) })
+		schema := fmt.Sprintf("subscription_refund_test_%d", time.Now().UnixNano())
+		name := clause.Table{Name: schema}
+		require.NoError(t, admin.Exec("CREATE SCHEMA ?", name).Error)
+		t.Cleanup(func() { assert.NoError(t, admin.Exec("DROP SCHEMA ? CASCADE", name).Error) })
+		query := uri.Query()
+		query.Set("search_path", schema)
+		uri.RawQuery = query.Encode()
+		db, err := gorm.Open(postgres.Open(uri.String()), &gorm.Config{})
+		require.NoError(t, err)
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		t.Cleanup(func() { assert.NoError(t, sqlDB.Close()) })
+		return db
+	default:
+		db, err := gorm.Open(sqlite.Open(t.TempDir()+"/refund.db?_pragma=busy_timeout(100)&_txlock=immediate"), &gorm.Config{})
+		require.NoError(t, err)
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		sqlDB.SetMaxOpenConns(2)
+		t.Cleanup(func() { assert.NoError(t, sqlDB.Close()) })
+		return db
+	}
+}
+
+func verifySubscriptionRefund(t *testing.T, db *gorm.DB, upgrade bool) {
+	t.Helper()
+	versionSQL := "SELECT version()"
+	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
+		versionSQL = "SELECT sqlite_version()"
+	}
+	var version string
+	require.NoError(t, db.Raw(versionSQL).Scan(&version).Error)
+	t.Logf("database version: %s", version)
+	migrate := func() {
+		require.NoError(t, db.AutoMigrate(&UserSubscription{}, &SubscriptionPreConsumeRecord{}, &SubscriptionPlan{}))
+	}
+	migrate()
+	now := GetDBTimestamp()
+	plan := &SubscriptionPlan{Id: 9901, Title: "Refund matrix", DurationUnit: SubscriptionDurationMonth, DurationValue: 1, TotalAmount: 1000, QuotaResetPeriod: SubscriptionResetDaily}
+	sub := &UserSubscription{UserId: 9902, PlanId: plan.Id, AmountTotal: 1000, AmountUsed: 100, Status: "active", StartTime: now - 3600, EndTime: now + 3600, LastResetTime: now - 3600, NextResetTime: now + 60}
+	require.NoError(t, db.Create(plan).Error)
+	if upgrade {
+		require.NoError(t, db.Migrator().DropColumn(&UserSubscription{}, "usage_reset_epoch"))
+		require.NoError(t, db.Migrator().DropColumn(&SubscriptionPreConsumeRecord{}, "usage_reset_epoch"))
+	}
+	require.NoError(t, db.Omit("UsageResetEpoch").Create(sub).Error)
+	old := SubscriptionPreConsumeRecord{RequestId: "refund-before-upgrade", UserId: sub.UserId, UserSubscriptionId: sub.Id, PreConsumed: 100, Status: "consumed"}
+	require.NoError(t, db.Omit("UsageResetEpoch").Create(&old).Error)
+	migrate()
+	migrate()
+	assert.Error(t, db.Create(&SubscriptionPreConsumeRecord{RequestId: old.RequestId}).Error, "the request id remains unique after migration")
+	require.NoError(t, RefundSubscriptionPreConsume(old.RequestId))
+	require.NoError(t, RefundSubscriptionPreConsume(old.RequestId))
+	assert.Zero(t, getSubscriptionResetSub(t, sub.Id).AmountUsed)
+
+	res, err := PreConsumeUserSubscription("refund-original-period", sub.UserId, "matrix", 0, 100)
+	require.NoError(t, err)
+	require.NotNil(t, res.UsageResetEpoch)
+	require.NoError(t, ReserveSubscriptionQuotaForPeriod("refund-original-period", 20))
+	require.NoError(t, RefundSubscriptionPreConsume("refund-original-period"))
+	assert.Zero(t, getSubscriptionResetSub(t, sub.Id).AmountUsed, "release the top-up and original amount together")
+
+	other, err := PreConsumeUserSubscription("refund-after-reset", sub.UserId, "matrix", 0, 100)
+	require.NoError(t, err)
+	_, err = AdminResetUserSubscriptionsByPlan(sub.UserId, plan.Id, false)
+	require.NoError(t, err)
+	_, err = PreConsumeUserSubscription("current-period-usage", sub.UserId, "matrix", 0, 60)
+	require.NoError(t, err)
+	require.ErrorIs(t, ReserveSubscriptionQuotaForPeriod("refund-after-reset", 1), ErrSubscriptionPeriodChanged)
+	require.NoError(t, RefundSubscriptionPreConsume("refund-after-reset"))
+	require.NoError(t, SettleTaskSubscriptionUsage(&Task{PrivateData: TaskPrivateData{SubscriptionId: sub.Id, SubscriptionPeriodStart: other.UsageResetEpoch}}, -40))
+	assert.EqualValues(t, 60, getSubscriptionResetSub(t, sub.Id).AmountUsed, "a previous-period refund must not erase current-period usage")
+	require.NoError(t, SettleTaskSubscriptionUsage(&Task{PrivateData: TaskPrivateData{SubscriptionId: sub.Id, SubscriptionPeriodStart: other.UsageResetEpoch}}, 15))
+	assert.EqualValues(t, 75, getSubscriptionResetSub(t, sub.Id).AmountUsed, "positive settlement preserves the existing charging policy")
 }
 
 func TestAdminResetPlanSubscriptionsNoMatchSucceeds(t *testing.T) {

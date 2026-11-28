@@ -5,6 +5,8 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -12,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	commonRelay "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"gorm.io/gorm"
 )
 
 type TaskStatus string
@@ -71,6 +74,9 @@ type Task struct {
 	// 禁止返回给用户，内部可能包含key等隐私信息
 	PrivateData TaskPrivateData `json:"-" gorm:"column:private_data;type:json"`
 	Data        json.RawMessage `json:"data" gorm:"type:json"`
+	// RefundPendingAt is the next attempt time for a failed async task's refund.
+	// Zero means no known refund is pending; historical failures are not backfilled.
+	RefundPendingAt int64 `json:"-" gorm:"not null;default:0;index"`
 }
 
 func (t *Task) SetData(data any) {
@@ -124,6 +130,8 @@ type TaskPrivateData struct {
 	TokenId          int                 `json:"token_id,omitempty"`           // 令牌 ID，用于令牌额度退款
 	NodeName         string              `json:"node_name,omitempty"`          // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
 	BillingContext   *TaskBillingContext `json:"billing_context,omitempty"`    // 计费参数快照（用于轮询阶段重新计算）
+	// SubscriptionPeriodStart is the reservation's reset generation. Nil identifies a legacy row.
+	SubscriptionPeriodStart *int64 `json:"subscription_period_start,omitempty"`
 	// ResponsesBackground records that the openai_responses create request
 	// asked for background:true. Every task is durable and survives client
 	// disconnect regardless; this only echoes the protocol-level request
@@ -215,7 +223,7 @@ func (p *TaskPrivateData) Scan(val any) error {
 func (p TaskPrivateData) Value() (driver.Value, error) {
 	if p.Key == "" && p.UpstreamTaskID == "" && p.ResultURL == "" &&
 		p.Execution == nil && p.BillingSource == "" && p.BillingRequestId == "" && p.SubscriptionId == 0 &&
-		p.TokenId == 0 && p.NodeName == "" && p.BillingContext == nil &&
+		p.TokenId == 0 && p.NodeName == "" && p.BillingContext == nil && p.SubscriptionPeriodStart == nil &&
 		!p.ResponsesBackground && len(p.PluginState) == 0 && p.PollFailures == 0 &&
 		!p.ResultDiscarded {
 		return nil, nil
@@ -392,16 +400,22 @@ func GetAllUnFinishSyncTasks(limit int) []*Task {
 	return tasks
 }
 
-// HasUnfinishedSyncTasks reports whether at least one async (Suno/video) task is
-// still in progress. It is a cheap existence check (LIMIT 1) used to decide
-// whether the async_task_poll system task needs to run; when no task is pending
-// the scheduler skips creating a row entirely.
+// GetPendingTaskRefunds picks due refunds independently of provider polling.
+// Retry failures move to the back of the queue so broken rows cannot block others.
+func GetPendingTaskRefunds(now int64, limit int) ([]*Task, error) {
+	var tasks []*Task
+	err := DB.Where("status = ? AND refund_pending_at > 0 AND refund_pending_at <= ?", TaskStatusFailure, now).
+		Omit("data").Order("refund_pending_at, id").Limit(limit).Find(&tasks).Error
+	return tasks, err
+}
+
+// HasUnfinishedSyncTasks enables the async poll scheduler for either an
+// upstream task in progress or a due refund that needs no upstream call.
 func HasUnfinishedSyncTasks() bool {
 	var id int64
 	err := DB.Model(&Task{}).
-		Where("progress != ?", "100%").
-		Where("status != ?", TaskStatusFailure).
-		Where("status != ?", TaskStatusSuccess).
+		Where("(progress != ? AND status NOT IN ?) OR (status = ? AND refund_pending_at > 0 AND refund_pending_at <= ?)",
+			"100%", []TaskStatus{TaskStatusFailure, TaskStatusSuccess}, TaskStatusFailure, common.GetTimestamp()).
 		Limit(1).
 		Pluck("id", &id).Error
 	return err == nil && id != 0
@@ -559,11 +573,123 @@ func (t *Task) UpdateQuota() error {
 // falls back to INSERT ON CONFLICT when the WHERE-guarded UPDATE matches
 // zero rows, which silently bypasses the CAS guard.
 func (t *Task) UpdateWithStatus(fromStatus TaskStatus) (bool, error) {
+	if t.ID <= 0 || fromStatus == TaskStatusSuccess || fromStatus == TaskStatusFailure {
+		return false, nil
+	}
+	// The status CAS is the only writer of new refund intent. An unmarked
+	// historical FAILURE may already have been refunded and is never enrolled.
+	t.RefundPendingAt = 0
+	if t.Status == TaskStatusFailure && t.Quota > 0 {
+		t.RefundPendingAt = common.GetTimestamp()
+	}
 	result := DB.Model(t).Where("status = ?", fromStatus).Select("*").Updates(t)
 	if result.Error != nil {
 		return false, result.Error
 	}
 	return result.RowsAffected > 0, nil
+}
+
+// DeferTaskRefund reschedules a failed recovery attempt without overwriting a
+// newer attempt or resurrecting a refund committed by another worker.
+func (t *Task) DeferTaskRefund(nextAttempt int64) error {
+	return DB.Model(&Task{}).Where("id = ? AND status = ? AND refund_pending_at = ? AND refund_pending_at > 0",
+		t.ID, TaskStatusFailure, t.RefundPendingAt).UpdateColumn("refund_pending_at", nextAttempt).Error
+}
+
+// ApplyFailedTaskRefund clears the pending marker and reverses accounting in one
+// primary database transaction. Claiming with a conditional UPDATE first also
+// serializes writers on SQLite, where SELECT FOR UPDATE is unavailable. A failed
+// write rolls back the claim; only the committing worker receives a positive quota.
+func (t *Task) ApplyFailedTaskRefund(ctx context.Context) (int, error) {
+	var task Task
+	var token Token
+	var walletCredit bool
+	now := common.GetTimestamp()
+	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		claim := tx.Model(&Task{}).
+			Where("id = ? AND status = ? AND refund_pending_at = ? AND refund_pending_at > 0 AND refund_pending_at <= ?",
+				t.ID, TaskStatusFailure, t.RefundPendingAt, now).
+			UpdateColumn("refund_pending_at", 0)
+		if claim.Error != nil || claim.RowsAffected == 0 {
+			return claim.Error
+		}
+		// A locking read keeps MySQL from opening its repeatable-read snapshot
+		// before the organization ledger lock is acquired below.
+		if err := lockForUpdate(tx).Omit("data").First(&task, t.ID).Error; err != nil {
+			return err
+		}
+		if task.Quota <= 0 {
+			return fmt.Errorf("invalid pending refund quota: %d", task.Quota)
+		}
+		user := tx.Model(&User{}).Where("id = ?", task.UserId)
+		userUpdates := map[string]any{"used_quota": gorm.Expr("used_quota - ?", task.Quota)}
+		switch {
+		case task.BillingOrganizationId > 0:
+			if _, _, err := settleOrganizationRequestToTx(tx, task.BillingOrganizationId, task.UserId, task.PrivateData.BillingRequestId, 0, now); err != nil {
+				return err
+			}
+		case task.PrivateData.BillingSource == "subscription":
+			if err := adjustSubscriptionUsageTx(tx, task.PrivateData.SubscriptionId, -int64(task.Quota), task.PrivateData.SubscriptionPeriodStart, task.CreatedAt); err != nil {
+				return err
+			}
+		case task.PrivateData.BillingSource == "", task.PrivateData.BillingSource == "wallet":
+			if err := common.ValidateWalletQuota(task.Quota); err != nil {
+				return err
+			}
+			walletCredit = true
+			user = user.Where("quota <= ?", common.MaxWalletQuota-task.Quota)
+			userUpdates["quota"] = gorm.Expr("quota + ?", task.Quota)
+		default:
+			return fmt.Errorf("unknown task funding source %q", task.PrivateData.BillingSource)
+		}
+		if updated := user.Updates(userUpdates); updated.Error != nil {
+			return updated.Error
+		} else if walletCredit && updated.RowsAffected == 0 {
+			return fmt.Errorf("cannot credit task owner's wallet: %w", ErrWalletQuotaLimitExceeded)
+		}
+		if task.PrivateData.TokenId > 0 {
+			err := tx.Select("id", "key").Where("id = ? AND user_id = ?", task.PrivateData.TokenId, task.UserId).First(&token).Error
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			// A deleted token is not required for refunding its funding source.
+			if token.Id > 0 {
+				updated := tx.Model(&Token{}).Where("id = ?", token.Id).Updates(map[string]any{
+					"remain_quota":  gorm.Expr("remain_quota + ?", task.Quota),
+					"used_quota":    gorm.Expr("used_quota - ?", task.Quota),
+					"accessed_time": now,
+				})
+				if updated.Error != nil {
+					return updated.Error
+				}
+				if updated.RowsAffected == 0 {
+					token = Token{}
+				}
+			}
+		}
+		// A deleted channel is one of the reasons we may be refunding.
+		if task.ChannelId > 0 {
+			if err := tx.Model(&Channel{}).Where("id = ?", task.ChannelId).
+				Update("used_quota", gorm.Expr("used_quota - ?", task.Quota)).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Model(&Task{}).Where("id = ?", task.ID).Update("quota", 0).Error
+	})
+	if err != nil || task.Quota == 0 {
+		return 0, err
+	}
+	t.Quota = 0
+	t.RefundPendingAt = 0
+	if walletCredit {
+		syncCreditUserQuotaCache(task.UserId, task.Quota, common.LogText("failed task refund"))
+	}
+	if common.RedisEnabled && token.Id > 0 {
+		if _, err := cacheApplyTokenQuotaDelta(token.Id, token.Key, int64(task.Quota)); err != nil {
+			common.SysLog(common.LogText("failed to sync token quota cache for task %s: %s", task.TaskID, err.Error()))
+		}
+	}
+	return task.Quota, nil
 }
 
 // TaskBulkUpdateByID performs an unconditional bulk UPDATE by primary key IDs.

@@ -47,7 +47,11 @@ await i18n.init({
   initAsync: false,
 })
 
-function QuotaTable(props: { remaining: number; used: number }) {
+function QuotaTable(props: {
+  remaining: number
+  used?: number
+  totalUsed?: number
+}) {
   const columns = useUsersColumns().filter((column) =>
     ['quota', 'used_quota'].includes(
       column.id ?? ('accessorKey' in column ? String(column.accessorKey) : '')
@@ -63,7 +67,8 @@ function QuotaTable(props: { remaining: number; used: number }) {
         role: 1,
         status: 1,
         quota: props.remaining,
-        used_quota: props.used,
+        used_quota: props.totalUsed ?? props.used ?? 0,
+        personal_key_used_quota: props.used,
         request_count: 0,
         group: 'default',
       } as User,
@@ -135,18 +140,18 @@ it('shows balance above secondary usage text and opens quota details on click', 
   expect(within(cells[0]).getByText('0.0022')).toBeInTheDocument()
   // The used figure sits on its own line with the same type scale as the balance above it, so
   // the two are distinguished by their words rather than by a secondary style.
-  expect(screen.getByText('Used amount').parentElement).not.toHaveAttribute(
-    'data-table-text'
-  )
+  expect(
+    screen.getByText('Personal Key usage').parentElement
+  ).not.toHaveAttribute('data-table-text')
   expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   expect(screen.queryByText('0.006')).not.toBeInTheDocument()
   const trigger = screen.getByRole('button', {
-    name: 'Available Balance 0.0038; Used amount 0.0022',
+    name: 'Available Balance 0.0038; Personal Key usage 0.0022',
   })
   await userEvent.click(trigger)
   const detail = await screen.findByRole('dialog', { name: 'Quota ($)' })
   expect(within(detail).getByText('Available Balance')).toBeInTheDocument()
-  expect(within(detail).getByText('Total Used')).toBeInTheDocument()
+  expect(within(detail).getByText('Personal Key usage')).toBeInTheDocument()
   expect(within(detail).getByText('0.0038')).toBeInTheDocument()
   expect(within(detail).getByText('0.0022')).toBeInTheDocument()
   expect(within(detail).queryByRole('progressbar')).not.toBeInTheDocument()
@@ -157,33 +162,35 @@ it('shows balance above secondary usage text and opens quota details on click', 
   expect(trigger).toHaveFocus()
 })
 
-it.each([0, 500000])(
-  'shows usage for a zero balance only when used quota is nonzero (used=%s)',
-  async (used) => {
-    render(
-      <I18nextProvider i18n={i18n}>
-        <QuotaTable remaining={0} used={used} />
-      </I18nextProvider>
-    )
-    if (used === 0) {
-      expect(screen.getAllByRole('cell')[0]).toHaveTextContent(
-        /^No Quota$/
-      )
-      expect(screen.queryByText('Used amount')).not.toBeInTheDocument()
-      await userEvent.click(screen.getByRole('button', { name: 'No Quota' }))
-      const detail = await screen.findByRole('dialog', { name: 'Quota ($)' })
-      expect(within(detail).getAllByText('0')).toHaveLength(2)
-      return
-    }
-    expect(screen.queryByText('No Quota')).not.toBeInTheDocument()
-    expect(
-      within(screen.getAllByRole('cell')[0]).getByText('0')
-    ).toBeInTheDocument()
-    expect(
-      within(screen.getAllByRole('cell')[0]).getByText('1')
-    ).toBeInTheDocument()
-  }
-)
+it('shows zero personal Key usage instead of all-payer usage', async () => {
+  render(
+    <I18nextProvider i18n={i18n}>
+      <QuotaTable remaining={0} used={0} totalUsed={18610000} />
+    </I18nextProvider>
+  )
+  expect(screen.queryByText('37.22')).not.toBeInTheDocument()
+  await userEvent.click(
+    screen.getByRole('button', {
+      name: 'Available Balance 0; Personal Key usage 0',
+    })
+  )
+  const detail = await screen.findByRole('dialog', { name: 'Quota ($)' })
+  expect(within(detail).getAllByText('0')).toHaveLength(2)
+  expect(
+    within(detail).getByText(/Historical usage may be incomplete/)
+  ).toBeInTheDocument()
+})
+
+it('shows unavailable Key usage when the server does not provide the total', () => {
+  render(
+    <I18nextProvider i18n={i18n}>
+      <QuotaTable remaining={500000} totalUsed={1000000} />
+    </I18nextProvider>
+  )
+  expect(screen.getByText('1')).toBeVisible()
+  expect(screen.queryByText('2')).not.toBeInTheDocument()
+  expect(screen.getByText('—')).toBeVisible()
+})
 
 it('preserves negative balances in details opened with the keyboard', async () => {
   render(
@@ -252,7 +259,8 @@ async function renderUsersList(emptyInvitation = false) {
             role: 1,
             status: 1,
             quota: 1900,
-            used_quota: 1100,
+            used_quota: 2500000,
+            personal_key_used_quota: 1100,
             request_count: 0,
             created_at: Math.floor(Date.now() / 1000) - 86400,
             last_login_at: Math.floor(Date.now() / 1000) - 20,
@@ -332,7 +340,7 @@ it('shows balance above usage on mobile cards in Chinese', async () => {
   try {
     await renderUsersList()
     expect(screen.getByText('个人余额 ($)')).toBeInTheDocument()
-    expect(screen.getByText('已用')).toBeInTheDocument()
+    expect(screen.getByText('个人 Key 用量')).toBeInTheDocument()
     expect(screen.getByText('0.0038')).toBeInTheDocument()
     expect(screen.getByText('0.0022')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
@@ -340,7 +348,7 @@ it('shows balance above usage on mobile cards in Chinese', async () => {
       screen.getByRole('button', { name: /可用余额 0.0038/ })
     )
     const detail = await screen.findByRole('dialog', { name: '额度 ($)' })
-    expect(within(detail).getByText('累计已用')).toBeInTheDocument()
+    expect(within(detail).getByText('个人 Key 用量')).toBeInTheDocument()
     expect(within(detail).getByText('0.0022')).toBeInTheDocument()
     await userEvent.keyboard('{Escape}')
   } finally {

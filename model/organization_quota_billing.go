@@ -166,37 +166,42 @@ func chargeOrganizationSettlementTx(tx *gorm.DB, organizationId int, userId int,
 // target, so repeating the same settlement is a no-op: once the hold equals the target, the
 // difference is zero. A failed task settles to zero, which returns everything it holds.
 func SettleOrganizationRequestTo(organizationId int, userId int, requestId string, target int64, now int64) (int64, int64, error) {
+	var charged, shortfall int64
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var err error
+		charged, shortfall, err = settleOrganizationRequestToTx(tx, organizationId, userId, requestId, target, now)
+		return err
+	})
+	return charged, shortfall, err
+}
+
+func settleOrganizationRequestToTx(tx *gorm.DB, organizationId int, userId int, requestId string, target int64, now int64) (int64, int64, error) {
 	if target < 0 {
 		return 0, 0, ErrOrganizationQuotaInvalidAmount
 	}
 	if requestId == "" {
 		return 0, 0, ErrOrganizationLedgerRefInvalid
 	}
+	if _, err := lockOrganization(tx, organizationId); err != nil {
+		return 0, 0, err
+	}
+	held, err := organizationRequestNetCharged(tx, organizationId, requestId)
+	if err != nil {
+		return 0, 0, err
+	}
+	delta := target - held
+	if delta == 0 {
+		return 0, 0, nil
+	}
 	ref := fmt.Sprintf("%s:target:%d", requestId, target)
-	var charged, shortfall int64
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		if _, err := lockOrganization(tx, organizationId); err != nil {
-			return err
-		}
-		held, err := organizationRequestNetCharged(tx, organizationId, requestId)
+	if delta < 0 {
+		key, err := organizationLedgerKey(OrganizationLedgerRefund, organizationId, ref)
 		if err != nil {
-			return err
+			return 0, 0, err
 		}
-		delta := target - held
-		if delta == 0 {
-			return nil
-		}
-		if delta < 0 {
-			key, err := organizationLedgerKey(OrganizationLedgerRefund, organizationId, ref)
-			if err != nil {
-				return err
-			}
-			return refundOrganizationQuotaTx(tx, organizationId, userId, -delta, key, requestId, 0, now)
-		}
-		charged, shortfall, err = chargeOrganizationSettlementTx(tx, organizationId, userId, requestId, ref, delta, now)
-		return err
-	})
-	return charged, shortfall, err
+		return 0, 0, refundOrganizationQuotaTx(tx, organizationId, userId, -delta, key, requestId, 0, now)
+	}
+	return chargeOrganizationSettlementTx(tx, organizationId, userId, requestId, ref, delta, now)
 }
 
 // refundOrganizationQuotaTx returns usage to the organization and the member. The caller

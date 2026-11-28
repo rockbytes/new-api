@@ -190,7 +190,16 @@ func coverMidjourneyTaskDto(c *gin.Context, originTask *model.Midjourney) (midjo
 	return
 }
 
+// MidjourneyOrganizationPayerUnsupported distinguishes a gateway rejection from upstream responses.
+var MidjourneyOrganizationPayerUnsupported = &dto.MidjourneyResponse{
+	Code:        constant.MjRequestError,
+	Description: "organization_payer_unsupported",
+}
+
 func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyResponse {
+	if info.PayingOrganizationId > 0 {
+		return MidjourneyOrganizationPayerUnsupported
+	}
 	var swapFaceRequest dto.SwapFaceRequest
 	err := common.UnmarshalBodyReusable(c, &swapFaceRequest)
 	if err != nil {
@@ -515,6 +524,9 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 
 	if midjRequest.Action == constant.MjActionInPaint || midjRequest.Action == constant.MjActionCustomZoom {
 		consumeQuota = false
+	}
+	if consumeQuota && relayInfo.PayingOrganizationId > 0 {
+		return MidjourneyOrganizationPayerUnsupported
 	}
 
 	//baseURL := common.ChannelBaseURLs[channelType]

@@ -387,6 +387,10 @@ func InitResources() error {
 		return err
 	}
 
+	if err := model.InitializePersonalKeyUsage(); err != nil {
+		return fmt.Errorf("initialize personal Key usage: %w", err)
+	}
+
 	// Initialize Redis
 	err = common.InitRedisClient()
 	if err != nil {

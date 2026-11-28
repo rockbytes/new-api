@@ -144,7 +144,7 @@ func TestPersonalKeyRequestIsNotChargedToOrganization(t *testing.T) {
 func TestOrganizationPaidTaskSettlesAndRefundsThroughLedger(t *testing.T) {
 	orgId, userId := setupPayerPathsTest(t)
 	require.NoError(t, model.ConsumeOrganizationQuota(orgId, userId, "req-paid-task", 1, 100, common.GetTimestamp()))
-	task := &model.Task{UserId: userId, TaskID: "task-org-paid", Quota: 100, BillingOrganizationId: orgId,
+	task := &model.Task{UserId: userId, TaskID: "task-org-paid", Quota: 100, BillingOrganizationId: orgId, Status: model.TaskStatusInProgress,
 		PrivateData: model.TaskPrivateData{BillingSource: BillingSourceOrganization, BillingRequestId: "req-paid-task"}}
 	require.NoError(t, model.DB.Create(task).Error)
 
@@ -153,6 +153,10 @@ func TestOrganizationPaidTaskSettlesAndRefundsThroughLedger(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(70), reconciliation.ConsumedQuota, "the organization keeps the settled usage")
 
+	task.Status = model.TaskStatusFailure
+	won, err := task.UpdateWithStatus(model.TaskStatusInProgress)
+	require.NoError(t, err)
+	require.True(t, won)
 	require.True(t, RefundTaskQuota(context.Background(), task, "failed"))
 	reconciliation, err = model.GetOrganizationQuotaReconciliation(orgId)
 	require.NoError(t, err)

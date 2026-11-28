@@ -13,9 +13,11 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -71,6 +73,7 @@ func setupOrganizationPayerHTTP(t *testing.T) (*httptest.Server, int, *model.Use
 	previousPing := *generalSetting
 	generalSetting.PingIntervalEnabled, generalSetting.PingIntervalSeconds = true, 10
 	t.Cleanup(func() { *generalSetting = previousPing })
+	service.InitHttpClient()
 	upstream := httptest.NewServer(http.HandlerFunc(payerTestUpstream))
 	t.Cleanup(upstream.Close)
 	t.Cleanup(func() {
@@ -109,7 +112,7 @@ func setupOrganizationPayerHTTP(t *testing.T) (*httptest.Server, int, *model.Use
 
 	baseURL := upstream.URL
 	channel := &model.Channel{Name: "payer-http-upstream", Type: constant.ChannelTypeOpenAI, Key: "sk-upstream", BaseURL: &baseURL,
-		Models: "gpt-4o-mini,dall-e-3,tts-1", Group: "default", Status: common.ChannelStatusEnabled}
+		Models: "gpt-4o-mini,gpt-4o-realtime-preview,dall-e-3,tts-1,mj_imagine,mj_inpaint,swap_face", Group: "default", Status: common.ChannelStatusEnabled}
 	require.NoError(t, channel.Insert())
 
 	engine := gin.New()
@@ -147,6 +150,26 @@ func payerTestUpstream(w http.ResponseWriter, r *http.Request) {
 	case "/v1/audio/speech":
 		w.Header().Set("Content-Type", "audio/mpeg")
 		_, _ = io.WriteString(w, "fake-audio")
+	case "/v1/realtime":
+		upgrader := websocket.Upgrader{}
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer ws.Close()
+		_ = ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+		for {
+			if _, _, err := ws.ReadMessage(); err != nil {
+				return
+			}
+			if err := ws.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.done","response":{"usage":{"total_tokens":1,"input_tokens":1,"input_token_details":{"text_tokens":1}}}}`)); err != nil {
+				return
+			}
+		}
+	case "/mj/submit/imagine", "/mj/submit/change", "/mj/insight-face/swap":
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Midjourney-Upstream", "called")
+		_, _ = io.WriteString(w, `{"code":1,"description":"upstream accepted","result":"mj-upstream-result"}`)
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -203,10 +226,12 @@ func TestOrganizationPayerPerRequestPathThroughHTTP(t *testing.T) {
 			var after model.User
 			require.NoError(t, model.DB.First(&after, member.Id).Error)
 			if tc.wantOrganization == 0 {
+				assert.EqualValues(t, before.PersonalKeyUsedQuota+int64(logs[0].Quota), after.PersonalKeyUsedQuota)
 				assert.Equal(t, before.Quota-logs[0].Quota, after.Quota, "a personal Key is charged to the member's wallet")
 				return
 			}
 			assert.Equal(t, before.Quota, after.Quota, "an organization-paid request leaves the member's wallet untouched")
+			assert.Equal(t, before.PersonalKeyUsedQuota, after.PersonalKeyUsedQuota)
 		})
 	}
 
@@ -218,4 +243,115 @@ func TestOrganizationPayerPerRequestPathThroughHTTP(t *testing.T) {
 		Select("COALESCE(SUM(quota), 0)").Scan(&organizationLogged).Error)
 	assert.Equal(t, organizationLogged, reconciliation.ConsumedQuota)
 	assert.True(t, reconciliation.Balanced)
+}
+
+func TestRealtimeMetersUsageOnceForSelectedPayer(t *testing.T) {
+	for _, tc := range []struct {
+		name, key, errorCode string
+		org                  bool
+		allocation, keyQuota int
+	}{
+		{name: "personal wallet", key: payerTestPersonalKey, keyQuota: 100},
+		{name: "organization allocation", key: payerTestOrganizationKey, org: true, keyQuota: 100},
+		{name: "allocation runs out", key: payerTestOrganizationKey, org: true, allocation: 3, keyQuota: 100, errorCode: "insufficient_member_quota"},
+		{name: "organization key runs out", key: payerTestOrganizationKey, org: true, keyQuota: 3, errorCode: "pre_consume_token_quota_failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gateway, organizationID, member := setupOrganizationPayerHTTP(t)
+			token, err := model.GetTokenByKey(tc.key, false)
+			require.NoError(t, err)
+			require.NoError(t, model.DB.Model(token).Updates(map[string]any{"unlimited_quota": false, "remain_quota": tc.keyQuota}).Error)
+			if tc.allocation > 0 {
+				require.NoError(t, model.SetOrganizationMemberAllocation(organizationID, member.Id, int64(tc.allocation), 2))
+			}
+
+			url := "ws" + strings.TrimPrefix(gateway.URL, "http") + "/v1/realtime?model=gpt-4o-realtime-preview"
+			headers := http.Header{"Authorization": {"Bearer sk-" + tc.key}}
+			ws, _, err := websocket.DefaultDialer.Dial(url, headers)
+			require.NoError(t, err)
+			defer ws.Close()
+			require.NoError(t, ws.SetReadDeadline(time.Now().Add(5*time.Second)))
+			for i := range 2 {
+				require.NoError(t, ws.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create"}`)))
+				_, message, err := ws.ReadMessage()
+				require.NoError(t, err)
+				if tc.errorCode != "" && i == 1 {
+					assert.Contains(t, string(message), tc.errorCode)
+				} else {
+					assert.Contains(t, string(message), "response.done")
+				}
+			}
+			_ = ws.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+			require.NoError(t, ws.Close())
+
+			// With ratio 2.5, 1 token rounds to 3, but 2 tokens round to 5, not 6.
+			wantQuota, wantTokens, wantOrg := 5, 2, 0
+			if tc.errorCode != "" {
+				wantQuota, wantTokens = 3, 1
+			}
+			if tc.org {
+				wantOrg = organizationID
+			}
+			var logs []model.Log
+			require.Eventually(t, func() bool {
+				return model.LOG_DB.Where("model_name = ? AND type = ?", "gpt-4o-realtime-preview", model.LogTypeConsume).Find(&logs).Error == nil && len(logs) > 0
+			}, 5*time.Second, 10*time.Millisecond)
+			require.Len(t, logs, 1)
+			assert.Equal(t, wantOrg, logs[0].BillingOrganizationId)
+			assert.Equal(t, wantQuota, logs[0].Quota)
+			assert.Equal(t, wantTokens, logs[0].PromptTokens)
+			require.NoError(t, model.DB.First(token, token.Id).Error)
+			assert.Equal(t, wantQuota, token.UsedQuota)
+			assert.Equal(t, tc.keyQuota-wantQuota, token.RemainQuota)
+			var user model.User
+			require.NoError(t, model.DB.First(&user, member.Id).Error)
+			reconciliation, err := model.GetOrganizationQuotaReconciliation(organizationID)
+			require.NoError(t, err)
+			if tc.org {
+				assert.Equal(t, member.Quota, user.Quota)
+				assert.Equal(t, int64(wantQuota), reconciliation.ConsumedQuota)
+			} else {
+				assert.Equal(t, member.Quota-wantQuota, user.Quota)
+				assert.Zero(t, reconciliation.ConsumedQuota)
+			}
+			assert.True(t, reconciliation.Balanced)
+		})
+	}
+}
+
+func TestLegacyMidjourneyRejectsOnlyBillableOrganizationActions(t *testing.T) {
+	gateway, organizationID, member := setupOrganizationPayerHTTP(t)
+	var channel model.Channel
+	require.NoError(t, model.DB.Where("name = ?", "payer-http-upstream").Take(&channel).Error)
+	require.NoError(t, model.DB.Create(&model.Midjourney{UserId: member.Id, ChannelId: channel.Id, MjId: "mj-existing", Status: "SUCCESS"}).Error)
+	for _, tc := range []struct {
+		name, key, method, path, body, wantBody string
+		wantStatus                              int
+	}{
+		{"imagine with organization key", payerTestOrganizationKey, http.MethodPost, "/mj/submit/imagine", `{"prompt":"a cat"}`, "organization_payer_unsupported", http.StatusForbidden},
+		{"swap with organization key", payerTestOrganizationKey, http.MethodPost, "/mj/insight-face/swap", `{"sourceBase64":"YQ==","targetBase64":"Yg=="}`, "organization_payer_unsupported", http.StatusForbidden},
+		{"task read with organization key", payerTestOrganizationKey, http.MethodGet, "/mj/task/mj-existing/fetch", "", "mj-existing", http.StatusOK},
+		{"unbilled inpaint with organization key", payerTestOrganizationKey, http.MethodPost, "/mj/submit/change", `{"taskId":"mj-existing","action":"INPAINT","index":1}`, "upstream accepted", http.StatusOK},
+		{"imagine with personal key", payerTestPersonalKey, http.MethodPost, "/mj/submit/imagine", `{"prompt":"a cat"}`, "upstream accepted", http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request, err := http.NewRequest(tc.method, gateway.URL+tc.path, strings.NewReader(tc.body))
+			require.NoError(t, err)
+			request.Header.Set("Authorization", "Bearer sk-"+tc.key)
+			request.Header.Set("Content-Type", "application/json")
+			response, err := http.DefaultClient.Do(request)
+			require.NoError(t, err)
+			defer response.Body.Close()
+			body, err := io.ReadAll(response.Body)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantStatus, response.StatusCode, string(body))
+			assert.Contains(t, string(body), tc.wantBody)
+		})
+	}
+	reconciliation, err := model.GetOrganizationQuotaReconciliation(organizationID)
+	require.NoError(t, err)
+	assert.Zero(t, reconciliation.ConsumedQuota)
+	var user model.User
+	require.NoError(t, model.DB.First(&user, member.Id).Error)
+	assert.Less(t, user.Quota, member.Quota, "only the successful personal submission charges the wallet")
 }

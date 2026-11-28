@@ -34,6 +34,7 @@ var ErrInsufficientWalletQuota = errors.New("wallet quota insufficient")
 
 type WalletFunding struct {
 	userId   int
+	durable  bool
 	consumed int // 实际预扣的用户额度
 }
 
@@ -43,7 +44,11 @@ func (w *WalletFunding) PreConsume(amount int) error {
 	if amount <= 0 {
 		return nil
 	}
-	reserved, err := model.TryReserveUserQuota(w.userId, amount)
+	reserve := model.TryReserveUserQuota
+	if w.durable {
+		reserve = model.TryReserveDurableUserQuota
+	}
+	reserved, err := reserve(w.userId, amount)
 	if err != nil {
 		return err
 	}
@@ -60,9 +65,9 @@ func (w *WalletFunding) Settle(delta int) error {
 		return nil
 	}
 	if delta > 0 {
-		return model.DecreaseUserQuota(w.userId, delta, false)
+		return model.DecreaseUserQuota(w.userId, delta, w.durable)
 	}
-	return model.IncreaseUserQuota(w.userId, -delta, false)
+	return model.IncreaseUserQuota(w.userId, -delta, w.durable)
 }
 
 func (w *WalletFunding) Refund() error {
@@ -71,7 +76,7 @@ func (w *WalletFunding) Refund() error {
 	}
 	// IncreaseUserQuota 是 quota += N 的非幂等操作，不能重试，否则会多退额度。
 	// 订阅的 RefundSubscriptionPreConsume 有 requestId 幂等保护所以可以重试。
-	return model.IncreaseUserQuota(w.userId, w.consumed, false)
+	return model.IncreaseUserQuota(w.userId, w.consumed, w.durable)
 }
 
 // ---------------------------------------------------------------------------
@@ -79,12 +84,13 @@ func (w *WalletFunding) Refund() error {
 // ---------------------------------------------------------------------------
 
 type SubscriptionFunding struct {
-	requestId      string
-	userId         int
-	modelName      string
-	amount         int64 // 预扣的订阅额度（subConsume）
-	subscriptionId int
-	preConsumed    int64
+	requestId       string
+	userId          int
+	modelName       string
+	amount          int64 // 预扣的订阅额度（subConsume）
+	subscriptionId  int
+	preConsumed     int64
+	usageResetEpoch *int64
 	// 以下字段在 PreConsume 成功后填充，供 RelayInfo 同步使用
 	AmountTotal     int64
 	AmountUsedAfter int64
@@ -102,6 +108,7 @@ func (s *SubscriptionFunding) PreConsume(_ int) error {
 	}
 	s.subscriptionId = res.UserSubscriptionId
 	s.preConsumed = res.PreConsumed
+	s.usageResetEpoch = res.UsageResetEpoch
 	s.AmountTotal = res.AmountTotal
 	s.AmountUsedAfter = res.AmountUsedAfter
 	// 获取订阅计划信息
@@ -116,7 +123,7 @@ func (s *SubscriptionFunding) Settle(delta int) error {
 	if delta == 0 {
 		return nil
 	}
-	return model.PostConsumeUserSubscriptionDelta(s.subscriptionId, int64(delta))
+	return model.PostConsumeUserSubscriptionDeltaForPeriod(s.subscriptionId, int64(delta), s.usageResetEpoch, 0)
 }
 
 func (s *SubscriptionFunding) Refund() error {
