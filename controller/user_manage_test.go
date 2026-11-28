@@ -283,10 +283,15 @@ func verifyUserListPersonalKeyUsage(t *testing.T, db, logs *gorm.DB, upgrade boo
 	previousConsume, previousExport := common.LogConsumeEnabled, common.DataExportEnabled
 	common.LogConsumeEnabled, common.DataExportEnabled = true, false
 	t.Cleanup(func() { common.LogConsumeEnabled, common.DataExportEnabled = previousConsume, previousExport })
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.PersonalKeySettlement{}, &model.Option{}, &model.Token{}, &model.Task{}, &model.UserSubscription{}, &model.Organization{}, &model.OrganizationMembership{}, &model.OrganizationMemberQuota{}, &model.OrganizationQuotaAccount{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.Task{}, &model.UserSubscription{}, &model.SubscriptionPreConsumeRecord{}, &model.Organization{}, &model.OrganizationMembership{}, &model.OrganizationMemberQuota{}, &model.OrganizationQuotaAccount{}))
 	if upgrade {
-		// The released users schema differs here only by the new counter column.
+		// Reconstruct the released schema before preparing the additive changes.
 		require.NoError(t, db.Migrator().DropColumn(&model.User{}, "personal_key_used_quota"))
+		require.NoError(t, db.Migrator().DropIndex(&model.Task{}, "RefundPendingAt"))
+		require.NoError(t, db.Migrator().DropColumn(&model.Task{}, "refund_pending_at"))
+		require.NoError(t, db.Migrator().DropColumn(&model.UserSubscription{}, "usage_reset_epoch"))
+		require.NoError(t, db.Migrator().DropColumn(&model.SubscriptionPreConsumeRecord{}, "usage_reset_epoch"))
+		require.Error(t, model.CheckBillingRollingSchema(db), "a new replica must not accept traffic against the old schema")
 	}
 	if !common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		require.NoError(t, logs.AutoMigrate(&model.Log{}))
@@ -307,27 +312,30 @@ func verifyUserListPersonalKeyUsage(t *testing.T, db, logs *gorm.DB, upgrade boo
 
 	wantUsage := 0
 	if upgrade {
-		require.NoError(t, logs.Create(&[]model.Log{
-			{UserId: member.Id, TokenId: key.Id, Type: model.LogTypeConsume, Quota: 25, Other: `{"billing_source":"wallet"}`},
-			{UserId: member.Id, TokenId: key.Id, Type: model.LogTypeConsume, Quota: 75, Other: `{"billing_source":"subscription"}`},
-			{UserId: member.Id, TokenId: key.Id, Type: model.LogTypeConsume, Quota: 80, BillingOrganizationId: org.Id},
-			{UserId: member.Id, TokenId: key.Id, Type: model.LogTypeConsume, Quota: 60, BillingOrganizationId: org.Id + 1},
-			{UserId: member.Id, Type: model.LogTypeConsume, Quota: 400},
-			{UserId: member.Id, TokenId: key.Id, Type: model.LogTypeRefund, Quota: 10},
-			{UserId: member.Id, TokenId: key.Id, Type: model.LogTypeConsume, Quota: 900, Other: `{"violation_fee":true}`},
-			{UserId: member.Id, TokenId: key.Id, Type: model.LogTypeConsume, Quota: 800, Other: `{"pre_consumed_quota":100,"actual_quota":900}`},
+		require.NoError(t, logs.Create(&model.Log{
+			UserId: member.Id, TokenId: key.Id, Type: model.LogTypeConsume, Quota: 100, Other: `{"billing_source":"wallet"}`,
 		}).Error)
-		wantUsage = 100
-		require.NoError(t, db.AutoMigrate(&model.User{}))
 	}
+	for range 2 {
+		require.NoError(t, model.MigrateBillingRollingSchema(db, common.MainDatabaseType()))
+	}
+	require.NoError(t, model.CheckBillingRollingSchema(db))
 	if upgrade {
-		model.LOG_DB = nil
-		require.Error(t, model.InitializePersonalKeyUsage(), "failed import must not commit the completion marker")
-		model.LOG_DB = logs
+		// An old node can update its original fields after the schema expansion.
+		// The debit is real, but the personal Key counter does not include it.
+		require.NoError(t, db.Model(&releasedAuditUser{}).Where("id = ?", member.Id).
+			Updates(map[string]any{"quota": gorm.Expr("quota - ?", 10), "used_quota": gorm.Expr("used_quota + ?", 10)}).Error)
 	}
-	require.NoError(t, model.InitializePersonalKeyUsage())
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.PersonalKeySettlement{}))
-	require.NoError(t, model.InitializePersonalKeyUsage())
+	var migrated model.User
+	require.NoError(t, db.First(&migrated, member.Id).Error)
+	assert.Zero(t, migrated.PersonalKeyUsedQuota, "schema preparation must not import historical logs")
+	if upgrade {
+		assert.Equal(t, 490, migrated.Quota)
+		assert.Equal(t, 910, migrated.UsedQuota)
+	} else {
+		assert.Equal(t, 500, migrated.Quota)
+		assert.Equal(t, 900, migrated.UsedQuota)
+	}
 	assert.Error(t, db.Create(&model.User{Username: member.Username, AffCode: "duplicate-member"}).Error)
 
 	common.LogConsumeEnabled = false
@@ -389,7 +397,7 @@ func verifyUserListPersonalKeyUsage(t *testing.T, db, logs *gorm.DB, upgrade boo
 		require.NoError(t, err)
 		assert.Positive(t, deleted)
 	}
-	require.NoError(t, model.InitializePersonalKeyUsage())
+	require.NoError(t, model.MigrateBillingRollingSchema(db, common.MainDatabaseType()))
 	model.LOG_DB = nil // The read path must not use the log store at all.
 
 	engine := gin.New()
@@ -403,8 +411,8 @@ func verifyUserListPersonalKeyUsage(t *testing.T, db, logs *gorm.DB, upgrade boo
 		require.NotEmpty(t, items)
 		row := items[0].(map[string]any)
 		assert.EqualValues(t, wantUsage, row["personal_key_used_quota"], "only personally paid Key usage survives log cleanup")
-		assert.EqualValues(t, 470, row["quota"])
-		assert.EqualValues(t, 900, row["used_quota"])
+		assert.EqualValues(t, migrated.Quota-30, row["quota"])
+		assert.EqualValues(t, migrated.UsedQuota, row["used_quota"])
 		assert.EqualValues(t, 80, row["organization"].(map[string]any)["used_quota"])
 		if len(items) > 1 {
 			assert.EqualValues(t, 0, items[1].(map[string]any)["personal_key_used_quota"])

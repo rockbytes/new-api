@@ -14,18 +14,18 @@ completed: 2026-11-27
 
 - 钱包与订阅结算、用量增量及去重记录同事务（令牌额度仍沿用独立的原更新路径）；失败不写累计，重试不重扣。无 Key、组织付款、违规费与退款不计入。
 - 异步差额使用任务快照，补扣原子累计，向下调整不冲减历史累计。关闭或清理日志不影响累计。
-- 首次发布排空旧节点并暂停日志清理，回填成功后才切换；旧后续滚动流程不变。
+- 首次发布先准备兼容的主库结构，再按 B→A 滚动；不回填历史和混合版本期间旧节点的个人 Key 统计。
 
 ## 实施计划
 
-不再添加一套计费状态机。主库结算事件仅有未提交、已提交两个状态，使用唯一标识和现有事务；失败回滚，不依赖消费日志触发修复。异步任务以已持久化的旧额度作为 CAS 条件，回写新额度与资金、累计同事务。个人 API Key 钱包预扣使用主库余额，其他旧批量路径不在此次修改范围。首次部署用一次显式维护流程隔离新旧写入，见 [发布步骤](personal-key-usage.md)。
+不再添加一套计费状态机。主库结算事件仅有未提交、已提交两个状态，使用唯一标识和现有事务；失败回滚，不依赖消费日志触发修复。异步任务以已持久化的旧额度作为 CAS 条件，回写新额度与资金、累计同事务。个人 API Key 钱包预扣使用共享 Redis 预扣（启用时）并同步检查及更新主库余额，其他旧批量路径不在此次修改范围。首次部署不再做强制回填，见 [发布步骤](personal-key-usage.md)。
 
 ## 验证结果
 
 - `go build ./...` 通过。`go test ./model ./service ./controller ./relay ./relay/channel/openai ./router -skip '^(TestAccessTokenRouteRulesCoverEveryDashboardRoute|TestResponsesStreamOutcomesPreserveAccounting)$' -count=1` 通过。两项跳过分别在未改动基线和第一批工作树单独复现；后者只有部分 Responses WebSocket 后续请求 429/500 断言不符。
 - 配置隔离的 MySQL、PostgreSQL 和 ClickHouse 后，`go test ./controller -run '^TestUserListPersonalKeyUsage$' -v -count=1` 通过，涵盖 SQLite 3.50.4、MySQL 8.0.46（额外覆盖 `clientFoundRows=true`）、PostgreSQL 18.3、独立 ClickHouse 24.8.14.39。新建及升级、重复迁移、结算失败回滚、同标识重试、删除日志后累计值都已验证。`go test ./model -run '^Test(SubscriptionRefundAcrossDatabases|FailedTaskRefundAcrossDatabases)$' -v -count=1` 同时通过三引擎第一批回归。
 - WSL Linux 的 `go test -race ./controller ./router ./model ./service -run 'TestUserListPersonalKeyUsage/sqlite|TestRealtimeMetersUsageOnceForSelectedPayer|TestFailedTaskRefundAcrossDatabases/sqlite|TestAsyncFailureRefundRecoversAfterTransactionRollback' -count=1` 通过；Windows 的检查无法启动 ThreadSanitizer（内存地址分配失败）。
-- 本地实际网关升级 PostgreSQL 临时 schema，删除全部四条测试消费记录后，列表和搜索仍显示已回填的 2,000,000 额度。`bash -n deploy/upgrade.sh` 和隔离的 `bash deploy/upgrade_test.sh` 通过；未触碰生产服务。
+- 原先的保留日志回填方案已被[不停机发布方案](billing-rolling-upgrade.md)替代；历史回填验证不再是本版本的发布条件。
 - 用户功能前端 `bun run typecheck`、`bun run lint`、`bun run test src/features/users` 和 `bun run build` 全部通过。
 
 ## 边界

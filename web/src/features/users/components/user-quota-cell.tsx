@@ -36,7 +36,7 @@ export function UserQuotaCell(props: UserQuotaCellProps) {
         { label: usageLabel, value: formattedUsed },
       ]}
       description={t(
-        'Cumulative usage of personally paid API Keys, including wallet and subscription payments. Refunds are not deducted. Historical usage may be incomplete.'
+        'Usage recorded by the new version for personally paid API Keys, including wallet and subscription payments. Refunds are not deducted. Earlier usage is not backfilled.'
       )}
     >
       <QuotaRow

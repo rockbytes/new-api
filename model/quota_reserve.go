@@ -158,25 +158,19 @@ func reserveTokenQuotaDB(id int, quota int) (bool, error) {
 	return result.RowsAffected == 1, result.Error
 }
 
-// TryReserveDurableUserQuota uses the primary wallet balance even when other
-// counters are in batch mode; the settlement transaction relies on this hold.
+// TryReserveDurableUserQuota shares the Redis reservation with old workers,
+// but records the hold in SQL synchronously and checks the SQL balance as well.
 func TryReserveDurableUserQuota(id int, quota int) (bool, error) {
-	if quota < 0 {
-		return false, errors.New("quota cannot be negative")
-	}
-	if quota == 0 {
-		return true, nil
-	}
-	reserved, err := reserveUserQuotaDB(id, quota)
-	if err == nil && reserved {
-		syncPersonalSettlementCache(id, quota)
-	}
-	return reserved, err
+	return tryReserveUserQuota(id, quota, true)
 }
 
 // TryReserveUserQuota atomically checks and deducts a user's wallet quota.
 // Redis is authoritative while legacy buffered wallet deltas are pending.
 func TryReserveUserQuota(id int, quota int) (bool, error) {
+	return tryReserveUserQuota(id, quota, false)
+}
+
+func tryReserveUserQuota(id, quota int, durable bool) (bool, error) {
 	if quota < 0 {
 		return false, errors.New("quota cannot be negative")
 	}
@@ -201,7 +195,13 @@ func TryReserveUserQuota(id int, quota int) (bool, error) {
 	if result == cacheQuotaInsufficient {
 		return false, nil
 	}
-	if err = persistUserQuotaDelta(id, -quota); err != nil {
+	reserved := true
+	if durable {
+		reserved, err = reserveUserQuotaDB(id, quota)
+	} else {
+		err = persistUserQuotaDelta(id, -quota)
+	}
+	if err != nil || !reserved {
 		compensated, compensateErr := cacheApplyUserQuotaDelta(id, int64(quota))
 		if compensateErr != nil || compensated != cacheQuotaOK {
 			common.SysError(common.LogText("failed to compensate reserved user quota: result=%d error=%v", compensated, compensateErr))

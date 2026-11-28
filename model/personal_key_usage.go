@@ -2,112 +2,12 @@ package model
 
 import (
 	"errors"
-	"fmt"
 	"math"
-	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
-
-const personalKeyUsageBackfillKey = "PersonalKeyUsageBackfillV1"
-const personalKeyUsageBackfillComplete = "complete"
-
-// InitializePersonalKeyUsage imports the attributable history once, before this
-// binary starts serving requests. Stop old writers and log cleanup before the
-// first upgraded primary starts; logs already removed cannot be reconstructed.
-func InitializePersonalKeyUsage() error {
-	var marker Option
-	err := DB.Where(&Option{Key: personalKeyUsageBackfillKey}).Take(&marker).Error
-	if err == nil && marker.Value == personalKeyUsageBackfillComplete {
-		return nil
-	}
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return err
-	}
-	if !common.IsMasterNode {
-		return errors.New("personal Key usage has not been initialized; upgrade the primary node first")
-	}
-	if err := checkPersonalKeyMaintenance(); err != nil {
-		return err
-	}
-
-	return DB.Transaction(func(tx *gorm.DB) error {
-		// Inserting the marker serializes concurrent primary startups. The marker
-		// and the totals commit together; a failed import leaves neither behind.
-		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&Option{Key: personalKeyUsageBackfillKey}).Error; err != nil {
-			return err
-		}
-		var marker Option
-		if err := lockForUpdate(tx).Where(&Option{Key: personalKeyUsageBackfillKey}).Take(&marker).Error; err != nil {
-			return err
-		}
-		if marker.Value == personalKeyUsageBackfillComplete {
-			return nil
-		}
-
-		logs := LOG_DB
-		if logs == nil {
-			return errors.New("usage log database is unavailable for the initial import")
-		}
-		if logs == DB {
-			logs = tx
-		}
-		var totals []struct {
-			UserId       int
-			ConsumeQuota int64
-		}
-		// Historical task supplements had no payer snapshot. Do not misattribute
-		// those rows to personal Keys just because the organization ID is zero.
-		if err := logs.Model(&Log{}).
-			Select("user_id, SUM(quota) AS consume_quota").
-			Where("user_id > 0 AND type = ? AND token_id > 0 AND billing_organization_id = 0 AND quota > 0", LogTypeConsume).
-			Where("COALESCE(other, '') NOT LIKE ?", `%"violation_fee":true%`).
-			Where("(COALESCE(other, '') NOT LIKE ? OR other LIKE ?)", `%"pre_consumed_quota":%`, `%"`+taskBillingPayerRecordedKey+`":true%`).
-			Group("user_id").Scan(&totals).Error; err != nil {
-			return fmt.Errorf("read historical personal Key usage: %w", err)
-		}
-		for _, row := range totals {
-			if err := tx.Unscoped().Model(&User{}).Where("id = ?", row.UserId).
-				Update("personal_key_used_quota", row.ConsumeQuota).Error; err != nil {
-				return fmt.Errorf("initialize personal Key usage for user %d: %w", row.UserId, err)
-			}
-		}
-		return tx.Model(&marker).Update("value", personalKeyUsageBackfillComplete).Error
-	})
-}
-
-// checkPersonalKeyMaintenance prevents the managed Linux gateway from importing
-// while the stock slave-first upgrade (or old writers) is still active.
-func checkPersonalKeyMaintenance() error {
-	executable, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	resolved, err := filepath.EvalSymlinks(executable)
-	if err != nil {
-		return err
-	}
-	const releases = "/opt/new-api/releases/"
-	path := filepath.ToSlash(resolved)
-	if !strings.HasPrefix(path, releases) {
-		return nil
-	}
-	version, _, _ := strings.Cut(strings.TrimPrefix(path, releases), "/")
-	const tokenPath = "/run/new-api-billing-maintenance"
-	info, err := os.Lstat(tokenPath)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&022 != 0 || !ownedByRoot(info) {
-		return errors.New("first personal Key import requires the gateway billing maintenance upgrade")
-	}
-	data, err := os.ReadFile(tokenPath)
-	if err != nil || strings.TrimSpace(string(data)) != version {
-		return errors.New("billing maintenance authorization does not match this release")
-	}
-	return nil
-}
 
 // PersonalKeySettlement is a primary-DB receipt, not a usage log. Its request ID
 // comes from the gateway, never the client. It is retained for replay protection.

@@ -177,7 +177,7 @@ it('shows zero personal Key usage instead of all-payer usage', async () => {
   const detail = await screen.findByRole('dialog', { name: 'Quota ($)' })
   expect(within(detail).getAllByText('0')).toHaveLength(2)
   expect(
-    within(detail).getByText(/Historical usage may be incomplete/)
+    within(detail).getByText(/Earlier usage is not backfilled/)
   ).toBeInTheDocument()
 })
 

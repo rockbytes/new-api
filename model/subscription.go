@@ -1371,11 +1371,14 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 					continue
 				}
 			}
+			// Old nodes still advance LastResetTime on scheduled resets. Snapshot
+			// the effective epoch so mixed-version refunds see those resets too.
+			epoch := max(sub.UsageResetEpoch, sub.LastResetTime*1000)
 			record := &SubscriptionPreConsumeRecord{
 				RequestId:          requestId,
 				UserId:             userId,
 				UserSubscriptionId: sub.Id,
-				UsageResetEpoch:    &sub.UsageResetEpoch,
+				UsageResetEpoch:    &epoch,
 				PreConsumed:        amount,
 				Status:             "consumed",
 			}
@@ -1581,7 +1584,7 @@ func adjustSubscriptionUsageTx(tx *gorm.DB, userSubscriptionId int, delta int64,
 		return err
 	}
 	if reservationPeriod != nil || legacyReservedAt > 0 {
-		reset := reservationPeriod != nil && *reservationPeriod != sub.UsageResetEpoch ||
+		reset := reservationPeriod != nil && *reservationPeriod != max(sub.UsageResetEpoch, sub.LastResetTime*1000) ||
 			reservationPeriod == nil && max(sub.LastResetTime, sub.UsageResetEpoch/1000) > legacyReservedAt
 		if reset {
 			if delta < 0 {

@@ -249,8 +249,6 @@ func SyncOptions(frequency int) {
 
 func validateOptionValue(key string, value string) error {
 	switch key {
-	case personalKeyUsageBackfillKey:
-		return common.NewMessage("Personal Key usage backfill status is managed by the server")
 	case "ModelRequestRateLimitGroup":
 		return setting.CheckModelRequestRateLimitGroup(value)
 	case "ModelRequestRateLimitCount", "ModelRequestRateLimitSuccessCount", "ModelRequestRateLimitDurationMinutes":
@@ -436,8 +434,7 @@ func UpdateOptionsBulk(values map[string]string) error {
 }
 
 func updateOptionMap(key string, value string) (err error) {
-	switch key {
-	case retiredThemeOptionKey, legacyAccessTokenRetireAtKey, retiredUserUsableGroupsOptionKey, personalKeyUsageBackfillKey:
+	if key == retiredThemeOptionKey || key == legacyAccessTokenRetireAtKey || key == retiredUserUsableGroupsOptionKey {
 		common.OptionMapRWMutex.Lock()
 		delete(common.OptionMap, key)
 		common.OptionMapRWMutex.Unlock()

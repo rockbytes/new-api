@@ -48,6 +48,13 @@ var buildFS embed.FS
 var indexPage []byte
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--migrate-billing-schema" {
+		if err := model.PrepareBillingRollingSchema(); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("Billing schema ready for rolling upgrade")
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "plugin" {
 		os.Exit(jsplugin.RunCLI(os.Args[2:], os.Stdout, os.Stderr))
 	}
@@ -357,6 +364,9 @@ func InitResources() error {
 		common.FatalLog(common.LogText("failed to initialize database: %s", err.Error()))
 		return err
 	}
+	if err := model.CheckBillingRollingSchema(model.DB); err != nil {
+		return err
+	}
 	if err = authz.Init(model.DB); err != nil {
 		common.FatalLog(common.LogText("failed to initialize authorization: %s", err.Error()))
 		return err
@@ -385,10 +395,6 @@ func InitResources() error {
 	err = model.InitLogDB()
 	if err != nil {
 		return err
-	}
-
-	if err := model.InitializePersonalKeyUsage(); err != nil {
-		return fmt.Errorf("initialize personal Key usage: %w", err)
 	}
 
 	// Initialize Redis

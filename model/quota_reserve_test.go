@@ -122,6 +122,14 @@ func TestRedisBatchReserveNeverFallsBackToStaleDatabaseBalance(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, cachedUser.Quota)
 
+	reserved, err = TryReserveDurableUserQuota(user.Id, 3)
+	require.NoError(t, err)
+	assert.False(t, reserved, "a new worker must honor the old worker's shared reservation")
+	reserved, err = TryReserveDurableUserQuota(user.Id, 2)
+	require.NoError(t, err)
+	require.True(t, reserved)
+	assert.Equal(t, 8, getUserQuotaFromDB(t, user.Id), "the new worker's own hold is persisted immediately")
+
 	token := createReserveTestToken(t, 9)
 	reserved, err = TryReserveTokenQuota(token.Id, token.Key, 7, false)
 	require.NoError(t, err)
@@ -132,7 +140,7 @@ func TestRedisBatchReserveNeverFallsBackToStaleDatabaseBalance(t *testing.T) {
 	assert.Equal(t, 9, getTokenFromDB(t, token.Id).RemainQuota)
 
 	batchUpdate()
-	assert.Equal(t, 2, getUserQuotaFromDB(t, user.Id))
+	assert.Zero(t, getUserQuotaFromDB(t, user.Id))
 	reloadedToken := getTokenFromDB(t, token.Id)
 	assert.Equal(t, 2, reloadedToken.RemainQuota)
 	assert.Equal(t, 7, reloadedToken.UsedQuota)

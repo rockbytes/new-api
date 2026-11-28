@@ -414,8 +414,6 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	}
 }
 
-const taskBillingPayerRecordedKey = "task_billing_payer_recorded"
-
 type RecordTaskBillingLogParams struct {
 	UserId                int
 	BillingOrganizationId int
@@ -446,7 +444,6 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	if other == nil {
 		other = NewLogOther()
 	}
-	other.SetPublic(taskBillingPayerRecordedKey, true)
 	log := &Log{
 		UserId:                params.UserId,
 		BillingOrganizationId: params.BillingOrganizationId,

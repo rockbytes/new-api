@@ -299,6 +299,15 @@ func verifySubscriptionRefund(t *testing.T, db *gorm.DB, upgrade bool) {
 	assert.EqualValues(t, 60, getSubscriptionResetSub(t, sub.Id).AmountUsed, "a previous-period refund must not erase current-period usage")
 	require.NoError(t, SettleTaskSubscriptionUsage(&Task{PrivateData: TaskPrivateData{SubscriptionId: sub.Id, SubscriptionPeriodStart: other.UsageResetEpoch}}, 15))
 	assert.EqualValues(t, 75, getSubscriptionResetSub(t, sub.Id).AmountUsed, "positive settlement preserves the existing charging policy")
+
+	beforeLegacyReset, err := PreConsumeUserSubscription("before-old-node-reset", sub.UserId, "matrix", 0, 100)
+	require.NoError(t, err)
+	// An older scheduler updates the reset time but does not know about epochs.
+	require.NoError(t, db.Model(&UserSubscription{}).Where("id = ?", sub.Id).
+		Updates(map[string]any{"last_reset_time": now + 10, "amount_used": 60}).Error)
+	require.NoError(t, RefundSubscriptionPreConsume("before-old-node-reset"))
+	require.NoError(t, SettleTaskSubscriptionUsage(&Task{PrivateData: TaskPrivateData{SubscriptionId: sub.Id, SubscriptionPeriodStart: beforeLegacyReset.UsageResetEpoch}}, -40))
+	assert.EqualValues(t, 60, getSubscriptionResetSub(t, sub.Id).AmountUsed, "a scheduled reset by an old node must protect the new period")
 }
 
 func TestAdminResetPlanSubscriptionsNoMatchSucceeds(t *testing.T) {
